@@ -72,10 +72,6 @@
 	 */
 
 	/**
-	 * @property {jQuery} $imgLink The `<a>` element that links to the image's File page.
-	 */
-
-	/**
 	 * @property {jQuery} $imgCaption The `<p>` element that holds the image caption.
 	 */
 
@@ -146,12 +142,9 @@
 		this.$interface = interfaceElements.$element;
 
 		// Containers for the current image, caption etc.
-		this.$img = $( '<img>' );
-		this.$imgLink = $( '<a>' ).append( this.$img );
 		this.$imgCaption = $( '<p>' ).attr( 'class', 'mw-gallery-slideshow-caption' );
 		this.$imgContainer = $( '<div>' )
-			.attr( 'class', 'mw-gallery-slideshow-img-container' )
-			.append( this.$imgLink );
+			.attr( 'class', 'mw-gallery-slideshow-img-container' );
 
 		carouselStack = new OO.ui.StackLayout( {
 			continuous: true,
@@ -253,7 +246,7 @@
 	 * Displays the image set as {@link #$currentImage} in the carousel.
 	 */
 	mw.GallerySlideshow.prototype.showCurrentImage = function () {
-		var $thumbnail,
+		var $thumbnail, $imgLink,
 			$imageLi = this.getCurrentImage(),
 			$caption = $imageLi.find( '.gallerytext' );
 
@@ -264,13 +257,18 @@
 			.removeClass( 'slideshow-current' );
 		$imageLi.addClass( 'slideshow-current' );
 
-		// 2. Show thumbnail
+		// 2. Create and show thumbnail
 		this.$thumbnail = $imageLi.find( 'img' );
-		this.$img.attr( {
+		this.$img = $( '<img>' ).attr( {
 			src: this.$thumbnail.attr( 'src' ),
 			alt: this.$thumbnail.attr( 'alt' )
 		} );
-		this.$imgLink.attr( 'href', $imageLi.find( 'a' ).eq( 0 ).attr( 'href' ) );
+		// 'image' class required for detection by MultimediaViewer
+		$imgLink = $( '<a>' ).addClass( 'image' )
+			.attr( 'href', $imageLi.find( 'a' ).eq( 0 ).attr( 'href' ) )
+			.append( this.$img );
+
+		this.$imgContainer.empty().append( $imgLink );
 
 		// 3. Copy caption
 		this.$imgCaption
@@ -287,6 +285,7 @@
 			if ( this.$thumbnail.attr( 'src' ) === $thumbnail.attr( 'src' ) ) {
 				this.$img.attr( 'src', info.thumburl );
 				this.setImageSize();
+				mw.hook( 'wikipage.content' ).fire( this.$imgContainer );
 
 				// Pre-fetch the next image
 				this.loadImage( this.getNextImage().find( 'img' ) );
