@@ -12,7 +12,7 @@ use MediaWiki\MediaWikiServices;
  *
  * @author mwjames
  */
-class ImportLinkCacheIntegrationTest extends MediaWikiTestCase {
+class ImportLinkCacheIntegrationTest extends \MediaWikiUnitTestCase {
 
 	private $importStreamSource;
 

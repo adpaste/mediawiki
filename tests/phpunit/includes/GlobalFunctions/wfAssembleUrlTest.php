@@ -3,7 +3,7 @@
  * @group GlobalFunctions
  * @covers ::wfAssembleUrl
  */
-class WfAssembleUrlTest extends MediaWikiTestCase {
+class WfAssembleUrlTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideURLParts
 	 */

@@ -23,10 +23,9 @@ namespace MediaWiki\Logger\Monolog;
 use InvalidArgumentException;
 use LengthException;
 use LogicException;
-use MediaWikiTestCase;
 use Wikimedia\TestingAccessWrapper;
 
-class LineFormatterTest extends MediaWikiTestCase {
+class LineFormatterTest extends \MediaWikiUnitTestCase {
 
 	protected function setUp() {
 		if ( !class_exists( 'Monolog\Formatter\LineFormatter' ) ) {

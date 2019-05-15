@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfStringToBool
  */
-class WfStringToBoolTest extends MediaWikiTestCase {
+class WfStringToBoolTest extends \MediaWikiUnitTestCase {
 
 	public function getTestCases() {
 		return [

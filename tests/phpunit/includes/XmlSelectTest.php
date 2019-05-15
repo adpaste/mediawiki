@@ -3,7 +3,7 @@
 /**
  * @group Xml
  */
-class XmlSelectTest extends MediaWikiTestCase {
+class XmlSelectTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @var XmlSelect

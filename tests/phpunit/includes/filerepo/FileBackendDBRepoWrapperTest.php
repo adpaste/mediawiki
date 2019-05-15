@@ -1,6 +1,6 @@
 <?php
 
-class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
+class FileBackendDBRepoWrapperTest extends \MediaWikiUnitTestCase {
 	protected $backendName = 'foo-backend';
 	protected $repoName = 'pureTestRepo';
 

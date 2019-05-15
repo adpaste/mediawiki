@@ -10,7 +10,7 @@ use Wikimedia\Rdbms\ResultWrapper;
  * @group Database
  * @group medium
  */
-class DatabaseSqliteTest extends MediaWikiTestCase {
+class DatabaseSqliteTest extends \MediaWikiUnitTestCase {
 	/** @var DatabaseSqliteMock */
 	protected $db;
 

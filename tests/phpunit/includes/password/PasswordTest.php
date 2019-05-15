@@ -23,7 +23,7 @@
 /**
  * @covers InvalidPassword
  */
-class PasswordTest extends MediaWikiTestCase {
+class PasswordTest extends \MediaWikiUnitTestCase {
 	public function testInvalidPlaintext() {
 		$passwordFactory = new PasswordFactory();
 		$invalid = $passwordFactory->newFromPlaintext( null );

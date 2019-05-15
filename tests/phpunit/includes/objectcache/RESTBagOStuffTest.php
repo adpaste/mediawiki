@@ -4,7 +4,7 @@
  *
  * @covers RESTBagOStuff
  */
-class RESTBagOStuffTest extends MediaWikiTestCase {
+class RESTBagOStuffTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @var MultiHttpClient

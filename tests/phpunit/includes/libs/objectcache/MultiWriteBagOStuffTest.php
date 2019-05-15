@@ -3,7 +3,7 @@
 /**
  * @group Database
  */
-class MultiWriteBagOStuffTest extends MediaWikiTestCase {
+class MultiWriteBagOStuffTest extends \MediaWikiUnitTestCase {
 	/** @var HashBagOStuff */
 	private $cache1;
 	/** @var HashBagOStuff */

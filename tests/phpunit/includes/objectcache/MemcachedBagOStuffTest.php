@@ -2,7 +2,7 @@
 /**
  * @group BagOStuff
  */
-class MemcachedBagOStuffTest extends MediaWikiTestCase {
+class MemcachedBagOStuffTest extends \MediaWikiUnitTestCase {
 	/** @var MemcachedBagOStuff */
 	private $cache;
 

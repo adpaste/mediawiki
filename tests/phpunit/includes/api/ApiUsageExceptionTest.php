@@ -3,7 +3,7 @@
 /**
  * @covers ApiUsageException
  */
-class ApiUsageExceptionTest extends MediaWikiTestCase {
+class ApiUsageExceptionTest extends \MediaWikiUnitTestCase {
 
 	public function testCreateWithStatusValue_CanGetAMessageObject() {
 		$messageKey = 'some-message-key';

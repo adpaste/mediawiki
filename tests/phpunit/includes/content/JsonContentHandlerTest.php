@@ -1,6 +1,6 @@
 <?php
 
-class JsonContentHandlerTest extends MediaWikiTestCase {
+class JsonContentHandlerTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers JsonContentHandler::makeEmptyContent

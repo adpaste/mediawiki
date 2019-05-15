@@ -21,7 +21,7 @@
 /**
  * @covers ExtensionJsonValidator
  */
-class ExtensionJsonValidatorTest extends MediaWikiTestCase {
+class ExtensionJsonValidatorTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @dataProvider provideValidate

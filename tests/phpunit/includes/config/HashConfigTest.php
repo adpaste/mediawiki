@@ -1,6 +1,6 @@
 <?php
 
-class HashConfigTest extends MediaWikiTestCase {
+class HashConfigTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers HashConfig::newInstance

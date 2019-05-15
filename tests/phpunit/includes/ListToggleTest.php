@@ -3,7 +3,7 @@
 /**
  * @covers ListToggle
  */
-class ListToggleTest extends MediaWikiTestCase {
+class ListToggleTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers ListToggle::__construct

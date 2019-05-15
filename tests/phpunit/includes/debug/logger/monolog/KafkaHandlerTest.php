@@ -20,14 +20,13 @@
 
 namespace MediaWiki\Logger\Monolog;
 
-use MediaWikiTestCase;
 use Monolog\Logger;
 use Wikimedia\TestingAccessWrapper;
 
 /**
  * @covers \MediaWiki\Logger\Monolog\KafkaHandler
  */
-class KafkaHandlerTest extends MediaWikiTestCase {
+class KafkaHandlerTest extends \MediaWikiUnitTestCase {
 
 	protected function setUp() {
 		if ( !class_exists( 'Monolog\Handler\AbstractProcessingHandler' )

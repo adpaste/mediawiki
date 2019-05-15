@@ -3,7 +3,7 @@
  * @group GlobalFunctions
  * @covers ::wfBaseName
  */
-class WfBaseNameTest extends MediaWikiTestCase {
+class WfBaseNameTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider providePaths
 	 */

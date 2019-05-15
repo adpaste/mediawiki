@@ -8,7 +8,7 @@
  *
  * @group Database
  */
-class ImageListPagerTest extends MediaWikiTestCase {
+class ImageListPagerTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @expectedException MWException
 	 * @expectedExceptionMessage invalid_field

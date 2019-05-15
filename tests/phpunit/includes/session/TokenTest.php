@@ -2,14 +2,13 @@
 
 namespace MediaWiki\Session;
 
-use MediaWikiTestCase;
 use Wikimedia\TestingAccessWrapper;
 
 /**
  * @group Session
  * @covers MediaWiki\Session\Token
  */
-class TokenTest extends MediaWikiTestCase {
+class TokenTest extends \MediaWikiUnitTestCase {
 
 	public function testBasics() {
 		$token = $this->getMockBuilder( Token::class )

@@ -3,7 +3,7 @@
 /**
  * @group Media
  */
-class MediaHandlerTest extends MediaWikiTestCase {
+class MediaHandlerTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers MediaHandler::fitBoxWidth

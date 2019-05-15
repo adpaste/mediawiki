@@ -24,7 +24,7 @@
  *
  * @group Title
  */
-class TitleValueTest extends MediaWikiTestCase {
+class TitleValueTest extends \MediaWikiUnitTestCase {
 
 	public function goodConstructorProvider() {
 		return [

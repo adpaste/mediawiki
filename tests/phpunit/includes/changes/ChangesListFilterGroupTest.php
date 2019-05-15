@@ -3,7 +3,7 @@
 /**
  * @covers ChangesListFilterGroup
  */
-class ChangesListFilterGroupTest extends MediaWikiTestCase {
+class ChangesListFilterGroupTest extends \MediaWikiUnitTestCase {
 	/**
 	 * phpcs:disable Generic.Files.LineLength
 	 * @expectedException MWException

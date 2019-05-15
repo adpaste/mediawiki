@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfShellExec
  */
-class WfShellExecTest extends MediaWikiTestCase {
+class WfShellExecTest extends \MediaWikiUnitTestCase {
 	public function testT69870() {
 		$command = wfIsWindows()
 			// 333 = 331 + CRLF

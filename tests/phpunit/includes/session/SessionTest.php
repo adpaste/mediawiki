@@ -3,7 +3,6 @@
 namespace MediaWiki\Session;
 
 use Psr\Log\LogLevel;
-use MediaWikiTestCase;
 use User;
 use Wikimedia\TestingAccessWrapper;
 
@@ -11,7 +10,7 @@ use Wikimedia\TestingAccessWrapper;
  * @group Session
  * @covers MediaWiki\Session\Session
  */
-class SessionTest extends MediaWikiTestCase {
+class SessionTest extends \MediaWikiUnitTestCase {
 
 	public function testConstructor() {
 		$backend = TestUtils::getDummySessionBackend();

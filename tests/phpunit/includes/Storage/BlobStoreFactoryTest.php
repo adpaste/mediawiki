@@ -5,13 +5,12 @@ namespace MediaWiki\Tests\Storage;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Storage\BlobStore;
 use MediaWiki\Storage\SqlBlobStore;
-use MediaWikiTestCase;
 use Wikimedia\TestingAccessWrapper;
 
 /**
  * @covers \MediaWiki\Storage\BlobStoreFactory
  */
-class BlobStoreFactoryTest extends MediaWikiTestCase {
+class BlobStoreFactoryTest extends \MediaWikiUnitTestCase {
 
 	public function provideWikiIds() {
 		yield [ false ];

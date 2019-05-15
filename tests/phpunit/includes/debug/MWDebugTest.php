@@ -1,6 +1,6 @@
 <?php
 
-class MWDebugTest extends MediaWikiTestCase {
+class MWDebugTest extends \MediaWikiUnitTestCase {
 
 	protected function setUp() {
 		parent::setUp();

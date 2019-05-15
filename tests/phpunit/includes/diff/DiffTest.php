@@ -5,7 +5,7 @@
  *
  * @group Diff
  */
-class DiffTest extends MediaWikiTestCase {
+class DiffTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers Diff::getEdits

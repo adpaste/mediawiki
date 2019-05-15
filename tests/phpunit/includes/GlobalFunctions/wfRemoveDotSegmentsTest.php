@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfRemoveDotSegments
  */
-class WfRemoveDotSegmentsTest extends MediaWikiTestCase {
+class WfRemoveDotSegmentsTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider providePaths
 	 */

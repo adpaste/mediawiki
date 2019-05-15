@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @group Database
  */
-class GlobalWithDBTest extends MediaWikiTestCase {
+class GlobalWithDBTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideWfIsBadImageList
 	 * @covers ::wfIsBadImage

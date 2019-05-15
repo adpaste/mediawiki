@@ -10,7 +10,7 @@ use Wikimedia\TestingAccessWrapper;
  *
  * @author Antoine Musso
  */
-class FormOptionsInitializationTest extends MediaWikiTestCase {
+class FormOptionsInitializationTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @var FormOptions
 	 */

@@ -3,12 +3,11 @@
 namespace MediaWiki\Edit;
 
 use ParserOutput;
-use MediaWikiTestCase;
 
 /**
  * @covers \MediaWiki\Edit\PreparedEdit
  */
-class PreparedEditTest extends MediaWikiTestCase {
+class PreparedEditTest extends \MediaWikiUnitTestCase {
 	function testCallback() {
 		$output = new ParserOutput();
 		$edit = new PreparedEdit();

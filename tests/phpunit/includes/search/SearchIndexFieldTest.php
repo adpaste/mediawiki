@@ -4,7 +4,7 @@
  * @group Search
  * @covers SearchIndexFieldDefinition
  */
-class SearchIndexFieldTest extends MediaWikiTestCase {
+class SearchIndexFieldTest extends \MediaWikiUnitTestCase {
 
 	public function getMergeCases() {
 		return [

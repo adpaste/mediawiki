@@ -7,7 +7,7 @@ use MediaWiki\User\UserIdentityValue;
  *
  * @covers NoWriteWatchedItemStore
  */
-class NoWriteWatchedItemStoreUnitTest extends MediaWikiTestCase {
+class NoWriteWatchedItemStoreUnitTest extends \MediaWikiUnitTestCase {
 
 	public function testAddWatch() {
 		/** @var WatchedItemStoreInterface|PHPUnit_Framework_MockObject_MockObject $innerService */

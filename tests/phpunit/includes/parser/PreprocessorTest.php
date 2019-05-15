@@ -26,7 +26,7 @@ use MediaWiki\MediaWikiServices;
  * @covers PPNode_Hash_Array
  * @covers PPNode_Hash_Attr
  */
-class PreprocessorTest extends MediaWikiTestCase {
+class PreprocessorTest extends \MediaWikiUnitTestCase {
 	protected $mTitle = 'Page title';
 	protected $mPPNodeCount = 0;
 	/**

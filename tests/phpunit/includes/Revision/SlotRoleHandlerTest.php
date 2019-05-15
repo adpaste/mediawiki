@@ -3,13 +3,12 @@
 namespace MediaWiki\Tests\Revision;
 
 use MediaWiki\Revision\SlotRoleHandler;
-use MediaWikiTestCase;
 use Title;
 
 /**
  * @covers \MediaWiki\Revision\SlotRoleHandler
  */
-class SlotRoleHandlerTest extends MediaWikiTestCase {
+class SlotRoleHandlerTest extends \MediaWikiUnitTestCase {
 
 	private function makeBlankTitleObject() {
 		/** @var Title $title */

@@ -4,7 +4,7 @@
  * @group Parser
  * @covers MWTidy
  */
-class TidyTest extends MediaWikiTestCase {
+class TidyTest extends \MediaWikiUnitTestCase {
 
 	protected function setUp() {
 		parent::setUp();

@@ -5,7 +5,7 @@
  *
  * @group Diff
  */
-class ArrayDiffFormatterTest extends MediaWikiTestCase {
+class ArrayDiffFormatterTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @param Diff $input

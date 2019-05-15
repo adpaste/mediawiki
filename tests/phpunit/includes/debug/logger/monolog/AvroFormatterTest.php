@@ -20,13 +20,12 @@
 
 namespace MediaWiki\Logger\Monolog;
 
-use MediaWikiTestCase;
 use PHPUnit_Framework_Error_Notice;
 
 /**
  * @covers \MediaWiki\Logger\Monolog\AvroFormatter
  */
-class AvroFormatterTest extends MediaWikiTestCase {
+class AvroFormatterTest extends \MediaWikiUnitTestCase {
 
 	protected function setUp() {
 		if ( !class_exists( 'AvroStringIO' ) ) {

@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfAppendQuery
  */
-class WfAppendQueryTest extends MediaWikiTestCase {
+class WfAppendQueryTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideAppendQuery
 	 */

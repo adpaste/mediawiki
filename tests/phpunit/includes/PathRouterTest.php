@@ -5,7 +5,7 @@
  *
  * @covers PathRouter
  */
-class PathRouterTest extends MediaWikiTestCase {
+class PathRouterTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @var PathRouter

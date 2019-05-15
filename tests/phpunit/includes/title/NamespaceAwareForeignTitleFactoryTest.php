@@ -24,7 +24,7 @@
  *
  * @group Title
  */
-class NamespaceAwareForeignTitleFactoryTest extends MediaWikiTestCase {
+class NamespaceAwareForeignTitleFactoryTest extends \MediaWikiUnitTestCase {
 
 	public function basicProvider() {
 		return [

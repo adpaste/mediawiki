@@ -20,10 +20,9 @@
 
 namespace MediaWiki\Logger;
 
-use MediaWikiTestCase;
 use Wikimedia\TestingAccessWrapper;
 
-class MonologSpiTest extends MediaWikiTestCase {
+class MonologSpiTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers MediaWiki\Logger\MonologSpi::mergeConfig

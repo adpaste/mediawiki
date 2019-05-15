@@ -3,7 +3,7 @@
 /**
  * @covers Licenses
  */
-class LicensesTest extends MediaWikiTestCase {
+class LicensesTest extends \MediaWikiUnitTestCase {
 
 	public function testLicenses() {
 		$str = "

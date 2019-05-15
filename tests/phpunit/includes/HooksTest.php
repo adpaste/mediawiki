@@ -1,6 +1,6 @@
 <?php
 
-class HooksTest extends MediaWikiTestCase {
+class HooksTest extends \MediaWikiUnitTestCase {
 
 	function setUp() {
 		global $wgHooks;

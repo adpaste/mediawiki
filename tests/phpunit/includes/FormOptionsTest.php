@@ -15,7 +15,7 @@
  *
  * @author Antoine Musso
  */
-class FormOptionsTest extends MediaWikiTestCase {
+class FormOptionsTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @var FormOptions
 	 */

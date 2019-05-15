@@ -3,7 +3,7 @@
 /**
  * @group Media
  */
-class IPTCTest extends MediaWikiTestCase {
+class IPTCTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers IPTC::getCharset

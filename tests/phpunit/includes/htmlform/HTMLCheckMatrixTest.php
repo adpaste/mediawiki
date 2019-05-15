@@ -3,7 +3,7 @@
 /**
  * @covers HTMLCheckMatrix
  */
-class HTMLCheckMatrixTest extends MediaWikiTestCase {
+class HTMLCheckMatrixTest extends \MediaWikiUnitTestCase {
 	private static $defaultOptions = [
 		'rows' => [ 'r1', 'r2' ],
 		'columns' => [ 'c1', 'c2' ],

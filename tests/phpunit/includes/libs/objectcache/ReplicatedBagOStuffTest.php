@@ -1,6 +1,6 @@
 <?php
 
-class ReplicatedBagOStuffTest extends MediaWikiTestCase {
+class ReplicatedBagOStuffTest extends \MediaWikiUnitTestCase {
 	/** @var HashBagOStuff */
 	private $writeCache;
 	/** @var HashBagOStuff */

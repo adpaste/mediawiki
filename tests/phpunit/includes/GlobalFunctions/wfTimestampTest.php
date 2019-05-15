@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfTimestamp
  */
-class WfTimestampTest extends MediaWikiTestCase {
+class WfTimestampTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideNormalTimestamps
 	 */

@@ -1,6 +1,6 @@
 <?php
 
-class FileRepoTest extends MediaWikiTestCase {
+class FileRepoTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @expectedException MWException

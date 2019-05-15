@@ -1,6 +1,6 @@
 <?php
 
-class SkinFactoryTest extends MediaWikiTestCase {
+class SkinFactoryTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers SkinFactory::register

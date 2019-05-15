@@ -4,7 +4,7 @@
  * @covers ApiContinuationManager
  * @group API
  */
-class ApiContinuationManagerTest extends MediaWikiTestCase {
+class ApiContinuationManagerTest extends \MediaWikiUnitTestCase {
 
 	private static function getManager( $continue, $allModules, $generatedModules ) {
 		$context = new DerivativeContext( RequestContext::getMain() );

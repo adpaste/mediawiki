@@ -6,7 +6,7 @@
  * @file
  */
 
-class MWExceptionHandlerTest extends MediaWikiTestCase {
+class MWExceptionHandlerTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers MWExceptionHandler::getRedactedTrace

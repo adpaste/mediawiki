@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfGetCaller
  */
-class WfGetCallerTest extends MediaWikiTestCase {
+class WfGetCallerTest extends \MediaWikiUnitTestCase {
 	public function testZero() {
 		$this->assertEquals( 'WfGetCallerTest->testZero', wfGetCaller( 1 ) );
 	}

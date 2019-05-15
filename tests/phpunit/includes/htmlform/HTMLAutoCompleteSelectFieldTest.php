@@ -2,7 +2,7 @@
 /**
  * @covers HTMLAutoCompleteSelectField
  */
-class HTMLAutoCompleteSelectFieldTest extends MediaWikiTestCase {
+class HTMLAutoCompleteSelectFieldTest extends \MediaWikiUnitTestCase {
 
 	public $options = [
 		'Bulgaria'     => 'BGR',

@@ -1,6 +1,6 @@
 <?php
 
-class SiteConfigurationTest extends MediaWikiTestCase {
+class SiteConfigurationTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @var SiteConfiguration

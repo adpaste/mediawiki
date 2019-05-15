@@ -6,7 +6,7 @@
  * @group GlobalFunctions
  * @covers ::wfUrlencode
  */
-class WfUrlencodeTest extends MediaWikiTestCase {
+class WfUrlencodeTest extends \MediaWikiUnitTestCase {
 	# ### TESTS ##############################################################
 
 	/**

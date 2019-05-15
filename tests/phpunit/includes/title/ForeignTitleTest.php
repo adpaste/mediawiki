@@ -24,7 +24,7 @@
  *
  * @group Title
  */
-class ForeignTitleTest extends MediaWikiTestCase {
+class ForeignTitleTest extends \MediaWikiUnitTestCase {
 
 	public function basicProvider() {
 		return [

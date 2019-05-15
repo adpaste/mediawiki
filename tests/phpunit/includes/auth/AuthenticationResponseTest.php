@@ -6,7 +6,7 @@ namespace MediaWiki\Auth;
  * @group AuthManager
  * @covers \MediaWiki\Auth\AuthenticationResponse
  */
-class AuthenticationResponseTest extends \MediaWikiTestCase {
+class AuthenticationResponseTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideConstructors
 	 * @param string $constructor

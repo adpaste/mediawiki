@@ -4,7 +4,7 @@
  *
  * @group Diff
  */
-class DiffOpTest extends MediaWikiTestCase {
+class DiffOpTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers DiffOp::getType

@@ -6,7 +6,7 @@ use MediaWiki\Block\SystemBlock;
 /**
  * @covers ApiBlockInfoTrait
  */
-class ApiBlockInfoTraitTest extends MediaWikiTestCase {
+class ApiBlockInfoTraitTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideGetBlockDetails
 	 */

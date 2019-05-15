@@ -3,7 +3,7 @@
 /**
  * @covers FormatJson
  */
-class FormatJsonTest extends MediaWikiTestCase {
+class FormatJsonTest extends \MediaWikiUnitTestCase {
 
 	public static function provideEncoderPrettyPrinting() {
 		return [

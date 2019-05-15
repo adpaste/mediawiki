@@ -1,5 +1,5 @@
 <?php
-class SkinTest extends MediaWikiTestCase {
+class SkinTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers Skin::getDefaultModules

@@ -8,7 +8,7 @@ use Wikimedia\TestingAccessWrapper;
  * @group AuthManager
  * @covers \MediaWiki\Auth\ConfirmLinkSecondaryAuthenticationProvider
  */
-class ConfirmLinkSecondaryAuthenticationProviderTest extends \MediaWikiTestCase {
+class ConfirmLinkSecondaryAuthenticationProviderTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideGetAuthenticationRequests
 	 * @param string $action

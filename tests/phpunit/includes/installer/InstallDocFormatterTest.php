@@ -1,6 +1,6 @@
 <?php
 
-class InstallDocFormatterTest extends MediaWikiTestCase {
+class InstallDocFormatterTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @covers InstallDocFormatter
 	 * @dataProvider provideDocFormattingTests

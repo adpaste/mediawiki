@@ -20,7 +20,7 @@
  * @file
  */
 
-class FauxResponseTest extends MediaWikiTestCase {
+class FauxResponseTest extends \MediaWikiUnitTestCase {
 	/** @var FauxResponse */
 	protected $response;
 

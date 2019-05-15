@@ -4,7 +4,7 @@
  * @author Addshore
  * @covers UserArrayFromResult
  */
-class UserArrayFromResultTest extends MediaWikiTestCase {
+class UserArrayFromResultTest extends \MediaWikiUnitTestCase {
 
 	private function getMockResultWrapper( $row = null, $numRows = 1 ) {
 		$resultWrapper = $this->getMockBuilder( Wikimedia\Rdbms\ResultWrapper::class )

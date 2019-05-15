@@ -4,7 +4,7 @@
  * @covers ApiResult
  * @group API
  */
-class ApiResultTest extends MediaWikiTestCase {
+class ApiResultTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @covers ApiResult

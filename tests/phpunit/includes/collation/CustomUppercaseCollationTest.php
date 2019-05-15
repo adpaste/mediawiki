@@ -3,7 +3,7 @@
 /**
  * @covers CustomUppercaseCollation
  */
-class CustomUppercaseCollationTest extends MediaWikiTestCase {
+class CustomUppercaseCollationTest extends \MediaWikiUnitTestCase {
 
 	public function setUp() {
 		$this->collation = new CustomUppercaseCollation( [

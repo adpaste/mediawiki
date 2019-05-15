@@ -5,7 +5,7 @@
  *
  * @author Derick N. Alangi
  */
-class MagicWordFactoryTest extends MediaWikiTestCase {
+class MagicWordFactoryTest extends \MediaWikiUnitTestCase {
 	private function makeMagicWordFactory( Language $contLang = null ) {
 		return new MagicWordFactory( $contLang ?: Language::factory( 'en' ) );
 	}

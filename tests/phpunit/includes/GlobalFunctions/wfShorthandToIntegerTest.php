@@ -4,7 +4,7 @@
  * @group GlobalFunctions
  * @covers ::wfShorthandToInteger
  */
-class WfShorthandToIntegerTest extends MediaWikiTestCase {
+class WfShorthandToIntegerTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideABunchOfShorthands
 	 */

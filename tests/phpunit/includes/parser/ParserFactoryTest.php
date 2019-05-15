@@ -3,7 +3,7 @@
 /**
  * @covers ParserFactory
  */
-class ParserFactoryTest extends MediaWikiTestCase {
+class ParserFactoryTest extends \MediaWikiUnitTestCase {
 	/**
 	 * For backwards compatibility, all parameters to the parser constructor are optional and
 	 * default to the appropriate global service, so it's easy to forget to update ParserFactory to

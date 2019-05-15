@@ -31,7 +31,7 @@ use MediaWiki\MediaWikiServices;
  * @covers PPNode_Hash_Array
  * @covers PPNode_Hash_Attr
  */
-class TagHooksTest extends MediaWikiTestCase {
+class TagHooksTest extends \MediaWikiUnitTestCase {
 	public static function provideValidNames() {
 		return [
 			[ 'foo' ],

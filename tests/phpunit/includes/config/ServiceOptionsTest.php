@@ -5,7 +5,7 @@ use MediaWiki\Config\ServiceOptions;
 /**
  * @coversDefaultClass \MediaWiki\Config\ServiceOptions
  */
-class ServiceOptionsTest extends MediaWikiTestCase {
+class ServiceOptionsTest extends \MediaWikiUnitTestCase {
 	public static $testObj;
 
 	public static function setUpBeforeClass() {

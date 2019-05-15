@@ -13,7 +13,7 @@ use GuzzleHttp\Psr7\Request;
  * @covers GuzzleHttpRequest
  * @covers MWHttpRequest
  */
-class GuzzleHttpRequestTest extends MediaWikiTestCase {
+class GuzzleHttpRequestTest extends \MediaWikiUnitTestCase {
 	/**
 	 * Placeholder url to use for various tests.  This is never contacted, but we must use
 	 * a url of valid format to avoid validation errors.

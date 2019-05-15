@@ -4,7 +4,7 @@
  * @group Media
  * @covers SVGMetadataExtractor
  */
-class SVGMetadataExtractorTest extends MediaWikiTestCase {
+class SVGMetadataExtractorTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @dataProvider provideSvgFiles

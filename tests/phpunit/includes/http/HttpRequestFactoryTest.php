@@ -5,7 +5,7 @@ use MediaWiki\Http\HttpRequestFactory;
 /**
  * @covers MediaWiki\Http\HttpRequestFactory
  */
-class HttpRequestFactoryTest extends MediaWikiTestCase {
+class HttpRequestFactoryTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @return HttpRequestFactory

@@ -8,7 +8,7 @@ use MediaWiki\Interwiki\InterwikiLookupAdapter;
  * @group MediaWiki
  * @group Interwiki
  */
-class InterwikiLookupAdapterTest extends MediaWikiTestCase {
+class InterwikiLookupAdapterTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @var InterwikiLookupAdapter

@@ -5,7 +5,7 @@
  * @group MediaWiki
  * @group Database
  */
-class ClassicInterwikiLookupTest extends MediaWikiTestCase {
+class ClassicInterwikiLookupTest extends \MediaWikiUnitTestCase {
 
 	private function populateDB( $iwrows ) {
 		$dbw = wfGetDB( DB_MASTER );

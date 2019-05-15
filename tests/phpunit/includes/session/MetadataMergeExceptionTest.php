@@ -2,13 +2,11 @@
 
 namespace MediaWiki\Session;
 
-use MediaWikiTestCase;
-
 /**
  * @group Session
  * @covers MediaWiki\Session\MetadataMergeException
  */
-class MetadataMergeExceptionTest extends MediaWikiTestCase {
+class MetadataMergeExceptionTest extends \MediaWikiUnitTestCase {
 
 	public function testBasics() {
 		$data = [ 'foo' => 'bar' ];

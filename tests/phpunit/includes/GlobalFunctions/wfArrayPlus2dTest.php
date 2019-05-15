@@ -3,7 +3,7 @@
  * @group GlobalFunctions
  * @covers ::wfArrayPlus2d
  */
-class WfArrayPlus2dTest extends MediaWikiTestCase {
+class WfArrayPlus2dTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @dataProvider provideArrays
 	 */

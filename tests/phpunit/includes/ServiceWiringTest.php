@@ -3,7 +3,7 @@
 /**
  * @coversNothing
  */
-class ServiceWiringTest extends MediaWikiTestCase {
+class ServiceWiringTest extends \MediaWikiUnitTestCase {
 	public function testServicesAreSorted() {
 		global $IP;
 		$services = array_keys( require "$IP/includes/ServiceWiring.php" );

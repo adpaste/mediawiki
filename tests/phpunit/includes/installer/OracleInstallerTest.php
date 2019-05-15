@@ -4,7 +4,7 @@
  * @group Database
  * @group Installer
  */
-class OracleInstallerTest extends MediaWikiTestCase {
+class OracleInstallerTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @dataProvider provideOracleConnectStrings

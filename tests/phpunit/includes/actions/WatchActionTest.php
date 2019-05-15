@@ -5,7 +5,7 @@
  *
  * @group Action
  */
-class WatchActionTest extends MediaWikiTestCase {
+class WatchActionTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * @var WatchAction

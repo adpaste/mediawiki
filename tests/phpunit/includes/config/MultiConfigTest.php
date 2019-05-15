@@ -1,6 +1,6 @@
 <?php
 
-class MultiConfigTest extends MediaWikiTestCase {
+class MultiConfigTest extends \MediaWikiUnitTestCase {
 
 	/**
 	 * Tests that settings are fetched in the right order

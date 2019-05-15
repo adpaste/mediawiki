@@ -25,7 +25,7 @@ use MediaWiki\Preferences\TimezoneFilter;
 /**
  * @group Preferences
  */
-class FiltersTest extends MediaWikiTestCase {
+class FiltersTest extends \MediaWikiUnitTestCase {
 	/**
 	 * @covers MediaWiki\Preferences\IntvalFilter::filterFromForm()
 	 * @covers MediaWiki\Preferences\IntvalFilter::filterForForm()
