@@ -34,14 +34,49 @@ use Wikimedia\Rdbms\ChronologyProtector;
 if ( !defined( 'MEDIAWIKI' ) ) {
 	exit( 1 );
 }
-
+/*
 // Check to see if we are at the file scope
 $wgScopeTest = 'MediaWiki Setup.php scope test';
 if ( !isset( $GLOBALS['wgScopeTest'] ) || $GLOBALS['wgScopeTest'] !== $wgScopeTest ) {
 	echo "Error, Setup.php must be included from the file scope.\n";
 	die( 1 );
 }
-unset( $wgScopeTest );
+unset( $wgScopeTest );*/
+
+global $IP, $wgActionPaths, $wgAllowHTMLEmail, $wgArticlePath, $wgCacheDirectory, $wgCacheEpoch,
+	   $wgCacheSharedUploads, $wgCanonicalNamespaceNames, $wgCanonicalServer, $wgCommandLineMode,
+	   $wgContLang, $wgContLanguageCode, $wgCookiePrefix, $wgCookieSecure, $wgDBerrorLogTZ,
+	   $wgDBmwschema, $wgDBname, $wgDBpassword, $wgDBprefix, $wgDBserver, $wgDBtype, $wgDBuser,
+	   $wgDebugDumpSql, $wgDebugLogFile, $wgDebugLogGroups, $wgDebugPrintHttpHeaders,
+	   $wgDebugToolbar, $wgDefaultUserOptions, $wgDeletedDirectory, $wgDisableCounters,
+	   $wgDummyLanguageCodes, $wgEmailAuthentication, $wgEmergencyContact, $wgEnableEmail,
+	   $wgEnableUserEmail, $wgEnotifFromEditor, $wgEnotifImpersonal, $wgEnotifMaxRecips,
+	   $wgEnotifMinorEdits, $wgEnotifRevealEditorAddress, $wgEnotifUseRealName, $wgEnotifUserTalk,
+	   $wgEnotifWatchlist, $wgExtensionAssetsPath, $wgExtensionFunctions, $wgExtraLanguageCodes,
+	   $wgExtraNamespaces, $wgFetchCommonsDescriptions, $wgFileBackends, $wgFileBlacklist,
+	   $wgFileCacheDirectory, $wgFileExtensions, $wgFooterIcons, $wgForeignFileRepos,
+	   $wgFullyInitialised, $wgGalleryOptions, $wgGenerateThumbnailOnParse,
+	   $wgGitInfoCacheDirectory, $wgGroupPermissions, $wgHashedSharedUploadDirectory,
+	   $wgHashedUploadDirectory, $wgHtml, $wgInitialSessionId,
+	   $wgInvalidateCacheOnLocalSettingsChange, $wgJsMimeType, $wgLang, $wgLanguageCode,
+	   $wgLoadScript, $wgLocalFileRepo, $wgLocalInterwiki, $wgLocalInterwikis, $wgLocalStylePath,
+	   $wgLocalTZoffset, $wgLocaltimezone, $wgLockManagers, $wgLogActionsHandlers, $wgLogHeaders,
+	   $wgLogNames, $wgLogTypes, $wgLogo, $wgMainCacheType, $wgMainStash, $wgMainWANCache,
+	   $wgMaximalPasswordLength, $wgMemc, $wgMetaNamespace, $wgMinUploadChunkSize,
+	   $wgMinimalPasswordLength, $wgNamespaceAliases, $wgNamespaceProtection, $wgNewUserLog,
+	   $wgNoReplyAddress, $wgOut, $wgPHPSessionHandling, $wgPageCreationLog, $wgPageLanguageUseDB,
+	   $wgParser, $wgPasswordPolicy, $wgPasswordSender, $wgProfileOnly, $wgRCFilterByAge,
+	   $wgRCLinkDays, $wgRCMaxAge, $wgReadOnlyFile, $wgRepositoryBaseUrl, $wgRequest,
+	   $wgResourceBasePath, $wgResourceLoaderMaxQueryLength, $wgRightsIcon, $wgRightsText,
+	   $wgRightsUrl, $wgScopeTest, $wgScript, $wgScriptPath, $wgSecureLogin, $wgServer,
+	   $wgServerName, $wgSessionCacheType, $wgSessionName, $wgSharedDB, $wgSharedPrefix,
+	   $wgSharedSchema, $wgSharedTables, $wgSharedThumbnailScriptPath, $wgSharedUploadDBname,
+	   $wgSharedUploadDBprefix, $wgSharedUploadDirectory, $wgSharedUploadPath, $wgShellLocale,
+	   $wgSitename, $wgSkipSkin, $wgSkipSkins, $wgStylePath, $wgThumbnailScriptPath, $wgTitle,
+	   $wgTmpDirectory, $wgUploadBaseUrl, $wgUploadDirectory, $wgUploadPath, $wgUseEnotif,
+	   $wgUseFileCache, $wgUseInstantCommons, $wgUsePathInfo, $wgUseSharedUploads, $wgUseSquid,
+	   $wgUser, $wgUserEmailUseReplyTo, $wgUsersNotifiedOnAllChanges, $wgVirtualRestConfig,
+	   $wgWANObjectCaches, $wgXhtmlDefaultNamespace, $self;
 
 /**
  * Pre-config setup: Before loading LocalSettings.php

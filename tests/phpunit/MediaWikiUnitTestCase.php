@@ -18,7 +18,7 @@ abstract class MediaWikiUnitTestCase extends PHPUnit\Framework\TestCase {
 	 * they should call the appropriate parent method instead.
 	 */
 	private $called = [];
-
+/*
 	private $realDbPassword = null;
 
 	protected function setUp() {
@@ -45,5 +45,5 @@ abstract class MediaWikiUnitTestCase extends PHPUnit\Framework\TestCase {
 
 		$wgDBpassword = $this->realDbPassword;
 		parent::tearDown();
-	}
+	}*/
 }

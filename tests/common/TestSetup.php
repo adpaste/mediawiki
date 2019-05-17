@@ -18,6 +18,11 @@ class TestSetup {
 		global $wgSessionProviders, $wgSessionPbkdf2Iterations;
 		global $wgJobTypeConf;
 		global $wgAuthManagerConfig;
+		global $wgSecretKey;
+		global $self;
+
+		$self = 'tests';
+		$wgSecretKey = 'secretsecretsecretsecretsecretsecretsecretsecretsecretsecretsecretsecretsecret';
 
 		// wfWarn should cause tests to fail
 		$wgDevelopmentWarnings = true;
