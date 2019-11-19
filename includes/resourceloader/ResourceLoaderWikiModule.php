@@ -296,6 +296,7 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 			if ( $this->getFlip( $context ) ) {
 				$style = CSSJanus::transform( $style, true, false );
 			}
+			Hooks::run( 'BeforeResourceLoaderCSSMinifier', [ &$style ] );
 			$style = MemoizedCallable::call( 'CSSMin::remap',
 				[ $style, false, $this->getConfig()->get( 'ScriptPath' ), true ] );
 			if ( !isset( $styles[$media] ) ) {
