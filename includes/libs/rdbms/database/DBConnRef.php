@@ -35,7 +35,7 @@ class DBConnRef implements IDatabase {
 	public function __construct( ILoadBalancer $lb, $conn, $role ) {
 		$this->lb = $lb;
 		$this->role = $role;
-		if ( $conn instanceof Database ) {
+		if ( $conn instanceof IDatabase && !( $conn instanceof DBConnRef ) ) {
 			$this->conn = $conn; // live handle
 		} elseif ( is_array( $conn ) && count( $conn ) >= 4 && $conn[self::FLD_DOMAIN] !== false ) {
 			$this->params = $conn;
@@ -578,6 +578,10 @@ class DBConnRef implements IDatabase {
 
 	public function onTransactionPreCommitOrIdle( callable $callback, $fname = __METHOD__ ) {
 		// DB_REPLICA role: caller might want to refresh cache after a cache mutex is released
+		return $this->__call( __FUNCTION__, func_get_args() );
+	}
+
+	public function onAtomicSectionCancel( callable $callback, $fname = __METHOD__ ) {
 		return $this->__call( __FUNCTION__, func_get_args() );
 	}
 
