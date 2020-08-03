@@ -1205,18 +1205,26 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		$this->lastQuery = $sql;
 
 		if ( $this->isWriteQuery( $sql ) ) {
-			# In theory, non-persistent writes are allowed in read-only mode, but due to things
-			# like https://bugs.mysql.com/bug.php?id=33669 that might not work anyway...
-			$this->assertIsWritableMaster();
+			/**
+			 * Fandom change - start (@author ttomalak)
+			 * Apply @mszabo patch https://gerrit.wikimedia.org/r/c/mediawiki/core/+/617741 to
+			 * allow Temporary table creation on DB_REPLICA for eg. SMW
+			 * PLATFORM-4964
+			 */
 			# Do not treat temporary table writes as "meaningful writes" that need committing.
 			# Profile them as reads. Integration tests can override this behavior via $flags.
 			$pseudoPermanent = $this->hasFlags( $flags, self::QUERY_PSEUDO_PERMANENT );
 			$tableType = $this->registerTempTableWrite( $sql, $pseudoPermanent );
 			$isEffectiveWrite = ( $tableType !== self::TEMP_NORMAL );
 			# DBConnRef uses QUERY_REPLICA_ROLE to enforce the replica role for raw SQL queries
-			if ( $isEffectiveWrite && $this->hasFlags( $flags, self::QUERY_REPLICA_ROLE ) ) {
-				throw new DBReadOnlyRoleError( $this, "Cannot write; target role is DB_REPLICA" );
+			if ( $isEffectiveWrite ) {
+				$this->assertIsWritableMaster();
+
+				if ( $this->hasFlags( $flags, self::QUERY_REPLICA_ROLE ) ) {
+					throw new DBReadOnlyRoleError( $this, "Cannot write; target role is DB_REPLICA" );
+				}
 			}
+			/** Fandom change - end */
 		} else {
 			$isEffectiveWrite = false;
 		}
