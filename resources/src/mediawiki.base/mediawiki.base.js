@@ -109,7 +109,12 @@
 			} else {
 				text = this.map.get( this.key );
 			}
-			return mw.format.apply( null, [ text ].concat( this.parameters ) );
+			text = mw.format.apply( null, [ text ].concat( this.parameters ) );
+			if ( this.format === 'parse' ) {
+				// We don't know how to parse anything, so escape it all
+				text = mw.html.escape( text );
+			}
+			return text;
 		},
 
 		/**
