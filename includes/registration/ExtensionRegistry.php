@@ -161,7 +161,9 @@ class ExtensionRegistry {
 			$cache = new EmptyBagOStuff();
 		}
 		// See if this queue is in APC
-		$key = $cache->makeKey(
+		// Fandom change: Use makeGlobalKey() to allow sharing the cache
+		// between wikis using the same set of extensions
+		$key = $cache->makeGlobalKey(
 			'registration',
 			md5( json_encode( $this->queued + $versions ) )
 		);
