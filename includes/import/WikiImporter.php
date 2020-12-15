@@ -680,7 +680,7 @@ class WikiImporter {
 			$tag = $this->reader->localName;
 
 			if ( !Hooks::run( 'ImportHandleLogItemXMLTag', [
-				$this, $logInfo
+				$this, &$logInfo
 			] ) ) {
 				// Do nothing
 			} elseif ( in_array( $tag, $normalFields ) ) {
@@ -841,7 +841,7 @@ class WikiImporter {
 			$tag = $this->reader->localName;
 
 			if ( !Hooks::run( 'ImportHandleRevisionXMLTag', [
-				$this, $pageInfo, $revisionInfo
+				$this, &$pageInfo, &$revisionInfo
 			] ) ) {
 				// Do nothing
 			} elseif ( in_array( $tag, $normalFields ) ) {
@@ -961,7 +961,7 @@ class WikiImporter {
 			$tag = $this->reader->localName;
 
 			if ( !Hooks::run( 'ImportHandleUploadXMLTag', [
-				$this, $pageInfo
+				$this, &$pageInfo, &$uploadInfo
 			] ) ) {
 				// Do nothing
 			} elseif ( in_array( $tag, $normalFields ) ) {
