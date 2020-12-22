@@ -678,9 +678,9 @@ class WikiImporter {
 			}
 
 			$tag = $this->reader->localName;
-
+			// Fandom change PLATFORM-5295 - forward reference to hook
 			if ( !Hooks::run( 'ImportHandleLogItemXMLTag', [
-				$this, $logInfo
+				$this, &$logInfo
 			] ) ) {
 				// Do nothing
 			} elseif ( in_array( $tag, $normalFields ) ) {
@@ -764,6 +764,7 @@ class WikiImporter {
 			if ( $badTitle ) {
 				// The title is invalid, bail out of this page
 				$skip = true;
+				// Fandom change PLATFORM-5295 - forward reference to hook
 			} elseif ( !Hooks::run( 'ImportHandlePageXMLTag', [ $this,
 						&$pageInfo ] ) ) {
 				// Do nothing
@@ -840,8 +841,9 @@ class WikiImporter {
 
 			$tag = $this->reader->localName;
 
+			// Fandom change PLATFORM-5295 - forward reference to hook
 			if ( !Hooks::run( 'ImportHandleRevisionXMLTag', [
-				$this, $pageInfo, $revisionInfo
+				$this, &$pageInfo, &$revisionInfo
 			] ) ) {
 				// Do nothing
 			} elseif ( in_array( $tag, $normalFields ) ) {
@@ -960,8 +962,9 @@ class WikiImporter {
 
 			$tag = $this->reader->localName;
 
+			// Fandom change PLATFORM-5295 - forward reference to hook
 			if ( !Hooks::run( 'ImportHandleUploadXMLTag', [
-				$this, $pageInfo
+				$this, &$pageInfo, &$uploadInfo
 			] ) ) {
 				// Do nothing
 			} elseif ( in_array( $tag, $normalFields ) ) {
