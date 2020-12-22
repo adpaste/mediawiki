@@ -962,6 +962,7 @@ class WikiImporter {
 
 			$tag = $this->reader->localName;
 
+			// Fandom change PLATFORM-5295 - forward reference to hook
 			if ( !Hooks::run( 'ImportHandleUploadXMLTag', [
 				$this, &$pageInfo, &$uploadInfo
 			] ) ) {
