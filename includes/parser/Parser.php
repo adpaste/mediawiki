@@ -2129,17 +2129,24 @@ class Parser {
 			$imagematch = false;
 		}
 
+		// Fandom change - start (@author ttomalak)
+		// allow fandom image links PLATFORM-4871 & PLATFORM-4908
+		$matchExternalImageUrl = $this->siteConfig->has( 'ParserExternalImageUrlRegex' ) ?
+			preg_match( $this->siteConfig->get( 'ParserExternalImageUrlRegex' ), $url ) :
+			false;
+
 		if ( $this->mOptions->getAllowExternalImages()
 			|| ( $imagesexception && $imagematch )
 		) {
-			if ( preg_match( self::EXT_IMAGE_REGEX, $url ) ) {
+			if ( $matchExternalImageUrl || preg_match( self::EXT_IMAGE_REGEX, $url ) ) {
 				# Image found
 				$text = Linker::makeExternalImage( $url );
 			}
 		}
 		if ( !$text && $this->mOptions->getEnableImageWhitelist()
-			&& preg_match( self::EXT_IMAGE_REGEX, $url )
+			&& ( $matchExternalImageUrl || preg_match( self::EXT_IMAGE_REGEX, $url ) )
 		) {
+			// Fandom change - end
 			$whitelist = explode(
 				"\n",
 				wfMessage( 'external_image_whitelist' )->inContentLanguage()->text()
