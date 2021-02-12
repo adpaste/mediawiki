@@ -887,7 +887,11 @@ class MessageCache {
 		// Normalise title-case input (with some inlining)
 		$lckey = self::normalizeKey( $key );
 
-		Hooks::run( 'MessageCache::get', [ &$lckey ] );
+		// Fandom change: Workaround T193271 performance regression by letting extensions signal
+		// that a particular message key cannot exist in the database
+		if ( !Hooks::run( 'MessageCache::get', [ &$lckey ] ) ) {
+			return false;
+		}
 
 		// Loop through each language in the fallback list until we find something useful
 		$message = $this->getMessageFromFallbackChain(
