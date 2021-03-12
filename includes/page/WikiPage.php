@@ -31,6 +31,7 @@ use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Storage\DerivedPageDataUpdater;
 use MediaWiki\Storage\PageUpdater;
 use MediaWiki\Storage\RevisionSlotsUpdate;
+use MediaWiki\User\UserIdentityValue;
 use Wikimedia\Assert\Assert;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\IDatabase;
@@ -2906,7 +2907,28 @@ class WikiPage implements Page, IDBAccessObject {
 			}
 
 			$comment = $commentStore->getComment( 'rev_comment', $row );
-			$user = User::newFromAnyId( $row->rev_user, $row->rev_user_text, $row->rev_actor );
+			/**
+			 * Fandom change - start (@author ttomalak)
+			 *
+			 * Currently if one revision has `rev_user` set to 0 and empty `rev_user_text`
+			 * page cannot be removed. Same handling is used in `RevisionStore::newRevisionFromRow`
+			 * and `RevisionStore:newRevisionFromArchiveRow` and it allows such cases to exists
+			 * and work on both archive and revision table.
+			 *
+			 * PLATFORM-5707
+			 */
+			try {
+				$user = User::newFromAnyId(
+					$row->rev_user ?? null,
+					$row->rev_user_text ?? null,
+					$row->rev_actor ?? null
+				);
+			}
+			catch ( InvalidArgumentException $ex ) {
+				wfWarn( __METHOD__ . ': ' . $ex->getMessage() );
+				$user = new UserIdentityValue( 0, 'Unknown user', 0 );
+			}
+			/** Fandom change - end */
 			$rowInsert = [
 					'ar_namespace'  => $namespace,
 					'ar_title'      => $dbKey,
