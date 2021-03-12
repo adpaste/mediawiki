@@ -244,14 +244,22 @@ class WikiExporter {
 		);
 
 		foreach ( $res as $row ) {
+			/**
+			 * Fandom change - start (@author ttomalak)
+			 * Some of the data in revision store are missing data in rev_user_text field.
+			 *
+			 * PLATFORM-5707
+			 */
 			$this->author_list .= "<contributor>" .
-				"<username>" .
-				htmlspecialchars( $row->rev_user_text ) .
+				"<username>" . $row->rev_user_text
+				? htmlspecialchars( $row->rev_user_text )
+				: htmlspecialchars( User::newFromId( (int)$row->rev_user )->getName() ) .
 				"</username>" .
 				"<id>" .
 				( (int)$row->rev_user ) .
 				"</id>" .
 				"</contributor>";
+			/** Fandom change - end */
 		}
 		$this->author_list .= "</contributors>";
 	}
