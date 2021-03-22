@@ -442,7 +442,15 @@ class XmlDumpWriter {
 	function writeContributor( $id, $text, $indent = "      " ) {
 		$out = $indent . "<contributor>\n";
 		if ( $id || !IP::isValid( $text ) ) {
-			$out .= $indent . "  " . Xml::elementClean( 'username', null, strval( $text ) ) . "\n";
+			/**
+			 * Fandom change - start (@author ttomalak)
+			 * Some of the data in revision store are missing data in rev_user_text field.
+			 *
+			 * PLATFORM-5707
+			 */
+			$username = $text ?: User::newFromId( (int)$id )->getName();
+			$out .= $indent . "  " . Xml::elementClean( 'username', null, strval( $username ) ) . "\n";
+			/** Fandom change - end */
 			$out .= $indent . "  " . Xml::element( 'id', null, strval( $id ) ) . "\n";
 		} else {
 			$out .= $indent . "  " . Xml::elementClean( 'ip', null, strval( $text ) ) . "\n";
