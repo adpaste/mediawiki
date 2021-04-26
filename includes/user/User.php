@@ -2536,30 +2536,61 @@ class User implements IDBAccessObject, UserIdentity {
 				if ( $q['actor_name'] === '' ) {
 					throw new CannotCreateActorException( 'Cannot create an actor for a user with no name' );
 				}
-				$dbw->insert( 'actor', $q, __METHOD__, [ 'IGNORE' ] );
-				if ( $dbw->affectedRows() ) {
-					$this->mActorId = (int)$dbw->insertId();
-				} else {
-					// Outdated cache?
-					// Use LOCK IN SHARE MODE to bypass any MySQL REPEATABLE-READ snapshot.
-					$this->mActorId = (int)$dbw->selectField(
-						'actor',
-						'actor_id',
-						$q,
-						__METHOD__,
-						[ 'LOCK IN SHARE MODE' ]
-					);
-					if ( !$this->mActorId ) {
-						throw new CannotCreateActorException(
-							"Cannot create actor ID for user_id={$this->getId()} user_name={$this->getName()}"
+				/**
+				 * Fandom change
+				 * Add a hook to experiment with creating actors on a shared cluster. Actor
+				 * will be created there and ported to the local cluster with the same id.
+				 * In that case hook will return false preventing the execution on the insert
+				 * statement below as it relies on the autoincrement.
+				 *
+				 * PLATFORM-5898
+				 */
+				if ( Hooks::run( 'UserBeforeCreateActor', [
+					&$this->mActorId,
+					$dbw,
+					$q['actor_user'],
+					$q['actor_name'] ]
+				) ) {
+					$dbw->insert( 'actor', $q, __METHOD__, [ 'IGNORE' ] );
+					if ( $dbw->affectedRows() ) {
+						$this->mActorId = (int)$dbw->insertId();
+					} else {
+						// Outdated cache?
+						// Use LOCK IN SHARE MODE to bypass any MySQL REPEATABLE-READ snapshot.
+						$this->mActorId = (int)$dbw->selectField(
+							'actor',
+							'actor_id',
+							$q,
+							__METHOD__,
+							[ 'LOCK IN SHARE MODE' ]
 						);
+						if ( !$this->mActorId ) {
+							throw new CannotCreateActorException(
+								"Cannot create actor ID for user_id={$this->getId()} user_name={$this->getName()}"
+							);
+						}
 					}
 				}
 				$this->invalidateCache();
 			} else {
 				list( $index, $options ) = DBAccessObjectUtils::getDBOptions( $this->queryFlagsUsed );
-				$db = wfGetDB( $index );
-				$this->mActorId = (int)$db->selectField( 'actor', 'actor_id', $q, __METHOD__, $options );
+				/**
+				 * Fandom change
+				 * Extra hook to investigate in which scenarios this can happen and if we should try
+				 * lazy-loading the actor from the shared cluster and storing it locally.
+				 *
+				 * PLATFORM-5898
+				 */
+				if ( Hooks::run( 'UserBeforeLazyLoadCreateActor', [
+					&$this->mActorId,
+					$index,
+					$options,
+					$q['actor_user'],
+					$q['actor_name']
+				] ) ) {
+					$db = wfGetDB( $index );
+					$this->mActorId = (int)$db->selectField( 'actor', 'actor_id', $q, __METHOD__, $options );
+				}
 			}
 			$this->setItemLoaded( 'actor' );
 		}
