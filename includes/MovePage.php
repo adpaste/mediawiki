@@ -31,7 +31,7 @@ use Wikimedia\Rdbms\IDatabase;
  */
 class MovePage {
 
-	//Since currently cl_sortkey is varbinary(230)
+	// Since currently cl_sortkey is varbinary(230)
 	const SORTKEY_LENGTH = 230;
 
 	/**
