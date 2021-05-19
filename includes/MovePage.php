@@ -31,6 +31,7 @@ use Wikimedia\Rdbms\IDatabase;
  */
 class MovePage {
 
+	//Since currently cl_sortkey is varbinary(230)
 	const SORTKEY_LENGTH = 230;
 
 	/**
@@ -281,6 +282,7 @@ class MovePage {
 			$prefix = $prefixRow->cl_sortkey_prefix;
 			$sortKey = Collation::singleton()->getSortKey(
 				$this->newTitle->getCategorySortkey( $prefix ) );
+			//if needed we truncate the sortkey so the database update won't trigger an exception
 			if ( strlen($sortKey) > self::SORTKEY_LENGTH ) {
 				$sortKey = substr( $sortKey, 0, self::SORTKEY_LENGTH );
 			}
