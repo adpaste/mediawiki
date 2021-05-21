@@ -31,6 +31,9 @@ use Wikimedia\Rdbms\IDatabase;
  */
 class MovePage {
 
+	// Since currently cl_sortkey is varbinary(230)
+	const SORTKEY_LENGTH = 230;
+
 	/**
 	 * @var Title
 	 */
@@ -277,11 +280,16 @@ class MovePage {
 		$type = MWNamespace::getCategoryLinkType( $this->newTitle->getNamespace() );
 		foreach ( $prefixes as $prefixRow ) {
 			$prefix = $prefixRow->cl_sortkey_prefix;
+			$sortKey = Collation::singleton()->getSortKey(
+				$this->newTitle->getCategorySortkey( $prefix ) );
+			// if needed we truncate the sortkey so the database update won't trigger an exception
+			if ( strlen($sortKey) > self::SORTKEY_LENGTH ) {
+				$sortKey = substr( $sortKey, 0, self::SORTKEY_LENGTH );
+			}
 			$catTo = $prefixRow->cl_to;
 			$dbw->update( 'categorylinks',
 				[
-					'cl_sortkey' => Collation::singleton()->getSortKey(
-							$this->newTitle->getCategorySortkey( $prefix ) ),
+					'cl_sortkey' => $sortKey,
 					'cl_collation' => $wgCategoryCollation,
 					'cl_type' => $type,
 					'cl_timestamp=cl_timestamp' ],
