@@ -2574,23 +2574,8 @@ class User implements IDBAccessObject, UserIdentity {
 				$this->invalidateCache();
 			} else {
 				list( $index, $options ) = DBAccessObjectUtils::getDBOptions( $this->queryFlagsUsed );
-				/**
-				 * Fandom change
-				 * Extra hook to investigate in which scenarios this can happen and if we should try
-				 * lazy-loading the actor from the shared cluster and storing it locally.
-				 *
-				 * PLATFORM-5898
-				 */
-				if ( Hooks::run( 'UserBeforeLazyLoadCreateActor', [
-					&$this->mActorId,
-					$index,
-					$options,
-					$q['actor_user'],
-					$q['actor_name']
-				] ) ) {
-					$db = wfGetDB( $index );
-					$this->mActorId = (int)$db->selectField( 'actor', 'actor_id', $q, __METHOD__, $options );
-				}
+				$db = wfGetDB( $index );
+				$this->mActorId = (int)$db->selectField( 'actor', 'actor_id', $q, __METHOD__, $options );
 			}
 			$this->setItemLoaded( 'actor' );
 		}
