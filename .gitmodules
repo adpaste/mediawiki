@@ -68,8 +68,8 @@
 	branch = REL1_33
 [submodule "ReplaceText"]
 	path = extensions/ReplaceText
-	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/ReplaceText
-	branch = REL1_33
+	url = https://github.com/Wikia/mediawiki-extensions-ReplaceText
+	branch = REL1_33_FANDOM
 [submodule "SpamBlacklist"]
 	path = extensions/SpamBlacklist
 	url = https://gerrit.wikimedia.org/r/mediawiki/extensions/SpamBlacklist
