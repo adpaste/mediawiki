@@ -21,6 +21,9 @@
  * @file
  */
 
+use MediaWiki\Permissions\Authority;
+use MediaWiki\Session\CsrfTokenSetProvider;
+
 /**
  * Interface for objects which can provide a MediaWiki context on request
  *
@@ -49,8 +52,10 @@
  * from Config itself). Objects that represent persistent data stores do not
  * belong here either. Session state changes should only be propagated on
  * shutdown by separate persistence handler objects, for example.
+ *
+ * @unstable for implementation, extensions should subclass ContextSource instead.
  */
-interface IContextSource extends MessageLocalizer {
+interface IContextSource extends MessageLocalizer, CsrfTokenSetProvider {
 
 	/**
 	 * @return WebRequest
@@ -92,6 +97,12 @@ interface IContextSource extends MessageLocalizer {
 	 * @return User
 	 */
 	public function getUser();
+
+	/**
+	 * @since 1.36
+	 * @return Authority
+	 */
+	public function getAuthority(): Authority;
 
 	/**
 	 * @return Language

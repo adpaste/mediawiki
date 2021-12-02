@@ -27,6 +27,10 @@
  */
 class ApiQueryCategories extends ApiQueryGeneratorBase {
 
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 */
 	public function __construct( ApiQuery $query, $moduleName ) {
 		parent::__construct( $query, $moduleName, 'cl' );
 	}
@@ -44,7 +48,7 @@ class ApiQueryCategories extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 */
 	private function run( $resultPageSet = null ) {
 		if ( $this->getPageSet()->getGoodTitleCount() == 0 ) {
@@ -52,8 +56,8 @@ class ApiQueryCategories extends ApiQueryGeneratorBase {
 		}
 
 		$params = $this->extractRequestParams();
-		$prop = array_flip( (array)$params['prop'] );
-		$show = array_flip( (array)$params['show'] );
+		$prop = array_fill_keys( (array)$params['prop'], true );
+		$show = array_fill_keys( (array)$params['show'], true );
 
 		$this->addFields( [
 			'cl_from',
@@ -69,7 +73,7 @@ class ApiQueryCategories extends ApiQueryGeneratorBase {
 			$cats = [];
 			foreach ( $params['categories'] as $cat ) {
 				$title = Title::newFromText( $cat );
-				if ( !$title || $title->getNamespace() != NS_CATEGORY ) {
+				if ( !$title || $title->getNamespace() !== NS_CATEGORY ) {
 					$this->addWarning( [ 'apiwarn-invalidcategory', wfEscapeWikiText( $cat ) ] );
 				} else {
 					$cats[] = $title->getDBkey();
@@ -82,7 +86,7 @@ class ApiQueryCategories extends ApiQueryGeneratorBase {
 			$this->addWhereFld( 'cl_to', $cats );
 		}
 
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != 2 );
 			$op = $params['dir'] == 'descending' ? '<' : '>';
@@ -127,11 +131,12 @@ class ApiQueryCategories extends ApiQueryGeneratorBase {
 				'cl_to' . $sort
 			] );
 		}
+		$this->addOption( 'LIMIT', $params['limit'] + 1 );
 
 		$res = $this->select( __METHOD__ );
 
 		$count = 0;
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			foreach ( $res as $row ) {
 				if ( ++$count > $params['limit'] ) {
 					// We've reached the one extra which shows that
@@ -151,7 +156,7 @@ class ApiQueryCategories extends ApiQueryGeneratorBase {
 					$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $row->cl_timestamp );
 				}
 				if ( isset( $prop['hidden'] ) ) {
-					$vals['hidden'] = !is_null( $row->pp_propname );
+					$vals['hidden'] = $row->pp_propname !== null;
 				}
 
 				$fit = $this->addPageSubItem( $row->cl_from, $vals );

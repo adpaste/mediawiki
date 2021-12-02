@@ -1,10 +1,10 @@
 /**
- * This file is where we decide whether to initialise the Grade A run-time.
+ * This file is where we decide whether to initialise the modern support browser run-time.
  *
  * - Beware: This file MUST parse without errors on even the most ancient of browsers!
  */
-/* eslint-disable no-implicit-globals, vars-on-top, no-unmodified-loop-condition */
-/* global $VARS, $CODE */
+/* eslint-disable no-implicit-globals */
+/* global $CODE, RLQ:true, NORLQ:true */
 
 /**
  * See <https://www.mediawiki.org/wiki/Compatibility#Browsers>
@@ -24,9 +24,9 @@
  * - Mobile Safari 6.0+ (iOS 6+)
  * - Android 4.1+
  *
- * Browsers we support in our no-javascript run-time (Grade C):
+ * Browsers we support in our no-JavaScript, basic run-time (Grade C):
  * - Chrome 1+
- * - IE 6+
+ * - IE 8+
  * - Firefox 3+
  * - Safari 3+
  * - Opera 15+
@@ -42,13 +42,13 @@
  * - Google Glass
  * - UC Mini (speed mode on)
  *
- * Other browsers that pass the check are considered Grade X.
+ * Other browsers that pass the check are considered unknown (Grade X).
  *
- * @param {string} [str] User agent, defaults to navigator.userAgent
+ * @private
+ * @param {string} ua User agent string
  * @return {boolean} User agent is compatible with MediaWiki JS
  */
-function isCompatible( str ) {
-	var ua = str || navigator.userAgent;
+function isCompatible( ua ) {
 	return !!(
 		// https://caniuse.com/#feat=es5
 		// https://caniuse.com/#feat=use-strict
@@ -69,35 +69,38 @@ function isCompatible( str ) {
 		// https://caniuse.com/#feat=addeventlistener
 		'addEventListener' in window &&
 
-		// Hardcoded exceptions for browsers that pass the requirement but we don't want to
-		// support in the modern run-time.
-		// Note: Please extend the regex instead of adding new ones
-		!ua.match( /MSIE 10|webOS\/1\.[0-4]|SymbianOS|Series60|NetFront|Opera Mini|S40OviBrowser|MeeGo|Android.+Glass|^Mozilla\/5\.0 .+ Gecko\/$|googleweblight|PLAYSTATION|PlayStation/ )
+		// Hardcoded exceptions for browsers that pass the requirement but we don't
+		// want to support in the modern run-time.
+		//
+		// Please extend the regex instead of adding new ones!
+		// And add a test case to startup.test.js
+		!ua.match( /MSIE 10|NetFront|Opera Mini|S40OviBrowser|MeeGo|Android.+Glass|^Mozilla\/5\.0 .+ Gecko\/$|googleweblight|PLAYSTATION|PlayStation/ )
 	);
 }
 
-if ( !isCompatible() ) {
-	// Handle Grade C
-	// Undo speculative Grade A <html> class. See ResourceLoaderClientHtml::getDocumentAttributes().
+if ( !isCompatible( navigator.userAgent ) ) {
+	// Handle basic supported browsers (Grade C).
+	// Undo speculative modern (Grade A) root CSS class `<html class="client-js">`.
+	// See ResourceLoaderClientHtml::getDocumentAttributes().
 	document.documentElement.className = document.documentElement.className
 		.replace( /(^|\s)client-js(\s|$)/, '$1client-nojs$2' );
 
-	// Process any callbacks for Grade C
-	while ( window.NORLQ && window.NORLQ[ 0 ] ) {
-		window.NORLQ.shift()();
+	// Process any callbacks for basic support (Grade C).
+	while ( window.NORLQ && NORLQ[ 0 ] ) {
+		NORLQ.shift()();
 	}
-	window.NORLQ = {
+	NORLQ = {
 		push: function ( fn ) {
 			fn();
 		}
 	};
 
-	// Clear and disable the Grade A queue
-	window.RLQ = {
+	// Clear and disable the modern (Grade A) queue.
+	RLQ = {
 		push: function () {}
 	};
 } else {
-	// Handle Grade A
+	// Handle modern (Grade A).
 
 	if ( window.performance && performance.mark ) {
 		performance.mark( 'mwStartup' );
@@ -107,38 +110,56 @@ if ( !isCompatible() ) {
 	$CODE.defineLoader();
 
 	/**
-	 * The $CODE and $VARS placeholders are substituted in ResourceLoaderStartUpModule.php.
+	 * The $CODE placeholder is substituted in ResourceLoaderStartUpModule.php.
 	 */
 	( function () {
 		/* global mw */
-		mw.config = new mw.Map( $VARS.wgLegacyJavaScriptGlobals );
+		var queue;
 
 		$CODE.registrations();
 
-		mw.config.set( $VARS.configuration );
+		// For the current page
+		mw.config.set( window.RLCONF || {} ); // mw.loader needs wgCSPNonce and wgUserName
+		mw.loader.state( window.RLSTATE || {} );
+		mw.loader.load( window.RLPAGEMODULES || [] );
 
-		// Process callbacks for Grade A
-		var queue = window.RLQ;
-		// Replace RLQ placeholder from ResourceLoaderClientHtml with an implementation
-		// that executes simple callbacks, but continues to store callbacks that require
-		// modules.
-		window.RLQ = [];
-		/* global RLQ */
+		// Process RLQ callbacks
+		//
+		// The code in these callbacks could've been exposed from load.php and
+		// requested client-side. Instead, they are pushed by the server directly
+		// (from ResourceLoaderClientHtml and other parts of MediaWiki). This
+		// saves the need for additional round trips. It also allows load.php
+		// to remain stateless and sending personal data in the HTML instead.
+		//
+		// The HTML inline script lazy-defines the 'RLQ' array. Now that we are
+		// processing it, replace it with an implementation where 'push' actually
+		// considers executing the code directly. This is to ensure any late
+		// arrivals will also be processed. Late arrival can happen because
+		// startup.js is executed asynchronously, concurrently with the streaming
+		// response of the HTML.
+		queue = window.RLQ || [];
+		// Replace RLQ with an empty array, then process the things that were
+		// in RLQ previously. We have to do this to avoid an infinite loop:
+		// non-function items are added back to RLQ by the processing step.
+		RLQ = [];
 		RLQ.push = function ( fn ) {
 			if ( typeof fn === 'function' ) {
 				fn();
 			} else {
-				// This callback requires a module, handled in mediawiki.base.
+				// If the first parameter is not a function, then it is an array
+				// containing a list of required module names and a function.
+				// Do an actual push for now, as this signature is handled
+				// later by mediawiki.base.js.
 				RLQ[ RLQ.length ] = fn;
 			}
 		};
-		while ( queue && queue[ 0 ] ) {
-			// Re-use our new push() method
+		while ( queue[ 0 ] ) {
+			// Process all values gathered so far
 			RLQ.push( queue.shift() );
 		}
 
-		// Clear and disable the Grade C queue
-		window.NORLQ = {
+		// Clear and disable the basic (Grade C) queue.
+		NORLQ = {
 			push: function () {}
 		};
 	}() );

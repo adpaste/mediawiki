@@ -21,35 +21,50 @@
  * @ingroup Media
  */
 
+use Wikimedia\RequestTimeout\TimeoutException;
+
 /**
  * Handler for GIF images.
  *
  * @ingroup Media
  */
 class GIFHandler extends BitmapHandler {
-	const BROKEN_FILE = '0'; // value to store in img_metadata if error extracting metadata.
+	/**
+	 * Value to store in img_metadata if there was error extracting metadata
+	 */
+	private const BROKEN_FILE = '0';
 
-	public function getMetadata( $image, $filename ) {
+	public function getSizeAndMetadata( $state, $filename ) {
 		try {
 			$parsedGIFMetadata = BitmapMetadataHandler::GIF( $filename );
+		} catch ( TimeoutException $e ) {
+			throw $e;
 		} catch ( Exception $e ) {
 			// Broken file?
-			wfDebug( __METHOD__ . ': ' . $e->getMessage() . "\n" );
+			wfDebug( __METHOD__ . ': ' . $e->getMessage() );
 
-			return self::BROKEN_FILE;
+			return [ 'metadata' => [ '_error' => self::BROKEN_FILE ] ];
 		}
 
-		return serialize( $parsedGIFMetadata );
+		return [
+			'width' => $parsedGIFMetadata['width'],
+			'height' => $parsedGIFMetadata['height'],
+			'bits' => $parsedGIFMetadata['bits'],
+			'metadata' => array_diff_key(
+				$parsedGIFMetadata,
+				[ 'width' => true, 'height' => true, 'bits' => true ]
+			)
+		];
 	}
 
 	/**
 	 * @param File $image
-	 * @param bool|IContextSource $context Context to use (optional)
-	 * @return array|bool
+	 * @param IContextSource|false $context
+	 * @return array[]|false
 	 */
 	public function formatMetadata( $image, $context = false ) {
 		$meta = $this->getCommonMetaArray( $image );
-		if ( count( $meta ) === 0 ) {
+		if ( !$meta ) {
 			return false;
 		}
 
@@ -62,12 +77,7 @@ class GIFHandler extends BitmapHandler {
 	 * @return array|bool
 	 */
 	public function getCommonMetaArray( File $image ) {
-		$meta = $image->getMetadata();
-
-		if ( !$meta ) {
-			return [];
-		}
-		$meta = unserialize( $meta );
+		$meta = $image->getMetadataArray();
 		if ( !isset( $meta['metadata'] ) ) {
 			return [];
 		}
@@ -82,15 +92,10 @@ class GIFHandler extends BitmapHandler {
 	 * @param File $image
 	 * @return bool
 	 */
-	function getImageArea( $image ) {
-		$ser = $image->getMetadata();
-		if ( $ser ) {
-			$metadata = unserialize( $ser );
-			if ( isset( $metadata['frameCount'] ) && $metadata['frameCount'] > 0 ) {
-				return $image->getWidth() * $image->getHeight() * $metadata['frameCount'];
-			} else {
-				return $image->getWidth() * $image->getHeight();
-			}
+	public function getImageArea( $image ) {
+		$metadata = $image->getMetadataArray();
+		if ( isset( $metadata['frameCount'] ) && $metadata['frameCount'] > 0 ) {
+			return $image->getWidth() * $image->getHeight() * $metadata['frameCount'];
 		} else {
 			return $image->getWidth() * $image->getHeight();
 		}
@@ -100,13 +105,10 @@ class GIFHandler extends BitmapHandler {
 	 * @param File $image
 	 * @return bool
 	 */
-	function isAnimatedImage( $image ) {
-		$ser = $image->getMetadata();
-		if ( $ser ) {
-			$metadata = unserialize( $ser );
-			if ( isset( $metadata['frameCount'] ) && $metadata['frameCount'] > 1 ) {
-				return true;
-			}
+	public function isAnimatedImage( $image ) {
+		$metadata = $image->getMetadataArray();
+		if ( isset( $metadata['frameCount'] ) && $metadata['frameCount'] > 1 ) {
+			return true;
 		}
 
 		return false;
@@ -117,29 +119,25 @@ class GIFHandler extends BitmapHandler {
 	 * @param File $file
 	 * @return bool
 	 */
-	function canAnimateThumbnail( $file ) {
+	public function canAnimateThumbnail( $file ) {
 		global $wgMaxAnimatedGifArea;
-		$answer = $this->getImageArea( $file ) <= $wgMaxAnimatedGifArea;
 
-		return $answer;
+		return $this->getImageArea( $file ) <= $wgMaxAnimatedGifArea;
 	}
 
-	function getMetadataType( $image ) {
+	public function getMetadataType( $image ) {
 		return 'parsed-gif';
 	}
 
-	public function isMetadataValid( $image, $metadata ) {
-		if ( $metadata === self::BROKEN_FILE ) {
-			// Do not repetitivly regenerate metadata on broken file.
+	public function isFileMetadataValid( $image ) {
+		$data = $image->getMetadataArray();
+		if ( $data === [ '_error' => self::BROKEN_FILE ] ) {
+			// Do not repetitively regenerate metadata on broken file.
 			return self::METADATA_GOOD;
 		}
 
-		Wikimedia\suppressWarnings();
-		$data = unserialize( $metadata );
-		Wikimedia\restoreWarnings();
-
-		if ( !$data || !is_array( $data ) ) {
-			wfDebug( __METHOD__ . " invalid GIF metadata\n" );
+		if ( !$data || isset( $data['_error'] ) ) {
+			wfDebug( __METHOD__ . " invalid GIF metadata" );
 
 			return self::METADATA_BAD;
 		}
@@ -147,7 +145,7 @@ class GIFHandler extends BitmapHandler {
 		if ( !isset( $data['metadata']['_MW_GIF_VERSION'] )
 			|| $data['metadata']['_MW_GIF_VERSION'] != GIFMetadataExtractor::VERSION
 		) {
-			wfDebug( __METHOD__ . " old but compatible GIF metadata\n" );
+			wfDebug( __METHOD__ . " old but compatible GIF metadata" );
 
 			return self::METADATA_COMPATIBLE;
 		}
@@ -164,11 +162,9 @@ class GIFHandler extends BitmapHandler {
 
 		$original = parent::getLongDesc( $image );
 
-		Wikimedia\suppressWarnings();
-		$metadata = unserialize( $image->getMetadata() );
-		Wikimedia\restoreWarnings();
+		$metadata = $image->getMetadataArray();
 
-		if ( !$metadata || $metadata['frameCount'] <= 1 ) {
+		if ( !$metadata || isset( $metadata['_error'] ) || $metadata['frameCount'] <= 0 ) {
 			return $original;
 		}
 
@@ -200,10 +196,7 @@ class GIFHandler extends BitmapHandler {
 	 * @return float The duration of the file.
 	 */
 	public function getLength( $file ) {
-		$serMeta = $file->getMetadata();
-		Wikimedia\suppressWarnings();
-		$metadata = unserialize( $serMeta );
-		Wikimedia\restoreWarnings();
+		$metadata = $file->getMetadataArray();
 
 		if ( !$metadata || !isset( $metadata['duration'] ) || !$metadata['duration'] ) {
 			return 0.0;

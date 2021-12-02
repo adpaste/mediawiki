@@ -44,15 +44,14 @@ if ( !function_exists( 'session_name' ) ) {
 	$installerStarted = ( $success && isset( $_SESSION['installData'] ) );
 }
 
-$templateParser = new TemplateParser();
+$templateParser = new TemplateParser( null, new EmptyBagOStuff() );
 
 # Render error page if no LocalSettings file can be found
 try {
-	global $wgVersion;
 	echo $templateParser->processTemplate(
 		'NoLocalSettings',
 		[
-			'wgVersion' => ( $wgVersion ?? 'VERSION' ),
+			'version' => ( defined( 'MW_VERSION' ) ? MW_VERSION : 'VERSION' ),
 			'path' => $path,
 			'localSettingsExists' => file_exists( MW_CONFIG_FILE ),
 			'installerStarted' => $installerStarted

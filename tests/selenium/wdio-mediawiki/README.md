@@ -19,19 +19,34 @@ See [BlankPage](./BlankPage.js) and [specs/BlankPage](./specs/BlankPage.js) for 
 
 Utilities to interact with the MediaWiki API. Uses the [mwbot](https://github.com/Fannon/mwbot) library.
 
-Actions are performed logged-in using `browser.options.username` and `browser.options.password`,
+Actions are performed logged-in using `browser.config.mwUser` and `browser.config.mwPwd`,
 which typically come from `MEDIAWIKI_USER` and `MEDIAWIKI_PASSWORD` environment variables.
 
-* `edit(title, content)`
-* `delete(title, reason)`
-* `createAccount(username, password)`
-* `blockUser(username, expiry)`
-* `unblockUser(username)`
+* `bot([string username [, string password [, string baseUrl ] ] ])`
+* `createAccount(MWBot bot, string username, string password)`
+* `blockUser(MWBot bot, [ string username [, string expiry ] ])`
+* `unblockUser(MWBot bot, [ string username ])`
+
+Example:
+
+```js
+bot = await Api.bot();
+await bot.edit( 'Some page', 'Some initial content' );
+await bot.edit( 'Some page', 'Some other content', 'Optional edit reason here' );
+await bot.delete( 'Some page', 'Some deletion reason here' );
+```
 
 ### RunJobs
 
 Use the static `RunJobs.run()` method to ensure that any queued jobs are executed before
 making assertions that depend on its outcome.
+
+### Util
+
+`Util` is a collection of popular utility methods.
+
+* `getTestString([ string prefix ])`
+* `waitForModuleState(string moduleName [, string moduleStatus [, number timeout ] ])`
 
 ## Versioning
 

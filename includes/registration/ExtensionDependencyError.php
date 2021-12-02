@@ -1,6 +1,6 @@
 <?php
 /**
- * Copyright (C) 2018 Kunal Mehta <legoktm@member.fsf.org>
+ * Copyright (C) 2018 Kunal Mehta <legoktm@debian.org>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
  */
 
 /**
+ * @newable
  * @since 1.31
  */
 class ExtensionDependencyError extends Exception {
@@ -64,7 +65,7 @@ class ExtensionDependencyError extends Exception {
 	public $missingAbilities = [];
 
 	/**
-	 * @param array $errors Each error has a 'msg' and 'type' key at minimum
+	 * @param array[] $errors Each error has a 'msg' and 'type' key at minimum
 	 */
 	public function __construct( array $errors ) {
 		$msg = '';

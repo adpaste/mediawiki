@@ -24,29 +24,29 @@ use Wikimedia\WrappedStringList;
 /**
  * Load and configure a ResourceLoader client on an HTML page.
  *
+ * @ingroup ResourceLoader
  * @since 1.28
  */
 class ResourceLoaderClientHtml {
-
 	/** @var ResourceLoaderContext */
 	private $context;
 
 	/** @var ResourceLoader */
 	private $resourceLoader;
 
-	/** @var array */
+	/** @var array<string,string|null|false> */
 	private $options;
 
-	/** @var array */
+	/** @var array<string,mixed> */
 	private $config = [];
 
-	/** @var array */
+	/** @var string[] */
 	private $modules = [];
 
-	/** @var array */
+	/** @var string[] */
 	private $moduleStyles = [];
 
-	/** @var array */
+	/** @var array<string,string> */
 	private $exemptStates = [];
 
 	/** @var array */
@@ -57,7 +57,7 @@ class ResourceLoaderClientHtml {
 	 * @param array $options [optional] Array of options
 	 *  - 'target': Parameter for modules=startup request, see ResourceLoaderStartUpModule.
 	 *  - 'safemode': Parameter for modules=startup request, see ResourceLoaderStartUpModule.
-	 *  - 'nonce': From OutputPage::getCSPNonce().
+	 *  - 'nonce': From OutputPage->getCSP->getNonce().
 	 */
 	public function __construct( ResourceLoaderContext $context, array $options = [] ) {
 		$this->context = $context;
@@ -74,7 +74,7 @@ class ResourceLoaderClientHtml {
 	 *
 	 * @param array $vars Array of key/value pairs
 	 */
-	public function setConfig( array $vars ) {
+	public function setConfig( array $vars ): void {
 		foreach ( $vars as $key => $value ) {
 			$this->config[$key] = $value;
 		}
@@ -83,18 +83,18 @@ class ResourceLoaderClientHtml {
 	/**
 	 * Ensure one or more modules are loaded.
 	 *
-	 * @param array $modules Array of module names
+	 * @param string[] $modules Array of module names
 	 */
-	public function setModules( array $modules ) {
+	public function setModules( array $modules ): void {
 		$this->modules = $modules;
 	}
 
 	/**
 	 * Ensure the styles of one or more modules are loaded.
 	 *
-	 * @param array $modules Array of module names
+	 * @param string[] $modules Array of module names
 	 */
-	public function setModuleStyles( array $modules ) {
+	public function setModuleStyles( array $modules ): void {
 		$this->moduleStyles = $modules;
 	}
 
@@ -103,16 +103,13 @@ class ResourceLoaderClientHtml {
 	 *
 	 * See OutputPage::buildExemptModules() for use cases.
 	 *
-	 * @param array $states Module state keyed by module name
+	 * @param array<string,string> $states Module state keyed by module name
 	 */
-	public function setExemptStates( array $states ) {
+	public function setExemptStates( array $states ): void {
 		$this->exemptStates = $states;
 	}
 
-	/**
-	 * @return array
-	 */
-	private function getData() {
+	private function getData(): array {
 		if ( $this->data ) {
 			// @codeCoverageIgnoreStart
 			return $this->data;
@@ -143,15 +140,15 @@ class ResourceLoaderClientHtml {
 
 			$group = $module->getGroup();
 			$context = $this->getContext( $group, ResourceLoaderModule::TYPE_COMBINED );
-			if ( $module->isKnownEmpty( $context ) ) {
-				// Avoid needless request or embed for empty module
-				$data['states'][$name] = 'ready';
-				continue;
-			}
+			$shouldEmbed = $module->shouldEmbedModule( $this->context );
 
-			if ( $group === 'user' || $module->shouldEmbedModule( $this->context ) ) {
-				// Call makeLoad() to decide how to load these, instead of
-				// loading via mw.loader.load().
+			if ( ( $group === 'user' || $shouldEmbed ) && $module->isKnownEmpty( $context ) ) {
+				// This is a user-specific or embedded module, which means its output
+				// can be specific to the current page or user. As such, we can optimise
+				// the way we load it based on the current version of the module.
+				// Avoid needless embed for empty module, preset ready state.
+				$data['states'][$name] = 'ready';
+			} elseif ( $group === 'user' || $shouldEmbed ) {
 				// - For group=user: We need to provide a pre-generated load.php
 				//   url to the client that has the 'user' and 'version' parameters
 				//   filled in. Without this, the client would wrongly use the static
@@ -187,17 +184,32 @@ class ResourceLoaderClientHtml {
 
 			$group = $module->getGroup();
 			$context = $this->getContext( $group, ResourceLoaderModule::TYPE_STYLES );
-			// Avoid needless request for empty module
-			if ( !$module->isKnownEmpty( $context ) ) {
-				if ( $module->shouldEmbedModule( $this->context ) ) {
-					// Embed via style element
+			if ( $module->shouldEmbedModule( $this->context ) ) {
+				// Avoid needless embed for private embeds we know are empty.
+				// (Set "ready" state directly instead, which we do a few lines above.)
+				if ( !$module->isKnownEmpty( $context ) ) {
+					// Embed via <style> element
 					$data['embed']['styles'][] = $name;
-				} else {
-					// Load from load.php?only=styles via <link rel=stylesheet>
-					$data['styles'][] = $name;
 				}
+			// For other style modules, always request them, regardless of whether they are
+			// currently known to be empty. Because:
+			// 1. Those modules are requested in batch, so there is no extra request overhead
+			//    or extra HTML element to be avoided.
+			// 2. Checking isKnownEmpty for those can be expensive and slow down page view
+			//    generation (T230260).
+			// 3. We don't want cached HTML to vary on the current state of a module.
+			//    If the module becomes non-empty a few minutes later, it should start working
+			//    on cached HTML without requiring a purge.
+			//
+			// But, user-specific modules:
+			// * ... are used on page views not publicly cached.
+			// * ... are in their own group and thus a require a request we can avoid
+			// * ... have known-empty status preloaded by ResourceLoader.
+			} elseif ( $group !== 'user' || !$module->isKnownEmpty( $context ) ) {
+				// Load from load.php?only=styles via <link rel=stylesheet>
+				$data['styles'][] = $name;
 			}
-			$deprecation = $module->getDeprecationInformation();
+			$deprecation = $module->getDeprecationInformation( $context );
 			if ( $deprecation ) {
 				$data['styleDeprecations'][] = $deprecation;
 			}
@@ -207,7 +219,7 @@ class ResourceLoaderClientHtml {
 	}
 
 	/**
-	 * @return array Attribute key-value pairs for the HTML document element
+	 * @return array<string,string> Attributes pairs for the HTML document element
 	 */
 	public function getDocumentAttributes() {
 		return [ 'class' => 'client-nojs' ];
@@ -220,60 +232,65 @@ class ResourceLoaderClientHtml {
 	 * - Async external script-src.
 	 *
 	 * Reasons:
-	 * - Script execution may be blocked on preceeding stylesheets.
+	 * - Script execution may be blocked on preceding stylesheets.
 	 * - Async scripts are not blocked on stylesheets.
 	 * - Inline scripts can't be asynchronous.
 	 * - For styles, earlier is better.
 	 *
+	 * @param string|null $nojsClass Class name that caller uses on HTML document element
 	 * @return string|WrappedStringList HTML
 	 */
-	public function getHeadHtml() {
+	public function getHeadHtml( $nojsClass = null ) {
 		$nonce = $this->options['nonce'];
 		$data = $this->getData();
 		$chunks = [];
 
 		// Change "client-nojs" class to client-js. This allows easy toggling of UI components.
-		// This happens synchronously on every page view to avoid flashes of wrong content.
-		// See also #getDocumentAttributes() and /resources/src/startup.js.
-		$chunks[] = Html::inlineScript(
-			'document.documentElement.className = document.documentElement.className'
-			. '.replace( /(^|\s)client-nojs(\s|$)/, "$1client-js$2" );',
-			$nonce
-		);
+		// This must happen synchronously on every page view to avoid flashes of wrong content.
+		// See also startup/startup.js.
+		$nojsClass = $nojsClass ?? $this->getDocumentAttributes()['class'];
+		$jsClass = preg_replace( '/(^|\s)client-nojs(\s|$)/', '$1client-js$2', $nojsClass );
+		$jsClassJson = $this->context->encodeJson( $jsClass );
+		$script = <<<JAVASCRIPT
+document.documentElement.className = {$jsClassJson};
+JAVASCRIPT;
 
-		// Inline RLQ: Set page variables
+		// Inline script: Declare mw.config variables for this page.
 		if ( $this->config ) {
-			$chunks[] = ResourceLoader::makeInlineScript(
-				ResourceLoader::makeConfigSetScript( $this->config ),
-				$nonce
-			);
+			$confJson = $this->context->encodeJson( $this->config );
+			$script .= <<<JAVASCRIPT
+RLCONF = {$confJson};
+JAVASCRIPT;
 		}
 
-		// Inline RLQ: Initial module states
+		// Inline script: Declare initial module states for this page.
 		$states = array_merge( $this->exemptStates, $data['states'] );
 		if ( $states ) {
-			$chunks[] = ResourceLoader::makeInlineScript(
-				ResourceLoader::makeLoaderStateScript( $states ),
-				$nonce
-			);
+			$stateJson = $this->context->encodeJson( $states );
+			$script .= <<<JAVASCRIPT
+RLSTATE = {$stateJson};
+JAVASCRIPT;
 		}
+
+		// Inline script: Declare general modules to load on this page.
+		if ( $data['general'] ) {
+			$pageModulesJson = $this->context->encodeJson( $data['general'] );
+			$script .= <<<JAVASCRIPT
+RLPAGEMODULES = {$pageModulesJson};
+JAVASCRIPT;
+		}
+
+		if ( !$this->context->getDebug() ) {
+			$script = ResourceLoader::filter( 'minify-js', $script, [ 'cache' => false ] );
+		}
+
+		$chunks[] = Html::inlineScript( $script, $nonce );
 
 		// Inline RLQ: Embedded modules
 		if ( $data['embed']['general'] ) {
 			$chunks[] = $this->getLoad(
 				$data['embed']['general'],
 				ResourceLoaderModule::TYPE_COMBINED,
-				$nonce
-			);
-		}
-
-		// Inline RLQ: Load general modules
-		if ( $data['general'] ) {
-			$chunks[] = ResourceLoader::makeInlineScript(
-				'RLPAGEMODULES='
-					. ResourceLoader::encodeJsonForScript( $data['general'] )
-					. ';'
-					. 'mw.loader.load(RLPAGEMODULES);',
 				$nonce
 			);
 		}
@@ -298,7 +315,7 @@ class ResourceLoaderClientHtml {
 
 		// Async scripts. Once the startup is loaded, inline RLQ scripts will run.
 		// Pass-through a custom 'target' from OutputPage (T143066).
-		$startupQuery = [];
+		$startupQuery = [ 'raw' => '1' ];
 		foreach ( [ 'target', 'safemode' ] as $param ) {
 			if ( $this->options[$param] !== null ) {
 				$startupQuery[$param] = (string)$this->options[$param];
@@ -332,7 +349,7 @@ class ResourceLoaderClientHtml {
 		return WrappedString::join( "\n", $chunks );
 	}
 
-	private function getContext( $group, $type ) {
+	private function getContext( $group, $type ): ResourceLoaderContext {
 		return self::makeContext( $this->context, $group, $type );
 	}
 
@@ -342,31 +359,30 @@ class ResourceLoaderClientHtml {
 
 	private static function makeContext( ResourceLoaderContext $mainContext, $group, $type,
 		array $extraQuery = []
-	) {
-		// Create new ResourceLoaderContext so that $extraQuery may trigger isRaw().
-		$req = new FauxRequest( array_merge( $mainContext->getRequest()->getValues(), $extraQuery ) );
+	): DerivativeResourceLoaderContext {
+		// Allow caller to setVersion() and setModules()
+		$ret = new DerivativeResourceLoaderContext( $mainContext );
 		// Set 'only' if not combined
-		$req->setVal( 'only', $type === ResourceLoaderModule::TYPE_COMBINED ? null : $type );
+		$ret->setOnly( $type === ResourceLoaderModule::TYPE_COMBINED ? null : $type );
 		// Remove user parameter in most cases
 		if ( $group !== 'user' && $group !== 'private' ) {
-			$req->setVal( 'user', null );
+			$ret->setUser( null );
 		}
-		$context = new ResourceLoaderContext( $mainContext->getResourceLoader(), $req );
-		// Allow caller to setVersion() and setModules()
-		$ret = new DerivativeResourceLoaderContext( $context );
-		$ret->setContentOverrideCallback( $mainContext->getContentOverrideCallback() );
+		if ( isset( $extraQuery['raw'] ) ) {
+			$ret->setRaw( true );
+		}
 		return $ret;
 	}
 
 	/**
-	 * Explicily load or embed modules on a page.
+	 * Explicitly load or embed modules on a page.
 	 *
 	 * @param ResourceLoaderContext $mainContext
-	 * @param array $modules One or more module names
+	 * @param string[] $modules One or more module names
 	 * @param string $only ResourceLoaderModule TYPE_ class constant
 	 * @param array $extraQuery [optional] Array with extra query parameters for the request
 	 * @param string|null $nonce [optional] Content-Security-Policy nonce
-	 *  (from OutputPage::getCSPNonce)
+	 *  (from OutputPage->getCSP->getNonce())
 	 * @return string|WrappedStringList HTML
 	 */
 	public static function makeLoad( ResourceLoaderContext $mainContext, array $modules, $only,
@@ -379,7 +395,6 @@ class ResourceLoaderClientHtml {
 		sort( $modules );
 
 		if ( $mainContext->getDebug() && count( $modules ) > 1 ) {
-			$chunks = [];
 			// Recursively call us for every item
 			foreach ( $modules as $name ) {
 				$chunks[] = self::makeLoad( $mainContext, [ $name ], $only, $extraQuery, $nonce );
@@ -415,7 +430,8 @@ class ResourceLoaderClientHtml {
 
 				// Link/embed each set
 				foreach ( $moduleSets as list( $embed, $moduleSet ) ) {
-					$context->setModules( array_keys( $moduleSet ) );
+					$moduleSetNames = array_keys( $moduleSet );
+					$context->setModules( $moduleSetNames );
 					if ( $embed ) {
 						// Decide whether to use style or script element
 						if ( $only == ResourceLoaderModule::TYPE_STYLES ) {
@@ -429,36 +445,33 @@ class ResourceLoaderClientHtml {
 							);
 						}
 					} else {
-						// See if we have one or more raw modules
-						$isRaw = false;
-						foreach ( $moduleSet as $key => $module ) {
-							$isRaw |= $module->isRaw();
-						}
-
 						// Special handling for the user group; because users might change their stuff
 						// on-wiki like user pages, or user preferences; we need to find the highest
 						// timestamp of these user-changeable modules so we can ensure cache misses on change
 						// This should NOT be done for the site group (T29564) because anons get that too
 						// and we shouldn't be putting timestamps in CDN-cached HTML
 						if ( $group === 'user' ) {
-							// Must setModules() before makeVersionQuery()
-							$context->setVersion( $rl->makeVersionQuery( $context ) );
+							$context->setVersion( $rl->makeVersionQuery( $context, $moduleSetNames ) );
 						}
 
+						// Must setModules() before createLoaderURL()
 						$url = $rl->createLoaderURL( $source, $context, $extraQuery );
 
 						// Decide whether to use 'style' or 'script' element
 						if ( $only === ResourceLoaderModule::TYPE_STYLES ) {
 							$chunk = Html::linkedStyle( $url );
-						} elseif ( $context->getRaw() || $isRaw ) {
+						} elseif ( $context->getRaw() ) {
+							// This request is asking for the module to be delivered standalone,
+							// (aka "raw") without communicating to any mw.loader client.
+							// For:
+							// - startup (naturally because this is what will define mw.loader)
 							$chunk = Html::element( 'script', [
-								// In SpecialJavaScriptTest, QUnit must load synchronous
-								'async' => !isset( $extraQuery['sync'] ),
+								'async' => true,
 								'src' => $url
 							] );
 						} else {
 							$chunk = ResourceLoader::makeInlineScript(
-								Xml::encodeJsCall( 'mw.loader.load', [ $url ] ),
+								'mw.loader.load(' . $mainContext->encodeJson( $url ) . ');',
 								$nonce
 							);
 						}

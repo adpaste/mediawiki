@@ -3,9 +3,9 @@
 /**
  * @group Media
  */
-class BitmapMetadataHandlerTest extends MediaWikiTestCase {
+class BitmapMetadataHandlerTest extends MediaWikiIntegrationTestCase {
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->setMwGlobals( 'wgShowEXIF', false );
@@ -77,21 +77,18 @@ class BitmapMetadataHandlerTest extends MediaWikiTestCase {
 		$meta = BitmapMetadataHandler::Jpeg( $this->filePath .
 			'iptc-timetest.jpg' );
 
+		// raw date is 2020:07:13 14:04:05+11:32
 		$this->assertEquals( '2020:07:14 01:36:05', $meta['DateTimeDigitized'] );
+		// raw date is 1997:03:02 03:01:02-03:00
 		$this->assertEquals( '1997:03:02 00:01:02', $meta['DateTimeOriginal'] );
-	}
 
-	/**
-	 * File has an invalid time (+ one valid but really weird time)
-	 * that shouldn't be included
-	 * @covers BitmapMetadataHandler::Jpeg
-	 */
-	public function testIPTCDatesInvalid() {
 		$meta = BitmapMetadataHandler::Jpeg( $this->filePath .
 			'iptc-timetest-invalid.jpg' );
 
+		// raw date is 1845:03:02 03:01:02-03:00
 		$this->assertEquals( '1845:03:02 00:01:02', $meta['DateTimeOriginal'] );
-		$this->assertFalse( isset( $meta['DateTimeDigitized'] ) );
+		// raw date is 1942:07:13 25:05:02+00:00
+		$this->assertSame( '1942:07:14 01:05:02', $meta['DateTimeDigitized'] );
 	}
 
 	/**
@@ -129,9 +126,10 @@ class BitmapMetadataHandlerTest extends MediaWikiTestCase {
 	public function testPNGXMP() {
 		$this->checkPHPExtension( 'xml' );
 
-		$handler = new BitmapMetadataHandler();
-		$result = $handler->PNG( $this->filePath . 'xmp.png' );
+		$result = BitmapMetadataHandler::PNG( $this->filePath . 'xmp.png' );
 		$expected = [
+			'width' => 50,
+			'height' => 50,
 			'frameCount' => 0,
 			'loopCount' => 1,
 			'duration' => 0,
@@ -149,8 +147,7 @@ class BitmapMetadataHandlerTest extends MediaWikiTestCase {
 	 * @covers BitmapMetadataHandler::png
 	 */
 	public function testPNGNative() {
-		$handler = new BitmapMetadataHandler();
-		$result = $handler->PNG( $this->filePath . 'Png-native-test.png' );
+		$result = BitmapMetadataHandler::PNG( $this->filePath . 'Png-native-test.png' );
 		$expected = 'http://example.com/url';
 		$this->assertEquals( $expected, $result['metadata']['Identifier']['x-default'] );
 	}
@@ -159,8 +156,7 @@ class BitmapMetadataHandlerTest extends MediaWikiTestCase {
 	 * @covers BitmapMetadataHandler::getTiffByteOrder
 	 */
 	public function testTiffByteOrder() {
-		$handler = new BitmapMetadataHandler();
-		$res = $handler->getTiffByteOrder( $this->filePath . 'test.tiff' );
+		$res = BitmapMetadataHandler::getTiffByteOrder( $this->filePath . 'test.tiff' );
 		$this->assertEquals( 'LE', $res );
 	}
 }

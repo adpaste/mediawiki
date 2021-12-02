@@ -1,6 +1,6 @@
 <?php
 
-class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
+class FileBackendDBRepoWrapperTest extends MediaWikiIntegrationTestCase {
 	protected $backendName = 'foo-backend';
 	protected $repoName = 'pureTestRepo';
 
@@ -20,7 +20,7 @@ class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
 
 		$dbMock->expects( $dbReadsExpected )
 			->method( 'selectField' )
-			->will( $this->returnValue( $dbReturnValue ) );
+			->willReturn( $dbReturnValue );
 
 		$newPaths = $wrapperMock->getBackendPaths( [ $originalPath ], $latest );
 
@@ -96,11 +96,11 @@ class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
 
 		$dbMock->expects( $this->once() )
 			->method( 'selectField' )
-			->will( $this->returnValue( '96246614d75ba1703bdfd5d7660bb57407aaf5d9' ) );
+			->willReturn( '96246614d75ba1703bdfd5d7660bb57407aaf5d9' );
 
 		$backendMock->expects( $this->once() )
 			->method( 'getFileContentsMulti' )
-			->will( $this->returnValue( [ $sha1Path => 'foo' ] ) );
+			->willReturn( [ $sha1Path => 'foo' ] );
 
 		$result = $wrapperMock->getFileContentsMulti( [ 'srcs' => [ $filenamePath ] ] );
 
@@ -112,7 +112,7 @@ class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
 	}
 
 	protected function getMocks() {
-		$dbMock = $this->getMockBuilder( Wikimedia\Rdbms\DatabaseMysqli::class )
+		$dbMock = $this->getMockBuilder( Wikimedia\Rdbms\IDatabase::class )
 			->disableOriginalClone()
 			->disableOriginalConstructor()
 			->getMock();
@@ -125,7 +125,7 @@ class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
 			->getMock();
 
 		$wrapperMock = $this->getMockBuilder( FileBackendDBRepoWrapper::class )
-			->setMethods( [ 'getDB' ] )
+			->onlyMethods( [ 'getDB' ] )
 			->setConstructorArgs( [ [
 					'backend' => $backendMock,
 					'repoName' => $this->repoName,
@@ -133,7 +133,7 @@ class FileBackendDBRepoWrapperTest extends MediaWikiTestCase {
 				] ] )
 			->getMock();
 
-		$wrapperMock->expects( $this->any() )->method( 'getDB' )->will( $this->returnValue( $dbMock ) );
+		$wrapperMock->method( 'getDB' )->willReturn( $dbMock );
 
 		return [ $dbMock, $backendMock, $wrapperMock ];
 	}

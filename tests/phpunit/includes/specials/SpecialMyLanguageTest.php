@@ -1,10 +1,12 @@
 <?php
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * @group Database
  * @covers SpecialMyLanguage
  */
-class SpecialMyLanguageTest extends MediaWikiTestCase {
+class SpecialMyLanguageTest extends MediaWikiIntegrationTestCase {
 	public function addDBDataOnce() {
 		$titles = [
 			'Page/Another',
@@ -16,12 +18,12 @@ class SpecialMyLanguageTest extends MediaWikiTestCase {
 		foreach ( $titles as $title ) {
 			$page = WikiPage::factory( Title::newFromText( $title ) );
 			if ( $page->getId() == 0 ) {
-				$page->doEditContent(
+				$page->doUserEditContent(
 					new WikitextContent( 'UTContent' ),
+					User::newFromName( 'UTSysop' ),
 					'UTPageSummary',
-					EDIT_NEW,
-					false,
-					User::newFromName( 'UTSysop' ) );
+					EDIT_NEW
+				);
 			}
 		}
 	}
@@ -36,7 +38,11 @@ class SpecialMyLanguageTest extends MediaWikiTestCase {
 	 */
 	public function testFindTitle( $expected, $subpage, $langCode, $userLang ) {
 		$this->setContentLang( $langCode );
-		$special = new SpecialMyLanguage();
+		$services = MediaWikiServices::getInstance();
+		$special = new SpecialMyLanguage(
+			$services->getLanguageNameUtils(),
+			$services->getWikiPageFactory()
+		);
 		$special->getContext()->setLanguage( $userLang );
 		// Test with subpages both enabled and disabled
 		$this->mergeMwGlobalArrayValue( 'wgNamespacesWithSubpages', [ NS_MAIN => true ] );
@@ -73,6 +79,8 @@ class SpecialMyLanguageTest extends MediaWikiTestCase {
 			[ 'Page/Another/ar', 'Page/Another/de', 'en', 'arz' ],
 			[ 'Page/Another/ru', 'Page/Another/ru', 'en', 'arz' ],
 			[ 'Page/Another/ar', 'Page/Another/ru', 'en', 'ar' ],
+			[ null, 'Special:Blankpage', 'en', 'ar' ],
+			[ null, 'Media:Fail', 'en', 'ar' ],
 		];
 	}
 }

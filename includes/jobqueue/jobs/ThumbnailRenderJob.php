@@ -21,6 +21,8 @@
  * @ingroup JobQueue
  */
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Job for asynchronous rendering of thumbnails.
  *
@@ -36,7 +38,8 @@ class ThumbnailRenderJob extends Job {
 
 		$transformParams = $this->params['transformParams'];
 
-		$file = wfLocalFile( $this->title );
+		$file = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()
+			->newFile( $this->title );
 		$file->load( File::READ_LATEST );
 
 		if ( $file && $file->exists() ) {
@@ -101,11 +104,12 @@ class ThumbnailRenderJob extends Job {
 			$thumbUrl = '//' . $wgUploadThumbnailRenderHttpCustomDomain . $parsedUrl['path'];
 		}
 
-		wfDebug( __METHOD__ . ": hitting url {$thumbUrl}\n" );
+		wfDebug( __METHOD__ . ": hitting url {$thumbUrl}" );
 
 		// T203135 We don't wait for the request to complete, as this is mostly fire & forget.
 		// Looking at the HTTP status of requests that take less than 1s is a sanity check.
-		$request = MWHttpRequest::factory( $thumbUrl,
+		$request = MediaWikiServices::getInstance()->getHttpRequestFactory()->create(
+			$thumbUrl,
 			[ 'method' => 'HEAD', 'followRedirects' => true, 'timeout' => 1 ],
 			__METHOD__
 		);
@@ -116,7 +120,7 @@ class ThumbnailRenderJob extends Job {
 
 		$status = $request->execute();
 		$statusCode = $request->getStatus();
-		wfDebug( __METHOD__ . ": received status {$statusCode}\n" );
+		wfDebug( __METHOD__ . ": received status {$statusCode}" );
 
 		// 400 happens when requesting a size greater or equal than the original
 		// TODO use proper error signaling. 400 could mean a number of other things.

@@ -23,8 +23,8 @@
 
 namespace Wikimedia\Rdbms;
 
-use InvalidArgumentException;
 use BadMethodCallException;
+use InvalidArgumentException;
 
 /**
  * An LBFactory class that always returns a single database object.
@@ -34,6 +34,8 @@ class LBFactorySingle extends LBFactory {
 	private $lb;
 
 	/**
+	 * You probably want to use {@link newFromConnection} instead.
+	 *
 	 * @param array $conf An associative array with one member:
 	 *  - connection: The IDatabase connection object
 	 */
@@ -44,8 +46,12 @@ class LBFactorySingle extends LBFactory {
 			throw new InvalidArgumentException( "Missing 'connection' argument." );
 		}
 
-		$lb = new LoadBalancerSingle( array_merge( $this->baseLoadBalancerParams(), $conf ) );
+		$lb = new LoadBalancerSingle( array_merge(
+			$this->baseLoadBalancerParams( $this->getOwnershipId() ),
+			$conf
+		) );
 		$this->initLoadBalancer( $lb );
+
 		$this->lb = $lb;
 	}
 
@@ -63,51 +69,40 @@ class LBFactorySingle extends LBFactory {
 		) );
 	}
 
-	/**
-	 * @param bool|string $domain (unused)
-	 * @return LoadBalancerSingle
-	 */
-	public function newMainLB( $domain = false ) {
-		return $this->lb;
-	}
-
-	/**
-	 * @param bool|string $domain (unused)
-	 * @return LoadBalancerSingle
-	 */
-	public function getMainLB( $domain = false ) {
-		return $this->lb;
-	}
-
-	public function newExternalLB( $cluster ) {
+	public function newMainLB( $domain = false, $owner = null ): ILoadBalancer {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new BadMethodCallException( "Method is not supported." );
 	}
 
-	public function getExternalLB( $cluster ) {
+	public function getMainLB( $domain = false ): ILoadBalancer {
+		return $this->lb;
+	}
+
+	public function newExternalLB( $cluster, $owner = null ): ILoadBalancer {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
 		throw new BadMethodCallException( "Method is not supported." );
 	}
 
-	/**
-	 * @return LoadBalancerSingle[] Map of (cluster name => LoadBalancer)
-	 */
-	public function getAllMainLBs() {
-		return [ 'DEFAULT' => $this->lb ];
+	public function getExternalLB( $cluster ): ILoadBalancer {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
+		throw new BadMethodCallException( "Method is not supported." );
 	}
 
-	/**
-	 * @return LoadBalancerSingle[] Map of (cluster name => LoadBalancer)
-	 */
-	public function getAllExternalLBs() {
+	public function getAllMainLBs(): array {
+		return [ self::CLUSTER_MAIN_DEFAULT => $this->lb ];
+	}
+
+	public function getAllExternalLBs(): array {
 		return [];
 	}
 
-	/**
-	 * @param string|callable $callback
-	 * @param array $params
-	 */
 	public function forEachLB( $callback, array $params = [] ) {
 		if ( isset( $this->lb ) ) { // may not be set during _destruct()
 			$callback( $this->lb, ...$params );
 		}
+	}
+
+	public function __destruct() {
+		// do nothing since the connection was injected
 	}
 }

@@ -24,18 +24,27 @@
  * of a given root page.
  */
 class SubpageImportTitleFactory implements ImportTitleFactory {
+	/** @var TitleFactory */
+	private $titleFactory;
+
 	/** @var Title */
-	protected $rootPage;
+	private $rootPage;
 
 	/**
-	 * @param Title $rootPage The root page under which all pages should be
-	 * created
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param TitleFactory $titleFactory
+	 * @param Title $rootPage The root page under which all pages should be created
 	 */
-	public function __construct( Title $rootPage ) {
-		if ( !MWNamespace::hasSubpages( $rootPage->getNamespace() ) ) {
+	public function __construct(
+		NamespaceInfo $namespaceInfo,
+		TitleFactory $titleFactory,
+		Title $rootPage
+	) {
+		if ( !$namespaceInfo->hasSubpages( $rootPage->getNamespace() ) ) {
 			throw new MWException( "The root page you specified, $rootPage, is in a " .
 				"namespace where subpages are not allowed" );
 		}
+		$this->titleFactory = $titleFactory;
 		$this->rootPage = $rootPage;
 	}
 
@@ -48,7 +57,8 @@ class SubpageImportTitleFactory implements ImportTitleFactory {
 	 * @return Title|null
 	 */
 	public function createTitleFromForeignTitle( ForeignTitle $foreignTitle ) {
-		return Title::newFromText( $this->rootPage->getPrefixedDBkey() . '/' .
-			$foreignTitle->getFullText() );
+		return $this->titleFactory->newFromText(
+			$this->rootPage->getPrefixedDBkey() . '/' . $foreignTitle->getFullText()
+		);
 	}
 }

@@ -25,15 +25,16 @@ use Wikimedia\Assert\Assert;
 /**
  * Renders a diff for a single slot (that is, a diff between two content objects).
  *
- * Callers should obtain this class by invoking ContentHandler::getSlotDiffRendererClass
+ * Callers should obtain instances of this class by invoking ContentHandler::getSlotDiffRenderer
  * on the content handler of the new content object (ie. the one shown on the right side
  * of the diff), or of the old one if the new one does not exist.
  *
  * The default implementation just does a text diff on the native text representation.
  * Content handler extensions can subclass this to provide a more appropriate diff method by
- * overriding ContentHandler::getSlotDiffRendererClass. Other extensions that want to interfere
+ * overriding ContentHandler::getSlotDiffRendererInternal. Other extensions that want to interfere
  * with diff generation in some way can use the GetSlotDiffRenderer hook.
  *
+ * @stable to extend
  * @ingroup DifferenceEngine
  */
 abstract class SlotDiffRenderer {
@@ -44,12 +45,13 @@ abstract class SlotDiffRenderer {
 	 * must have the same content model that was used to obtain this diff renderer.
 	 * @param Content|null $oldContent
 	 * @param Content|null $newContent
-	 * @return string
+	 * @return string HTML, one or more <tr> tags.
 	 */
 	abstract public function getDiff( Content $oldContent = null, Content $newContent = null );
 
 	/**
 	 * Add modules needed for correct styling/behavior of the diff.
+	 * @stable to override
 	 * @param OutputPage $output
 	 */
 	public function addModules( OutputPage $output ) {
@@ -57,7 +59,8 @@ abstract class SlotDiffRenderer {
 
 	/**
 	 * Return any extra keys to split the diff cache by.
-	 * @return array
+	 * @stable to override
+	 * @return string[]
 	 */
 	public function getExtraCacheKeys() {
 		return [];

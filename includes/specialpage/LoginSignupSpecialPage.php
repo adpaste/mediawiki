@@ -24,6 +24,7 @@
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthenticationResponse;
 use MediaWiki\Auth\AuthManager;
+use MediaWiki\Auth\PasswordAuthenticationRequest;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Session\SessionManager;
@@ -49,12 +50,14 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	protected $mLoaded = false;
 	protected $mLoadedRequest = false;
 	protected $mSecureLoginUrl;
+	private $reasonValidatorResult = null;
 
 	/** @var string */
 	protected $securityLevel;
 
 	/** @var bool True if the user if creating an account for someone else. Flag used for internal
-	 * communication, only set at the very end. */
+	 * communication, only set at the very end.
+	 */
 	protected $proxyAccountCreation;
 	/** @var User FIXME another flag for passing data. */
 	protected $targetUser;
@@ -79,9 +82,9 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	 */
 	abstract protected function logAuthResult( $success, $status = null );
 
-	public function __construct( $name ) {
+	public function __construct( $name, $restriction = '' ) {
 		global $wgUseMediaWikiUIEverywhere;
-		parent::__construct( $name );
+		parent::__construct( $name, $restriction );
 
 		// Override UseMediaWikiEverywhere to true, to force login and create form to use mw ui
 		$wgUseMediaWikiUIEverywhere = true;
@@ -94,9 +97,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 
 	/**
 	 * Load basic request parameters for this Special page.
-	 * @param string $subPage
 	 */
-	private function loadRequestParameters( $subPage ) {
+	private function loadRequestParameters() {
 		if ( $this->mLoadedRequest ) {
 			return;
 		}
@@ -104,11 +106,11 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		$request = $this->getRequest();
 
 		$this->mPosted = $request->wasPosted();
-		$this->mIsReturn = $subPage === 'return';
-		$this->mAction = $request->getVal( 'action' );
+		$this->mAction = $request->getRawVal( 'action' );
 		$this->mFromHTTP = $request->getBool( 'fromhttp', false )
 			|| $request->getBool( 'wpFromhttp', false );
-		$this->mStickHTTPS = ( !$this->mFromHTTP && $request->getProtocol() === 'https' )
+		$this->mStickHTTPS = $this->getConfig()->get( 'ForceHTTPS' )
+			|| ( !$this->mFromHTTP && $request->getProtocol() === 'https' )
 			|| $request->getBool( 'wpForceHttps', false );
 		$this->mLanguage = $request->getText( 'uselang' );
 		$this->mReturnTo = $request->getVal( 'returnto', '' );
@@ -117,13 +119,13 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 
 	/**
 	 * Load data from request.
-	 * @private
+	 * @internal
 	 * @param string $subPage Subpage of Special:Userlogin
 	 */
 	protected function load( $subPage ) {
 		global $wgSecureLogin;
 
-		$this->loadRequestParameters( $subPage );
+		$this->loadRequestParameters();
 		if ( $this->mLoaded ) {
 			return;
 		}
@@ -132,8 +134,9 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 
 		$securityLevel = $this->getRequest()->getText( 'force' );
 		if (
-			$securityLevel && AuthManager::singleton()->securitySensitiveOperationStatus(
-				$securityLevel ) === AuthManager::SEC_REAUTH
+			$securityLevel &&
+				MediaWikiServices::getInstance()->getAuthManager()->securitySensitiveOperationStatus(
+					$securityLevel ) === AuthManager::SEC_REAUTH
 		) {
 			$this->securityLevel = $securityLevel;
 		}
@@ -202,12 +205,13 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 
 	protected function beforeExecute( $subPage ) {
 		// finish initializing the class before processing the request - T135924
-		$this->loadRequestParameters( $subPage );
+		$this->loadRequestParameters();
 		return parent::beforeExecute( $subPage );
 	}
 
 	/**
 	 * @param string|null $subPage
+	 * @suppress PhanTypeObjectUnsetDeclaredProperty
 	 */
 	public function execute( $subPage ) {
 		if ( $this->mPosted ) {
@@ -219,12 +223,15 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 			} );
 		}
 
-		$authManager = AuthManager::singleton();
+		$authManager = MediaWikiServices::getInstance()->getAuthManager();
 		$session = SessionManager::getGlobalSession();
 
 		// Session data is used for various things in the authentication process, so we must make
 		// sure a session cookie or some equivalent mechanism is set.
 		$session->persist();
+		// Explicitly disable cache to ensure cookie blocks may be set (T152462).
+		// (Technically redundant with sessions persisting from this page.)
+		$this->getOutput()->enableClientCache( false );
 
 		$this->load( $subPage );
 		$this->setHeaders();
@@ -257,8 +264,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		 * reauthenticate for security reasons.
 		 */
 		if ( !$this->isSignup() && !$this->mPosted && !$this->securityLevel &&
-			 ( $this->mReturnTo !== '' || $this->mReturnToQuery !== '' ) &&
-			 $this->getUser()->isLoggedIn()
+			( $this->mReturnTo !== '' || $this->mReturnToQuery !== '' ) &&
+			$this->getUser()->isRegistered()
 		) {
 			$this->successfulAction();
 			return;
@@ -274,9 +281,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 						: 'warning' ) => $this->mEntryError,
 				] + $this->getRequest()->getQueryValues();
 			$url = $title->getFullURL( $query, false, PROTO_HTTPS );
-			if ( $wgSecureLogin && !$this->mFromHTTP &&
-				 wfCanIPUseHTTPS( $this->getRequest()->getIP() )
-			) {
+			if ( $wgSecureLogin && !$this->mFromHTTP ) {
 				// Avoid infinite redirect
 				$url = wfAppendQuery( $url, 'fromhttp=1' );
 				$this->getOutput()->redirect( $url );
@@ -441,7 +446,9 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		}
 		if ( $extraMessages ) {
 			$extraMessages = Status::wrap( $extraMessages );
-			$out->addWikiTextAsInterface( $extraMessages->getWikiText() );
+			$out->addWikiTextAsInterface(
+				$extraMessages->getWikiText( false, false, $this->getLanguage() )
+			);
 		}
 
 		$out->addHTML( $injected_html );
@@ -477,7 +484,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	 * reflected in the current request.
 	 */
 	protected function setSessionUserForCurrentRequest() {
-		global $wgUser, $wgLang;
+		global $wgLang;
 
 		$context = RequestContext::getMain();
 		$localContext = $this->getContext();
@@ -488,7 +495,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 
 		$user = $context->getRequest()->getSession()->getUser();
 
-		$wgUser = $user;
+		StubGlobalUser::setUser( $user );
 		$context->setUser( $user );
 
 		$wgLang = $context->getLanguage();
@@ -506,7 +513,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	 * @throws MWException
 	 * @throws PermissionsError
 	 * @throws ReadOnlyError
-	 * @private
+	 * @internal
 	 */
 	protected function mainLoginForm( array $requests, $msg = '', $msgtype = 'error' ) {
 		$user = $this->getUser();
@@ -517,7 +524,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		if ( !$requests ) {
 			$this->authAction = $this->getDefaultAction( $this->subPage );
 			$this->authForm = null;
-			$requests = AuthManager::singleton()->getAuthenticationRequests( $this->authAction, $user );
+			$requests = MediaWikiServices::getInstance()->getAuthManager()
+				->getAuthenticationRequests( $this->authAction, $user );
 		}
 
 		// Generic styles and scripts for both login and signup form
@@ -534,9 +542,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 				$this->msg( 'createacct-imgcaptcha-help' )->parse() );
 
 			// Additional styles and scripts for signup form
-			$out->addModules( [
-				'mediawiki.special.userlogin.signup.js'
-			] );
+			$out->addModules( 'mediawiki.special.createaccount' );
 			$out->addModuleStyles( [
 				'mediawiki.special.userlogin.signup.styles'
 			] );
@@ -561,7 +567,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		// warning header for non-standard workflows (e.g. security reauthentication)
 		if (
 			!$this->isSignup() &&
-			$this->getUser()->isLoggedIn() &&
+			$this->getUser()->isRegistered() &&
 			$this->authAction !== AuthManager::ACTION_LOGIN_CONTINUE
 		) {
 			$reauthMessage = $this->securityLevel ? 'userlogin-reauth' : 'userlogin-loggedin';
@@ -644,7 +650,6 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	 * @return HTMLForm
 	 */
 	protected function getAuthForm( array $requests, $action, $msg = '', $msgType = 'error' ) {
-		global $wgSecureLogin;
 		// FIXME merge this with parent
 
 		if ( isset( $this->authForm ) ) {
@@ -656,7 +661,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		// get basic form description from the auth logic
 		$fieldInfo = AuthenticationRequest::mergeFieldInfo( $requests );
 		// this will call onAuthChangeFormFields()
-		$formDescriptor = static::fieldInfoToFormDescriptor( $requests, $fieldInfo, $this->authAction );
+		$formDescriptor = $this->fieldInfoToFormDescriptor( $requests, $fieldInfo, $this->authAction );
 		$this->postProcessFormDescriptor( $formDescriptor, $requests );
 
 		$context = $this->getContext();
@@ -673,7 +678,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		}
 		$form->addHiddenField( 'force', $this->securityLevel );
 		$form->addHiddenField( $this->getTokenName(), $this->getToken()->toString() );
-		if ( $wgSecureLogin ) {
+		$config = $this->getConfig();
+		if ( $config->get( 'SecureLogin' ) && !$config->get( 'ForceHTTPS' ) ) {
 			// If using HTTPS coming from HTTP, then the 'fromhttp' parameter must be preserved
 			if ( !$this->isSignup() ) {
 				$form->addHiddenField( 'wpForceHttps', (int)$this->mStickHTTPS );
@@ -695,46 +701,12 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		return $form;
 	}
 
+	/** @inheritDoc */
 	public function onAuthChangeFormFields(
 		array $requests, array $fieldInfo, array &$formDescriptor, $action
 	) {
-		$coreFieldDescriptors = $this->getFieldDefinitions();
-
-		// keep the ordering from getCoreFieldDescriptors() where there is no explicit weight
-		foreach ( $coreFieldDescriptors as $fieldName => $coreField ) {
-			$requestField = $formDescriptor[$fieldName] ?? [];
-
-			// remove everything that is not in the fieldinfo, is not marked as a supplemental field
-			// to something in the fieldinfo, and is not an info field or a submit button
-			if (
-				!isset( $fieldInfo[$fieldName] )
-				&& (
-					!isset( $coreField['baseField'] )
-					|| !isset( $fieldInfo[$coreField['baseField']] )
-				)
-				&& (
-					!isset( $coreField['type'] )
-					|| !in_array( $coreField['type'], [ 'submit', 'info' ], true )
-				)
-			) {
-				$coreFieldDescriptors[$fieldName] = null;
-				continue;
-			}
-
-			// core message labels should always take priority
-			if (
-				isset( $coreField['label'] )
-				|| isset( $coreField['label-message'] )
-				|| isset( $coreField['label-raw'] )
-			) {
-				unset( $requestField['label'], $requestField['label-message'], $coreField['label-raw'] );
-			}
-
-			$coreFieldDescriptors[$fieldName] += $requestField;
-		}
-
-		$formDescriptor = array_filter( $coreFieldDescriptors + $formDescriptor );
-		return true;
+		$formDescriptor = self::mergeDefaultFormDescriptor( $fieldInfo, $formDescriptor,
+			$this->getFieldDefinitions() );
 	}
 
 	/**
@@ -755,9 +727,10 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	protected function getFieldDefinitions() {
 		global $wgEmailConfirmToEdit;
 
-		$isLoggedIn = $this->getUser()->isLoggedIn();
+		$isRegistered = $this->getUser()->isRegistered();
 		$continuePart = $this->isContinued() ? 'continue-' : '';
-		$anotherPart = $isLoggedIn ? 'another-' : '';
+		$anotherPart = $isRegistered ? 'another-' : '';
+		// @phan-suppress-next-line PhanUndeclaredMethod
 		$expiration = $this->getRequest()->getSession()->getProvider()->getRememberUserDuration();
 		$expirationDays = ceil( $expiration / ( 3600 * 24 ) );
 		$secureLoginLink = '';
@@ -777,8 +750,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		if ( $this->isSignup() ) {
 			$fieldDefinitions = [
 				'statusarea' => [
-					// used by the mediawiki.special.userlogin.signup.js module for error display
-					// FIXME merge this with HTMLForm's normal status (error) area
+					// Used by the mediawiki.special.createaccount module for error display.
+					// FIXME: Merge this with HTMLForm's normal status (error) area
 					'type' => 'info',
 					'raw' => true,
 					'default' => Html::element( 'div', [ 'id' => 'mw-createacct-status-area' ] ),
@@ -787,7 +760,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 				'username' => [
 					'label-raw' => $this->msg( 'userlogin-yourname' )->escaped() . $usernameHelpLink,
 					'id' => 'wpName2',
-					'placeholder-message' => $isLoggedIn ? 'createacct-another-username-ph'
+					'placeholder-message' => $isRegistered ? 'createacct-another-username-ph'
 						: 'userlogin-yourname-ph',
 				],
 				'mailpassword' => [
@@ -799,17 +772,19 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 				],
 				'password' => [
 					'id' => 'wpPassword2',
+					'autocomplete' => 'new-password',
 					'placeholder-message' => 'createacct-yourpassword-ph',
+					'help-message' => 'createacct-useuniquepass',
 					'hide-if' => [ '===', 'wpCreateaccountMail', '1' ],
 				],
 				'domain' => [],
 				'retype' => [
-					'baseField' => 'password',
 					'type' => 'password',
 					'label-message' => 'createacct-yourpasswordagain',
 					'id' => 'wpRetype',
 					'cssclass' => 'loginPassword',
 					'size' => 20,
+					'autocomplete' => 'new-password',
 					'validation-callback' => function ( $value, $alldata ) {
 						if ( empty( $alldata['mailpassword'] ) && !empty( $alldata['password'] ) ) {
 							if ( !$value ) {
@@ -830,6 +805,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 					'id' => 'wpEmail',
 					'cssclass' => 'loginText',
 					'size' => '20',
+					'autocomplete' => 'email',
 					// FIXME will break non-standard providers
 					'required' => $wgEmailConfirmToEdit,
 					'validation-callback' => function ( $value, $alldata ) {
@@ -853,12 +829,13 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 				],
 				'realname' => [
 					'type' => 'text',
-					'help-message' => $isLoggedIn ? 'createacct-another-realname-tip'
+					'help-message' => $isRegistered ? 'createacct-another-realname-tip'
 						: 'prefs-help-realname',
 					'label-message' => 'createacct-realname',
 					'cssclass' => 'loginText',
 					'size' => 20,
 					'id' => 'wpRealName',
+					'autocomplete' => 'name',
 				],
 				'reason' => [
 					// comment for the user creation log
@@ -867,6 +844,23 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 					'cssclass' => 'loginText',
 					'id' => 'wpReason',
 					'size' => '20',
+					'validation-callback' => function ( $value, $alldata ) {
+						// if the user sets an email address as the user creation reason, confirm that
+						// that was their intent
+						if ( $value && Sanitizer::validateEmail( $value ) ) {
+							if ( $this->reasonValidatorResult !== null ) {
+								return $this->reasonValidatorResult;
+							}
+							$this->reasonValidatorResult = true;
+							$authManager = MediaWikiServices::getInstance()->getAuthManager();
+							if ( !$authManager->getAuthenticationSessionData( 'reason-retry', false ) ) {
+								$authManager->setAuthenticationSessionData( 'reason-retry', true );
+								$this->reasonValidatorResult = $this->msg( 'createacct-reason-confirm' );
+							}
+							return $this->reasonValidatorResult;
+						}
+						return true;
+					},
 					'placeholder-message' => 'createacct-reason-ph',
 				],
 				'createaccount' => [
@@ -880,20 +874,48 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 				],
 			];
 		} else {
+			// When the user's password is too weak, they might be asked to provide a stronger one
+			// as a followup step. That is a form with only two fields, 'password' and 'retype',
+			// and they should behave more like account creation.
+			$passwordRequest = AuthenticationRequest::getRequestByClass( $this->authRequests,
+				PasswordAuthenticationRequest::class );
+			$changePassword = $passwordRequest && $passwordRequest->action == AuthManager::ACTION_CHANGE;
 			$fieldDefinitions = [
-				'username' => [
-					'label-raw' => $this->msg( 'userlogin-yourname' )->escaped() . $secureLoginLink,
-					'id' => 'wpName1',
-					'placeholder-message' => 'userlogin-yourname-ph',
-				],
-				'password' => [
-					'id' => 'wpPassword1',
-					'placeholder-message' => 'userlogin-yourpassword-ph',
+				'username' => (
+					[
+						'label-raw' => $this->msg( 'userlogin-yourname' )->escaped() . $secureLoginLink,
+						'id' => 'wpName1',
+						'placeholder-message' => 'userlogin-yourname-ph',
+					] + ( $changePassword ? [
+						// There is no username field on the AuthManager level when changing
+						// passwords. Fake one because password
+						'baseField' => 'password',
+						'nodata' => true,
+						'readonly' => true,
+						'cssclass' => 'mw-htmlform-hidden-field',
+					] : [] )
+				),
+				'password' => (
+					$changePassword ? [
+						'autocomplete' => 'new-password',
+						'placeholder-message' => 'createacct-yourpassword-ph',
+						'help-message' => 'createacct-useuniquepass',
+					] : [
+						'id' => 'wpPassword1',
+						'autocomplete' => 'current-password',
+						'placeholder-message' => 'userlogin-yourpassword-ph',
+					]
+				),
+				'retype' => [
+					'type' => 'password',
+					'autocomplete' => 'new-password',
+					'placeholder-message' => 'createacct-yourpasswordagain-ph',
 				],
 				'domain' => [],
 				'rememberMe' => [
 					// option for saving the user token to a cookie
 					'type' => 'check',
+					'cssclass' => 'mw-userlogin-rememberme',
 					'name' => 'wpRemember',
 					'label-message' => $this->msg( 'userlogin-remembermypassword' )
 						->numParams( $expirationDays ),
@@ -932,6 +954,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 			'name' => 'wpName',
 			'cssclass' => 'loginText',
 			'size' => 20,
+			'autocomplete' => 'username',
 			// 'required' => true,
 		];
 		$fieldDefinitions['password'] += [
@@ -974,7 +997,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 			}
 		}
 		if ( !$this->isSignup() && $this->showExtraInformation() ) {
-			$passwordReset = new PasswordReset( $this->getConfig(), AuthManager::singleton() );
+			$passwordReset = MediaWikiServices::getInstance()->getPasswordReset();
 			if ( $passwordReset->isAllowed( $this->getUser() )->isGood() ) {
 				$fieldDefinitions['passwordReset'] = [
 					'type' => 'info',
@@ -997,26 +1020,26 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 				if ( $this->mLanguage ) {
 					$linkq .= '&uselang=' . urlencode( $this->mLanguage );
 				}
-				$loggedIn = $this->getUser()->isLoggedIn();
+				$isRegistered = $this->getUser()->isRegistered();
 
 				$fieldDefinitions['createOrLogin'] = [
 					'type' => 'info',
 					'raw' => true,
 					'linkQuery' => $linkq,
-					'default' => function ( $params ) use ( $loggedIn, $linkTitle ) {
+					'default' => function ( $params ) use ( $isRegistered, $linkTitle ) {
 						return Html::rawElement( 'div',
-							[ 'id' => 'mw-createaccount' . ( !$loggedIn ? '-cta' : '' ),
-								'class' => ( $loggedIn ? 'mw-form-related-link-container' : 'mw-ui-vform-field' ) ],
-							( $loggedIn ? '' : $this->msg( 'userlogin-noaccount' )->escaped() )
+							[ 'id' => 'mw-createaccount' . ( !$isRegistered ? '-cta' : '' ),
+								'class' => ( $isRegistered ? 'mw-form-related-link-container' : 'mw-ui-vform-field' ) ],
+							( $isRegistered ? '' : $this->msg( 'userlogin-noaccount' )->escaped() )
 							. Html::element( 'a',
 								[
-									'id' => 'mw-createaccount-join' . ( $loggedIn ? '-loggedin' : '' ),
+									'id' => 'mw-createaccount-join' . ( $isRegistered ? '-loggedin' : '' ),
 									'href' => $linkTitle->getLocalURL( $params['linkQuery'] ),
-									'class' => ( $loggedIn ? '' : 'mw-ui-button' ),
+									'class' => ( $isRegistered ? '' : 'mw-ui-button' ),
 									'tabindex' => 100,
 								],
 								$this->msg(
-									$loggedIn ? 'userlogin-createanother' : 'userlogin-joinproject'
+									$isRegistered ? 'userlogin-createanother' : 'userlogin-joinproject'
 								)->text()
 							)
 						);
@@ -1069,13 +1092,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 	 * @return bool
 	 */
 	private function showCreateAccountLink() {
-		if ( $this->isSignup() ) {
-			return true;
-		} elseif ( $this->getUser()->isAllowed( 'createaccount' ) ) {
-			return true;
-		} else {
-			return false;
-		}
+		return $this->isSignup() ||
+			$this->getContext()->getAuthority()->isAllowed( 'createaccount' );
 	}
 
 	protected function getTokenName() {
@@ -1127,7 +1145,8 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 		}
 
 		$attr = [];
-		$targetLanguage = Language::factory( $lang );
+		$targetLanguage = MediaWikiServices::getInstance()->getLanguageFactory()
+			->getLanguage( $lang );
 		$attr['lang'] = $attr['hreflang'] = $targetLanguage->getHtmlCode();
 
 		return $this->getLinkRenderer()->makeKnownLink(
@@ -1154,7 +1173,7 @@ abstract class LoginSignupSpecialPage extends AuthManagerSpecialPage {
 			!$this->isSignup()
 		) {
 			$user = $this->getUser();
-			if ( $user->isLoggedIn() ) {
+			if ( $user->isRegistered() ) {
 				$formDescriptor['username']['default'] = $user->getName();
 			} else {
 				$formDescriptor['username']['default'] =

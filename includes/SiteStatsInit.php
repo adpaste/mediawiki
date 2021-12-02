@@ -17,14 +17,14 @@
  *
  * @file
  */
-use Wikimedia\Rdbms\IDatabase;
 use MediaWiki\MediaWikiServices;
+use Wikimedia\Rdbms\IDatabase;
 
 /**
  * Class designed for counting of stats.
  */
 class SiteStatsInit {
-	/* @var IDatabase */
+	/** @var IDatabase */
 	private $dbr;
 	/** @var int */
 	private $edits;
@@ -39,14 +39,14 @@ class SiteStatsInit {
 
 	/**
 	 * @param bool|IDatabase $database
-	 * - bool: Whether to use the master DB
+	 * - bool: Whether to use the primary DB
 	 * - IDatabase: Database connection to use
 	 */
 	public function __construct( $database = false ) {
 		if ( $database instanceof IDatabase ) {
 			$this->dbr = $database;
 		} elseif ( $database ) {
-			$this->dbr = self::getDB( DB_MASTER );
+			$this->dbr = self::getDB( DB_PRIMARY );
 		} else {
 			$this->dbr = self::getDB( DB_REPLICA, 'vslow' );
 		}
@@ -68,15 +68,15 @@ class SiteStatsInit {
 	 * @return int
 	 */
 	public function articles() {
-		$config = MediaWikiServices::getInstance()->getMainConfig();
+		$services = MediaWikiServices::getInstance();
 
 		$tables = [ 'page' ];
 		$conds = [
-			'page_namespace' => MWNamespace::getContentNamespaces(),
+			'page_namespace' => $services->getNamespaceInfo()->getContentNamespaces(),
 			'page_is_redirect' => 0,
 		];
 
-		if ( $config->get( 'ArticleCountMethod' ) == 'link' ) {
+		if ( $services->getMainConfig()->get( 'ArticleCountMethod' ) == 'link' ) {
 			$tables[] = 'pagelinks';
 			$conds[] = 'pl_from=page_id';
 		}
@@ -126,7 +126,7 @@ class SiteStatsInit {
 	 * for the original initStats, but without output.
 	 *
 	 * @param IDatabase|bool $database
-	 * - bool: Whether to use the master DB
+	 * - bool: Whether to use the primary DB
 	 * - IDatabase: Database connection to use
 	 * @param array $options Array of options, may contain the following values
 	 * - activeUsers bool: Whether to update the number of active users (default: false)
@@ -147,7 +147,7 @@ class SiteStatsInit {
 
 		// Count active users if need be
 		if ( $options['activeUsers'] ) {
-			SiteStatsUpdate::cacheUpdate( self::getDB( DB_MASTER ) );
+			SiteStatsUpdate::cacheUpdate( self::getDB( DB_PRIMARY ) );
 		}
 	}
 
@@ -155,9 +155,9 @@ class SiteStatsInit {
 	 * Insert a dummy row with all zeroes if no row is present
 	 */
 	public static function doPlaceholderInit() {
-		$dbw = self::getDB( DB_MASTER );
-		$exists = $dbw->selectField( 'site_stats', '1', [ 'ss_row_id' => 1 ],  __METHOD__ );
-		if ( $exists === false ) {
+		$dbw = self::getDB( DB_PRIMARY );
+		$exists = (bool)$dbw->selectField( 'site_stats', '1', [ 'ss_row_id' => 1 ],  __METHOD__ );
+		if ( !$exists ) {
 			$dbw->insert(
 				'site_stats',
 				[ 'ss_row_id' => 1 ] + array_fill_keys( SiteStats::selectFields(), 0 ),
@@ -171,32 +171,32 @@ class SiteStatsInit {
 	 * Refresh site_stats
 	 */
 	public function refresh() {
-		$values = [
-			'ss_row_id' => 1,
-			'ss_total_edits' => $this->edits === null ? $this->edits() : $this->edits,
-			'ss_good_articles' => $this->articles === null ? $this->articles() : $this->articles,
-			'ss_total_pages' => $this->pages === null ? $this->pages() : $this->pages,
-			'ss_users' => $this->users === null ? $this->users() : $this->users,
-			'ss_images' => $this->files === null ? $this->files() : $this->files,
+		$set = [
+			'ss_total_edits' => $this->edits ?? $this->edits(),
+			'ss_good_articles' => $this->articles ?? $this->articles(),
+			'ss_total_pages' => $this->pages ?? $this->pages(),
+			'ss_users' => $this->users ?? $this->users(),
+			'ss_images' => $this->files ?? $this->files(),
 		];
+		$row = [ 'ss_row_id' => 1 ] + $set;
 
-		self::getDB( DB_MASTER )->upsert(
+		self::getDB( DB_PRIMARY )->upsert(
 			'site_stats',
-			$values,
-			[ 'ss_row_id' ],
-			$values,
+			$row,
+			'ss_row_id',
+			$set,
 			__METHOD__
 		);
 	}
 
 	/**
 	 * @param int $index
-	 * @param string[] $groups
+	 * @param string[]|string $groups
 	 * @return IDatabase
 	 */
 	private static function getDB( $index, $groups = [] ) {
-		$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
-
-		return $lb->getConnection( $index, $groups );
+		return MediaWikiServices::getInstance()
+			->getDBLoadBalancer()
+			->getConnectionRef( $index, $groups );
 	}
 }

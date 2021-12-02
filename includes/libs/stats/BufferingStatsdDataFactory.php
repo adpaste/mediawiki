@@ -31,6 +31,7 @@ use Liuggio\StatsdClient\Factory\StatsdDataFactory;
  * a reference to each constructed metric in an internal array buffer.
  *
  * @since 1.25
+ * @method StatsdData produceStatsdDataEntity()
  */
 class BufferingStatsdDataFactory extends StatsdDataFactory implements IBufferingStatsdDataFactory {
 	protected $buffer = [];
@@ -89,15 +90,6 @@ class BufferingStatsdDataFactory extends StatsdDataFactory implements IBuffering
 			$this->buffer[] = $entity;
 		}
 		return $entity;
-	}
-
-	/**
-	 * @deprecated since 1.30 Use getData() instead
-	 * @return StatsdData[]
-	 */
-	public function getBuffer() {
-		wfDeprecated( __METHOD__, '1.30' );
-		return $this->buffer;
 	}
 
 	public function hasData() {

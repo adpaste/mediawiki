@@ -20,8 +20,12 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Content\IContentHandlerFactory;
+use MediaWiki\Content\Transform\ContentTransformer;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\RevisionStore;
+use MediaWiki\Revision\SlotRoleRegistry;
 
 /**
  * Query module to enumerate all revisions.
@@ -31,8 +35,50 @@ use MediaWiki\Revision\RevisionRecord;
  */
 class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
-		parent::__construct( $query, $moduleName, 'arv' );
+	/** @var RevisionStore */
+	private $revisionStore;
+
+	/** @var ActorMigration */
+	private $actorMigration;
+
+	/** @var NamespaceInfo */
+	private $namespaceInfo;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param RevisionStore $revisionStore
+	 * @param IContentHandlerFactory $contentHandlerFactory
+	 * @param ParserFactory $parserFactory
+	 * @param SlotRoleRegistry $slotRoleRegistry
+	 * @param ActorMigration $actorMigration
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param ContentTransformer $contentTransformer
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		RevisionStore $revisionStore,
+		IContentHandlerFactory $contentHandlerFactory,
+		ParserFactory $parserFactory,
+		SlotRoleRegistry $slotRoleRegistry,
+		ActorMigration $actorMigration,
+		NamespaceInfo $namespaceInfo,
+		ContentTransformer $contentTransformer
+	) {
+		parent::__construct(
+			$query,
+			$moduleName,
+			'arv',
+			$revisionStore,
+			$contentHandlerFactory,
+			$parserFactory,
+			$slotRoleRegistry,
+			$contentTransformer
+		);
+		$this->revisionStore = $revisionStore;
+		$this->actorMigration = $actorMigration;
+		$this->namespaceInfo = $namespaceInfo;
 	}
 
 	/**
@@ -44,7 +90,6 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 
 		$db = $this->getDB();
 		$params = $this->extractRequestParams( false );
-		$revisionStore = MediaWikiServices::getInstance()->getRevisionStore();
 
 		$result = $this->getResult();
 
@@ -54,7 +99,7 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 		$idField = 'rev_id';
 		$pageField = 'rev_page';
 		if ( $params['user'] !== null &&
-			( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW )
+			( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_TEMP )
 		) {
 			// The query is probably best done using the actor_timestamp index on
 			// revision_actor_temp. Use the denormalized fields from that table.
@@ -70,7 +115,7 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 		if ( $params['namespace'] !== null ) {
 			$params['namespace'] = array_unique( $params['namespace'] );
 			sort( $params['namespace'] );
-			if ( $params['namespace'] != MWNamespace::getValidNamespaces() ) {
+			if ( $params['namespace'] != $this->namespaceInfo->getValidNamespaces() ) {
 				$needPageTable = true;
 				if ( $this->getConfig()->get( 'MiserMode' ) ) {
 					$miser_ns = $params['namespace'];
@@ -82,9 +127,7 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 
 		if ( $resultPageSet === null ) {
 			$this->parseParameters( $params );
-			$revQuery = $revisionStore->getQueryInfo(
-				$this->fetchContent ? [ 'page', 'text' ] : [ 'page' ]
-			);
+			$revQuery = $this->revisionStore->getQueryInfo( [ 'page' ] );
 		} else {
 			$this->limit = $this->getParameter( 'limit' ) ?: 10;
 			$revQuery = [
@@ -98,7 +141,7 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 			}
 
 			if ( $params['user'] !== null || $params['excludeuser'] !== null ) {
-				$actorQuery = ActorMigration::newMigration()->getJoin( 'rev_user' );
+				$actorQuery = $this->actorMigration->getJoin( 'rev_user' );
 				$revQuery['tables'] += $actorQuery['tables'];
 				$revQuery['joins'] += $actorQuery['joins'];
 			}
@@ -144,20 +187,19 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 		}
 
 		if ( $params['user'] !== null ) {
-			$actorQuery = ActorMigration::newMigration()
-				->getWhere( $db, 'rev_user', User::newFromName( $params['user'], false ) );
+			$actorQuery = $this->actorMigration->getWhere( $db, 'rev_user', $params['user'] );
 			$this->addWhere( $actorQuery['conds'] );
 		} elseif ( $params['excludeuser'] !== null ) {
-			$actorQuery = ActorMigration::newMigration()
-				->getWhere( $db, 'rev_user', User::newFromName( $params['excludeuser'], false ) );
+			$actorQuery = $this->actorMigration->getWhere( $db, 'rev_user', $params['excludeuser'] );
 			$this->addWhere( 'NOT(' . $actorQuery['conds'] . ')' );
 		}
 
 		if ( $params['user'] !== null || $params['excludeuser'] !== null ) {
 			// Paranoia: avoid brute force searches (T19342)
-			if ( !$this->getUser()->isAllowed( 'deletedhistory' ) ) {
+			if ( !$this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
 				$bitmask = RevisionRecord::DELETED_USER;
-			} elseif ( !$this->getUser()->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
+			} elseif ( !$this->getAuthority()->isAllowedAny( 'suppressrevision', 'viewsuppressed' )
+			) {
 				$bitmask = RevisionRecord::DELETED_USER | RevisionRecord::DELETED_RESTRICTED;
 			} else {
 				$bitmask = 0;
@@ -191,6 +233,11 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 
 		$hookData = [];
 		$res = $this->select( __METHOD__, [], $hookData );
+
+		if ( $resultPageSet === null ) {
+			$this->executeGenderCacheFromResultWrapper( $res, __METHOD__ );
+		}
+
 		$pageMap = []; // Maps rev_page to array index
 		$count = 0;
 		$nextIndex = 0;
@@ -221,7 +268,7 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 					$generated[] = $row->rev_id;
 				}
 			} else {
-				$revision = $revisionStore->newRevisionFromRow( $row );
+				$revision = $this->revisionStore->newRevisionFromRow( $row, 0, Title::newFromRow( $row ) );
 				$rev = $this->extractRevisionInfo( $revision, $row );
 
 				if ( !isset( $pageMap[$row->rev_page] ) ) {
@@ -263,6 +310,8 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 		$ret = parent::getAllowedParams() + [
 			'user' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'id', 'interwiki' ],
+				UserDef::PARAM_RETURN_OBJECT => true,
 			],
 			'namespace' => [
 				ApiBase::PARAM_ISMULTI => true,
@@ -285,6 +334,8 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 			],
 			'excludeuser' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'id', 'interwiki' ],
+				UserDef::PARAM_RETURN_OBJECT => true,
 			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
@@ -308,7 +359,7 @@ class ApiQueryAllRevisions extends ApiQueryRevisionsBase {
 			'action=query&list=allrevisions&arvuser=Example&arvlimit=50'
 				=> 'apihelp-query+allrevisions-example-user',
 			'action=query&list=allrevisions&arvdir=newer&arvlimit=50'
-				=> 'apihelp-query+allrevisions-example-ns-main',
+				=> 'apihelp-query+allrevisions-example-ns-any',
 		];
 	}
 

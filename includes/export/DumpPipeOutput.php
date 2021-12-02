@@ -31,15 +31,19 @@ use MediaWiki\Shell\Shell;
  * @ingroup Dump
  */
 class DumpPipeOutput extends DumpFileOutput {
-	protected $command, $filename;
+	/** @var string */
+	protected $command;
+	/** @var string|null */
+	protected $filename;
+	/** @var resource|false */
 	protected $procOpenResource = false;
 
 	/**
 	 * @param string $command
 	 * @param string|null $file
 	 */
-	function __construct( $command, $file = null ) {
-		if ( !is_null( $file ) ) {
+	public function __construct( $command, $file = null ) {
+		if ( $file !== null ) {
 			$command .= " > " . Shell::escape( $file );
 		}
 
@@ -51,7 +55,7 @@ class DumpPipeOutput extends DumpFileOutput {
 	/**
 	 * @param string $string
 	 */
-	function writeCloseStream( $string ) {
+	public function writeCloseStream( $string ) {
 		parent::writeCloseStream( $string );
 		if ( $this->procOpenResource ) {
 			proc_close( $this->procOpenResource );
@@ -62,7 +66,7 @@ class DumpPipeOutput extends DumpFileOutput {
 	/**
 	 * @param string $command
 	 */
-	function startCommand( $command ) {
+	public function startCommand( $command ) {
 		$spec = [
 			0 => [ "pipe", "r" ],
 		];
@@ -72,17 +76,16 @@ class DumpPipeOutput extends DumpFileOutput {
 	}
 
 	/**
-	 * @param string $newname
+	 * @inheritDoc
 	 */
-	function closeRenameAndReopen( $newname ) {
+	public function closeRenameAndReopen( $newname ) {
 		$this->closeAndRename( $newname, true );
 	}
 
 	/**
-	 * @param string $newname
-	 * @param bool $open
+	 * @inheritDoc
 	 */
-	function closeAndRename( $newname, $open = false ) {
+	public function closeAndRename( $newname, $open = false ) {
 		$newname = $this->checkRenameArgCount( $newname );
 		if ( $newname ) {
 			if ( $this->handle ) {

@@ -1,11 +1,59 @@
 <?php
+
+use MediaWiki\Tests\Parser\ParserCacheSerializationTestCases;
 use Wikimedia\TestingAccessWrapper;
+use Wikimedia\Tests\SerializationTestTrait;
 
 /**
+ * @covers ParserOutput
+ * @covers CacheTime
  * @group Database
  *        ^--- trigger DB shadowing because we are using Title magic
  */
 class ParserOutputTest extends MediaWikiLangTestCase {
+	use SerializationTestTrait;
+
+	protected function setUp(): void {
+		parent::setUp();
+
+		MWTimestamp::setFakeTime( ParserCacheSerializationTestCases::FAKE_TIME );
+		$this->setMwGlobals( [
+			'wgParserCacheExpireTime' => ParserCacheSerializationTestCases::FAKE_CACHE_EXPIRY
+		] );
+	}
+
+	/**
+	 * Overrides SerializationTestTrait::getClassToTest
+	 * @return string
+	 */
+	protected function getClassToTest(): string {
+		return ParserOutput::class;
+	}
+
+	/**
+	 * Overrides SerializationTestTrait::getSerializedDataPath
+	 * @return string
+	 */
+	protected function getSerializedDataPath(): string {
+		return __DIR__ . '/../../data/ParserCache';
+	}
+
+	/**
+	 * Overrides SerializationTestTrait::getTestInstancesAndAssertions
+	 * @return array
+	 */
+	protected function getTestInstancesAndAssertions(): array {
+		return ParserCacheSerializationTestCases::getParserOutputTestCases();
+	}
+
+	/**
+	 * Overrides SerializationTestTrait::getSupportedSerializationFormats
+	 * @return array
+	 */
+	protected function getSupportedSerializationFormats(): array {
+		return ParserCacheSerializationTestCases::getSupportedSerializationFormats(
+			$this->getClassToTest() );
+	}
 
 	public static function provideIsLinkInternal() {
 		return [
@@ -30,12 +78,6 @@ class ParserOutputTest extends MediaWikiLangTestCase {
 			// But they don't match strange things like this
 			[ false, '//example.org', 'irc://example.org' ],
 		];
-	}
-
-	public function tearDown() {
-		MWTimestamp::setFakeTime( false );
-
-		parent::tearDown();
 	}
 
 	/**
@@ -80,19 +122,19 @@ class ParserOutputTest extends MediaWikiLangTestCase {
 		$po->setProperty( 'foo', 'val' );
 
 		$properties = $po->getProperties();
-		$this->assertEquals( $po->getProperty( 'foo' ), 'val' );
-		$this->assertEquals( $properties['foo'], 'val' );
+		$this->assertSame( 'val', $po->getProperty( 'foo' ) );
+		$this->assertSame( 'val', $properties['foo'] );
 
 		$po->setProperty( 'foo', 'second val' );
 
 		$properties = $po->getProperties();
-		$this->assertEquals( $po->getProperty( 'foo' ), 'second val' );
-		$this->assertEquals( $properties['foo'], 'second val' );
+		$this->assertSame( 'second val', $po->getProperty( 'foo' ) );
+		$this->assertSame( 'second val', $properties['foo'] );
 
 		$po->unsetProperty( 'foo' );
 
 		$properties = $po->getProperties();
-		$this->assertEquals( $po->getProperty( 'foo' ), false );
+		$this->assertSame( false, $po->getProperty( 'foo' ) );
 		$this->assertArrayNotHasKey( 'foo', $properties );
 	}
 
@@ -106,47 +148,47 @@ class ParserOutputTest extends MediaWikiLangTestCase {
 		$po = new ParserOutput();
 
 		$po->setText( 'Kittens' );
-		$this->assertContains( 'Kittens', $po->getText() );
-		$this->assertNotContains( '<div', $po->getText() );
+		$this->assertStringContainsString( 'Kittens', $po->getText() );
+		$this->assertStringNotContainsString( '<div', $po->getText() );
 		$this->assertSame( 'Kittens', $po->getRawText() );
 
 		$po->addWrapperDivClass( 'foo' );
 		$text = $po->getText();
-		$this->assertContains( 'Kittens', $text );
-		$this->assertContains( '<div', $text );
-		$this->assertContains( 'class="foo"', $text );
+		$this->assertStringContainsString( 'Kittens', $text );
+		$this->assertStringContainsString( '<div', $text );
+		$this->assertStringContainsString( 'class="foo"', $text );
 
 		$po->addWrapperDivClass( 'bar' );
 		$text = $po->getText();
-		$this->assertContains( 'Kittens', $text );
-		$this->assertContains( '<div', $text );
-		$this->assertContains( 'class="foo bar"', $text );
+		$this->assertStringContainsString( 'Kittens', $text );
+		$this->assertStringContainsString( '<div', $text );
+		$this->assertStringContainsString( 'class="foo bar"', $text );
 
 		$po->addWrapperDivClass( 'bar' ); // second time does nothing, no "foo bar bar".
 		$text = $po->getText( [ 'unwrap' => true ] );
-		$this->assertContains( 'Kittens', $text );
-		$this->assertNotContains( '<div', $text );
-		$this->assertNotContains( 'class="foo bar"', $text );
+		$this->assertStringContainsString( 'Kittens', $text );
+		$this->assertStringNotContainsString( '<div', $text );
+		$this->assertStringNotContainsString( 'class="foo bar"', $text );
 
 		$text = $po->getText( [ 'wrapperDivClass' => '' ] );
-		$this->assertContains( 'Kittens', $text );
-		$this->assertNotContains( '<div', $text );
-		$this->assertNotContains( 'class="foo bar"', $text );
+		$this->assertStringContainsString( 'Kittens', $text );
+		$this->assertStringNotContainsString( '<div', $text );
+		$this->assertStringNotContainsString( 'class="foo bar"', $text );
 
 		$text = $po->getText( [ 'wrapperDivClass' => 'xyzzy' ] );
-		$this->assertContains( 'Kittens', $text );
-		$this->assertContains( '<div', $text );
-		$this->assertContains( 'class="xyzzy"', $text );
-		$this->assertNotContains( 'class="foo bar"', $text );
+		$this->assertStringContainsString( 'Kittens', $text );
+		$this->assertStringContainsString( '<div', $text );
+		$this->assertStringContainsString( 'class="xyzzy"', $text );
+		$this->assertStringNotContainsString( 'class="foo bar"', $text );
 
 		$text = $po->getRawText();
 		$this->assertSame( 'Kittens', $text );
 
 		$po->clearWrapperDivClass();
 		$text = $po->getText();
-		$this->assertContains( 'Kittens', $text );
-		$this->assertNotContains( '<div', $text );
-		$this->assertNotContains( 'class="foo bar"', $text );
+		$this->assertStringContainsString( 'Kittens', $text );
+		$this->assertStringNotContainsString( '<div', $text );
+		$this->assertStringNotContainsString( 'class="foo bar"', $text );
 	}
 
 	/**
@@ -191,7 +233,7 @@ class ParserOutputTest extends MediaWikiLangTestCase {
 <h2><span class="mw-headline" id="Section_2">Section 2</span><mw:editsection page="Test Page" section="2">Section 2</mw:editsection></h2>
 <p>Two
 </p>
-<h3><span class="mw-headline" id="Section_2.1">Section 2.1</span><mw:editsection page="Test Page" section="3">Section 2.1</mw:editsection></h3>
+<h3><span class="mw-headline" id="Section_2.1">Section 2.1</span><mw:editsection page="Talk:User:Bug_T261347" section="3">Section 2.1</mw:editsection></h3>
 <p>Two point one
 </p>
 <h2><span class="mw-headline" id="Section_3">Section 3</span><mw:editsection page="Test Page" section="4">Section 3</mw:editsection></h2>
@@ -235,7 +277,7 @@ EOF;
 <h2><span class="mw-headline" id="Section_2">Section 2</span><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Test_Page&amp;action=edit&amp;section=2" title="Edit section: Section 2">edit</a><span class="mw-editsection-bracket">]</span></span></h2>
 <p>Two
 </p>
-<h3><span class="mw-headline" id="Section_2.1">Section 2.1</span><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Test_Page&amp;action=edit&amp;section=3" title="Edit section: Section 2.1">edit</a><span class="mw-editsection-bracket">]</span></span></h3>
+<h3><span class="mw-headline" id="Section_2.1">Section 2.1</span></h3>
 <p>Two point one
 </p>
 <h2><span class="mw-headline" id="Section_3">Section 3</span><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Test_Page&amp;action=edit&amp;section=4" title="Edit section: Section 3">edit</a><span class="mw-editsection-bracket">]</span></span></h2>
@@ -284,7 +326,7 @@ EOF
 <h2><span class="mw-headline" id="Section_2">Section 2</span><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Test_Page&amp;action=edit&amp;section=2" title="Edit section: Section 2">edit</a><span class="mw-editsection-bracket">]</span></span></h2>
 <p>Two
 </p>
-<h3><span class="mw-headline" id="Section_2.1">Section 2.1</span><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Test_Page&amp;action=edit&amp;section=3" title="Edit section: Section 2.1">edit</a><span class="mw-editsection-bracket">]</span></span></h3>
+<h3><span class="mw-headline" id="Section_2.1">Section 2.1</span></h3>
 <p>Two point one
 </p>
 <h2><span class="mw-headline" id="Section_3">Section 3</span><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Test_Page&amp;action=edit&amp;section=4" title="Edit section: Section 3">edit</a><span class="mw-editsection-bracket">]</span></span></h2>
@@ -337,7 +379,7 @@ EOF
 	public function testGetText_failsIfNoText() {
 		$po = new ParserOutput( null );
 
-		$this->setExpectedException( LogicException::class );
+		$this->expectException( LogicException::class );
 		$po->getText();
 	}
 
@@ -347,7 +389,7 @@ EOF
 	public function testGetRawText_failsIfNoText() {
 		$po = new ParserOutput( null );
 
-		$this->setExpectedException( LogicException::class );
+		$this->expectException( LogicException::class );
 		$po->getRawText();
 	}
 
@@ -398,7 +440,11 @@ EOF
 		$a->addHeadItem( '<bar1>', 'bar' );
 		$a->addModules( 'test-module-a' );
 		$a->addModuleStyles( 'test-module-styles-a' );
-		$b->addJsConfigVars( 'test-config-var-a', 'a' );
+		$a->addJsConfigVars( 'test-config-var-a', 'a' );
+		$a->addExtraCSPStyleSrc( 'css.com' );
+		$a->addExtraCSPStyleSrc( 'css2.com' );
+		$a->addExtraCSPScriptSrc( 'js.com' );
+		$a->addExtraCSPDefaultSrc( 'img.com' );
 
 		$b = new ParserOutput();
 		$b->setIndexPolicy( 'noindex' );
@@ -408,6 +454,10 @@ EOF
 		$b->addModuleStyles( 'test-module-styles-b' );
 		$b->addJsConfigVars( 'test-config-var-b', 'b' );
 		$b->addJsConfigVars( 'test-config-var-a', 'X' );
+		$b->addExtraCSPStyleSrc( 'https://css.ca' );
+		$b->addExtraCSPScriptSrc( 'jscript.com' );
+		$b->addExtraCSPScriptSrc( 'vbscript.com' );
+		$b->addExtraCSPDefaultSrc( 'img.com/foo.jpg' );
 
 		yield 'head items and friends' => [ $a, $b, [
 			'getHeadItems' => [
@@ -427,6 +477,20 @@ EOF
 				'test-config-var-a' => 'X', // overwritten
 				'test-config-var-b' => 'b',
 			],
+			'getExtraCSPStyleSrcs' => [
+				'css.com',
+				'css2.com',
+				'https://css.ca'
+			],
+			'getExtraCSPScriptSrcs' => [
+				'js.com',
+				'jscript.com',
+				'vbscript.com'
+			],
+			'getExtraCSPDefaultSrcs' => [
+				'img.com',
+				'img.com/foo.jpg'
+			]
 		] ];
 
 		// TOC ------------
@@ -876,7 +940,7 @@ EOF
 
 		$bClocks = $b->mParseStartTime;
 
-		$a->mergeInternalMetaDataFrom( $b->object, 'b' );
+		$a->mergeInternalMetaDataFrom( $b->object );
 		$mergedClocks = $a->mParseStartTime;
 
 		foreach ( $mergedClocks as $clock => $timestamp ) {
@@ -889,7 +953,7 @@ EOF
 		$a->resetParseStartTime();
 		$aClocks = $a->mParseStartTime;
 
-		$a->mergeInternalMetaDataFrom( $b->object, 'b' );
+		$a->mergeInternalMetaDataFrom( $b->object );
 		$mergedClocks = $a->mParseStartTime;
 
 		foreach ( $mergedClocks as $clock => $timestamp ) {
@@ -901,7 +965,7 @@ EOF
 		$a = new ParserOutput();
 		$a = TestingAccessWrapper::newFromObject( $a );
 
-		$a->mergeInternalMetaDataFrom( $b->object, 'b' );
+		$a->mergeInternalMetaDataFrom( $b->object );
 		$mergedClocks = $a->mParseStartTime;
 
 		foreach ( $mergedClocks as $clock => $timestamp ) {
@@ -915,7 +979,7 @@ EOF
 	 */
 	public function testGetCacheTime() {
 		$clock = MWTimestamp::convert( TS_UNIX, '20100101000000' );
-		MWTimestamp::setFakeTime( function () use ( &$clock ) {
+		MWTimestamp::setFakeTime( static function () use ( &$clock ) {
 			return $clock++;
 		} );
 
@@ -931,11 +995,31 @@ EOF
 		$time = '20110606112233';
 		$po->setCacheTime( $time );
 		$this->assertSame( $time, $po->getCacheTime() );
-
-		// support -1 as a marker for "not cacheable"
-		$time = -1;
-		$po->setCacheTime( $time );
-		$this->assertSame( $time, $po->getCacheTime() );
 	}
 
+	/**
+	 * @covers ParserOutput::addExtraCSPScriptSrc
+	 * @covers ParserOutput::addExtraCSPDefaultSrc
+	 * @covers ParserOutput::addExtraCSPStyleSrc
+	 * @covers ParserOutput::getExtraCSPScriptSrcs
+	 * @covers ParserOutput::getExtraCSPDefaultSrcs
+	 * @covers ParserOutput::getExtraCSPStyleSrcs
+	 */
+	public function testCSPSources() {
+		$po = new ParserOutput;
+
+		$this->assertEquals( $po->getExtraCSPScriptSrcs(), [], 'empty Script' );
+		$this->assertEquals( $po->getExtraCSPStyleSrcs(), [], 'empty Style' );
+		$this->assertEquals( $po->getExtraCSPDefaultSrcs(), [], 'empty Default' );
+
+		$po->addExtraCSPScriptSrc( 'foo.com' );
+		$po->addExtraCSPScriptSrc( 'bar.com' );
+		$po->addExtraCSPDefaultSrc( 'baz.com' );
+		$po->addExtraCSPStyleSrc( 'fred.com' );
+		$po->addExtraCSPStyleSrc( 'xyzzy.com' );
+
+		$this->assertEquals( $po->getExtraCSPScriptSrcs(), [ 'foo.com', 'bar.com' ], 'Script' );
+		$this->assertEquals( $po->getExtraCSPDefaultSrcs(),  [ 'baz.com' ], 'Default' );
+		$this->assertEquals( $po->getExtraCSPStyleSrcs(), [ 'fred.com', 'xyzzy.com' ], 'Style' );
+	}
 }

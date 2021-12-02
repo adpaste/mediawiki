@@ -42,12 +42,11 @@ class DeleteSelfExternals extends Maintenance {
 		// Extract the host and scheme from $wgServer
 		$bits = wfParseUrl( $wgServer );
 		if ( !$bits ) {
-			$this->error( 'Could not parse $wgServer' );
-			exit( 1 );
+			$this->fatalError( 'Could not parse $wgServer' );
 		}
 
 		$this->output( "Deleting self externals from $wgServer\n" );
-		$db = $this->getDB( DB_MASTER );
+		$db = $this->getDB( DB_PRIMARY );
 
 		// If it's protocol-relative, we need to do both http and https.
 		// Otherwise, just do the specified scheme.
@@ -74,7 +73,7 @@ class DeleteSelfExternals extends Maintenance {
 				$q = $db->limitResult( "DELETE /* deleteSelfExternals */ FROM externallinks WHERE $cond",
 					$this->mBatchSize );
 				$this->output( "Deleting a batch\n" );
-				$db->query( $q );
+				$db->query( $q, __METHOD__ );
 			} while ( $db->affectedRows() );
 		}
 	}

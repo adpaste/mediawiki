@@ -41,32 +41,25 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 		'authform-wrongtoken' => 'sessionfailure',
 	];
 
-	public function __construct() {
-		parent::__construct( 'CreateAccount' );
+	/**
+	 * @param AuthManager $authManager
+	 */
+	public function __construct( AuthManager $authManager ) {
+		parent::__construct( 'CreateAccount', 'createaccount' );
+
+		$this->setAuthManager( $authManager );
 	}
 
 	public function doesWrites() {
 		return true;
 	}
 
-	public function isRestricted() {
-		return !User::groupHasPermission( '*', 'createaccount' );
-	}
-
-	public function userCanExecute( User $user ) {
-		return $user->isAllowed( 'createaccount' );
-	}
-
 	public function checkPermissions() {
 		parent::checkPermissions();
 
 		$user = $this->getUser();
-		$status = AuthManager::singleton()->checkAccountCreatePermissions( $user );
+		$status = $this->getAuthManager()->checkAccountCreatePermissions( $user );
 		if ( !$status->isGood() ) {
-			// track block with a cookie if it doesn't exists already
-			if ( $user->isBlockedFromCreateAccount() ) {
-				$user->trackBlockWithCookie();
-			}
 			throw new ErrorPageError( 'createacct-error', $status->getMessage() );
 		}
 	}
@@ -101,7 +94,7 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 		if ( $direct ) {
 			# Only save preferences if the user is not creating an account for someone else.
 			if ( !$this->proxyAccountCreation ) {
-				Hooks::run( 'AddNewAccount', [ $user, false ] );
+				$this->getHookRunner()->onAddNewAccount( $user, false );
 
 				// If the user does not have a session cookie at this point, they probably need to
 				// do something to their browser.
@@ -114,10 +107,12 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 			} else {
 				$byEmail = false; // FIXME no way to set this
 
-				Hooks::run( 'AddNewAccount', [ $user, $byEmail ] );
+				$this->getHookRunner()->onAddNewAccount( $user, $byEmail );
 
 				$out = $this->getOutput();
+				// @phan-suppress-next-line PhanImpossibleCondition
 				$out->setPageTitle( $this->msg( $byEmail ? 'accmailtitle' : 'accountcreated' ) );
+				// @phan-suppress-next-line PhanImpossibleCondition
 				if ( $byEmail ) {
 					$out->addWikiMsg( 'accmailtext', $user->getName(), $user->getEmail() );
 				} else {
@@ -138,14 +133,14 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 		# Run any hooks; display injected HTML
 		$injected_html = '';
 		$welcome_creation_msg = 'welcomecreation-msg';
-		Hooks::run( 'UserLoginComplete', [ &$user, &$injected_html, $direct ] );
+		$this->getHookRunner()->onUserLoginComplete( $user, $injected_html, $direct );
 
 		/**
 		 * Let any extensions change what message is shown.
 		 * @see https://www.mediawiki.org/wiki/Manual:Hooks/BeforeWelcomeCreation
 		 * @since 1.18
 		 */
-		Hooks::run( 'BeforeWelcomeCreation', [ &$welcome_creation_msg, &$injected_html ] );
+		$this->getHookRunner()->onBeforeWelcomeCreation( $welcome_creation_msg, $injected_html );
 
 		$this->showSuccessPage( 'signup', $this->msg( 'welcomeuser', $this->getUser()->getName() ),
 			$welcome_creation_msg, $injected_html, $extraMessages );
@@ -171,7 +166,7 @@ class SpecialCreateAccount extends LoginSignupSpecialPage {
 		LoggerFactory::getInstance( 'authevents' )->info( 'Account creation attempt', [
 			'event' => 'accountcreation',
 			'successful' => $success,
-			'status' => $status,
+			'status' => strval( $status ),
 		] );
 	}
 }

@@ -205,7 +205,7 @@ class ProtectLogFormatterTest extends LogFormatterTestCase {
 					],
 				],
 				[
-					'text' => 'User changed protection level for ProtectPage ' .
+					'text' => 'User changed protection settings for ProtectPage ' .
 						'[Edit=Allow only administrators] ' .
 						'(indefinite) [Move=Allow only administrators] (indefinite)',
 					'api' => [
@@ -257,7 +257,7 @@ class ProtectLogFormatterTest extends LogFormatterTestCase {
 					],
 				],
 				[
-					'text' => 'User changed protection level for ProtectPage ' .
+					'text' => 'User changed protection settings for ProtectPage ' .
 						'[Edit=Allow only administrators] (indefinite) ' .
 						'[Move=Allow only administrators] (indefinite) [cascading]',
 					'api' => [
@@ -296,7 +296,7 @@ class ProtectLogFormatterTest extends LogFormatterTestCase {
 				],
 				[
 					'legacy' => true,
-					'text' => 'User changed protection level for ProtectPage ' .
+					'text' => 'User changed protection settings for ProtectPage ' .
 						'[edit=sysop] (indefinite)[move=sysop] (indefinite)',
 					'api' => [
 						'description' => '[edit=sysop] (indefinite)[move=sysop] (indefinite)',
@@ -320,7 +320,7 @@ class ProtectLogFormatterTest extends LogFormatterTestCase {
 				],
 				[
 					'legacy' => true,
-					'text' => 'User changed protection level for ProtectPage ' .
+					'text' => 'User changed protection settings for ProtectPage ' .
 						'[edit=sysop] (indefinite)[move=sysop] (indefinite) [cascading]',
 					'api' => [
 						'description' => '[edit=sysop] (indefinite)[move=sysop] (indefinite)',
@@ -427,5 +427,47 @@ class ProtectLogFormatterTest extends LogFormatterTestCase {
 	 */
 	public function testMoveProtLogDatabaseRows( $row, $extra ) {
 		$this->doTestLogFormatter( $row, $extra );
+	}
+
+	public function provideGetActionLinks() {
+		yield [
+			[ 'protect' ],
+			true
+		];
+		yield [
+			[],
+			false
+		];
+	}
+
+	/**
+	 * @param string[] $permissions
+	 * @param bool $shouldMatch
+	 * @dataProvider provideGetActionLinks
+	 * @covers ProtectLogFormatter::getActionLinks
+	 */
+	public function testGetActionLinks( array $permissions, $shouldMatch ) {
+		RequestContext::resetMain();
+		$user = $this->getTestUser()->getUser();
+		$this->overrideUserPermissions( $user, $permissions );
+		$row = $this->expandDatabaseRow( [
+			'type' => 'protect',
+			'action' => 'unprotect',
+			'comment' => 'unprotect comment',
+			'namespace' => NS_MAIN,
+			'title' => 'ProtectPage',
+			'params' => [],
+		], false );
+		$context = new RequestContext();
+		$context->setUser( $user );
+		$formatter = LogFormatter::newFromRow( $row );
+		$formatter->setContext( $context );
+		if ( $shouldMatch ) {
+			$this->assertStringMatchesFormat(
+				'%Aaction=protect%A', $formatter->getActionLinks() );
+		} else {
+			$this->assertStringNotMatchesFormat(
+				'%Aaction=protect%A', $formatter->getActionLinks() );
+		}
 	}
 }

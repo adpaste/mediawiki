@@ -25,9 +25,11 @@
  */
 class StreamFile {
 	// Do not send any HTTP headers unless requested by caller (e.g. body only)
-	const STREAM_HEADLESS = HTTPFileStreamer::STREAM_HEADLESS;
+	/** @deprecated since 1.34 */
+	public const STREAM_HEADLESS = HTTPFileStreamer::STREAM_HEADLESS;
 	// Do not try to tear down any PHP output buffers
-	const STREAM_ALLOW_OB = HTTPFileStreamer::STREAM_ALLOW_OB;
+	/** @deprecated since 1.34 */
+	public const STREAM_ALLOW_OB = HTTPFileStreamer::STREAM_ALLOW_OB;
 
 	/**
 	 * Stream a file to the browser, adding all the headings and fun stuff.
@@ -61,40 +63,17 @@ class StreamFile {
 	}
 
 	/**
-	 * Send out a standard 404 message for a file
-	 *
-	 * @param string $fname Full name and path of the file to stream
-	 * @param int $flags Bitfield of STREAM_* constants
-	 * @since 1.24
-	 */
-	public static function send404Message( $fname, $flags = 0 ) {
-		HTTPFileStreamer::send404Message( $fname, $flags );
-	}
-
-	/**
-	 * Convert a Range header value to an absolute (start, end) range tuple
-	 *
-	 * @param string $range Range header value
-	 * @param int $size File size
-	 * @return array|string Returns error string on failure (start, end, length)
-	 * @since 1.24
-	 */
-	public static function parseRange( $range, $size ) {
-		return HTTPFileStreamer::parseRange( $range, $size );
-	}
-
-	/**
 	 * Determine the file type of a file based on the path
 	 *
 	 * @param string $filename Storage path or file system path
-	 * @param bool $safe Whether to do retroactive upload blacklist checks
+	 * @param bool $safe Whether to do retroactive upload prevention checks
 	 * @return null|string
 	 */
 	public static function contentTypeFromPath( $filename, $safe = true ) {
 		global $wgTrivialMimeDetection;
 
 		$ext = strrchr( $filename, '.' );
-		$ext = $ext === false ? '' : strtolower( substr( $ext, 1 ) );
+		$ext = $ext ? strtolower( substr( $ext, 1 ) ) : '';
 
 		# trivial detection by file extension,
 		# used for thumbnails (thumb.php)
@@ -105,7 +84,6 @@ class StreamFile {
 				case 'png':
 					return 'image/png';
 				case 'jpg':
-					return 'image/jpeg';
 				case 'jpeg':
 					return 'image/jpeg';
 			}
@@ -117,17 +95,17 @@ class StreamFile {
 		// Use the extension only, rather than magic numbers, to avoid opening
 		// up vulnerabilities due to uploads of files with allowed extensions
 		// but disallowed types.
-		$type = $magic->guessTypesForExtension( $ext );
+		$type = $magic->getMimeTypeFromExtensionOrNull( $ext );
 
 		/**
 		 * Double-check some security settings that were done on upload but might
 		 * have changed since.
 		 */
 		if ( $safe ) {
-			global $wgFileBlacklist, $wgCheckFileExtensions, $wgStrictFileExtensions,
-				$wgFileExtensions, $wgVerifyMimeType, $wgMimeTypeBlacklist;
+			global $wgProhibitedFileExtensions, $wgCheckFileExtensions, $wgStrictFileExtensions,
+				$wgFileExtensions, $wgVerifyMimeType, $wgMimeTypeExclusions;
 			list( , $extList ) = UploadBase::splitExtensions( $filename );
-			if ( UploadBase::checkFileExtensionList( $extList, $wgFileBlacklist ) ) {
+			if ( UploadBase::checkFileExtensionList( $extList, $wgProhibitedFileExtensions ) ) {
 				return 'unknown/unknown';
 			}
 			if ( $wgCheckFileExtensions && $wgStrictFileExtensions
@@ -135,7 +113,7 @@ class StreamFile {
 			) {
 				return 'unknown/unknown';
 			}
-			if ( $wgVerifyMimeType && in_array( strtolower( $type ), $wgMimeTypeBlacklist ) ) {
+			if ( $wgVerifyMimeType && in_array( strtolower( $type ), $wgMimeTypeExclusions ) ) {
 				return 'unknown/unknown';
 			}
 		}

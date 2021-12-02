@@ -14,11 +14,9 @@ class ConfirmLinkAuthenticationRequestTest extends AuthenticationRequestTestCase
 		return new ConfirmLinkAuthenticationRequest( $this->getLinkRequests() );
 	}
 
-	/**
-	 * @expectedException InvalidArgumentException
-	 * @expectedExceptionMessage $linkRequests must not be empty
-	 */
 	public function testConstructorException() {
+		$this->expectException( InvalidArgumentException::class );
+		$this->expectExceptionMessage( '$linkRequests must not be empty' );
 		new ConfirmLinkAuthenticationRequest( [] );
 	}
 
@@ -30,11 +28,11 @@ class ConfirmLinkAuthenticationRequestTest extends AuthenticationRequestTestCase
 		$reqs = [];
 
 		$mb = $this->getMockBuilder( AuthenticationRequest::class )
-			->setMethods( [ 'getUniqueId' ] );
+			->onlyMethods( [ 'getUniqueId' ] );
 		for ( $i = 1; $i <= 3; $i++ ) {
 			$req = $mb->getMockForAbstractClass();
-			$req->expects( $this->any() )->method( 'getUniqueId' )
-				->will( $this->returnValue( "Request$i" ) );
+			$req->method( 'getUniqueId' )
+				->willReturn( "Request$i" );
 			$reqs[$req->getUniqueId()] = $req;
 		}
 

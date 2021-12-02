@@ -53,8 +53,8 @@
  *   - In a pattern $1, $2, etc... will be replaced with the relevant contents
  *   - If you used a keyed array as a path pattern, $key will be replaced with
  *     the relevant contents
- *   - The default behavior is equivalent to `array( 'title' => '$1' )`,
- *     if you don't want the title parameter you can explicitly use `array( 'title' => false )`
+ *   - The default behavior is equivalent to `[ 'title' => '$1' ]`,
+ *     if you don't want the title parameter you can explicitly use `[ 'title' => false ]`
  *   - You can specify a value that won't have replacements in it
  *     using `'foo' => [ 'value' => 'bar' ];`
  *
@@ -73,14 +73,14 @@
 class PathRouter {
 
 	/**
-	 * @var array
+	 * @var stdClass[]
 	 */
 	private $patterns = [];
 
 	/**
 	 * Protected helper to do the actual bulk work of adding a single pattern.
 	 * This is in a separate method so that add() can handle the difference between
-	 * a single string $path and an array() $path that contains multiple path
+	 * a single string $path and an array $path that contains multiple path
 	 * patterns each with an associated $key to pass on.
 	 * @param string $path
 	 * @param array $params
@@ -166,6 +166,25 @@ class PathRouter {
 	}
 
 	/**
+	 * @internal For use by WebRequest::getPathInfo
+	 * @param string $path To be given to add()
+	 * @param string $varName Full name of configuration variable for use
+	 *  in error message and url to mediawiki.org Manual (e.g. "wgExample").
+	 * @throws FatalError If path is invalid
+	 */
+	public function validateRoute( $path, $varName ) {
+		if ( $path && !preg_match( '/^(https?:\/\/|\/)/', $path ) ) {
+			// T48998: Bail out early if path is non-absolute
+			throw new FatalError(
+				"If you use a relative URL for \$$varName, it must start " .
+				'with a slash (<code>/</code>).<br><br>See ' .
+				"<a href=\"https://www.mediawiki.org/wiki/Manual:\$$varName\">" .
+				"https://www.mediawiki.org/wiki/Manual:\$$varName</a>."
+			);
+		}
+	}
+
+	/**
 	 * Add a new path pattern to the path router with the strict option on
 	 * @see self::add
 	 * @param string|array $path
@@ -190,7 +209,7 @@ class PathRouter {
 	}
 
 	/**
-	 * @param object $pattern
+	 * @param stdClass $pattern
 	 * @return float|int
 	 */
 	protected static function makeWeight( $pattern ) {
@@ -239,7 +258,7 @@ class PathRouter {
 		$this->sortByWeight();
 
 		$matches = $this->internalParse( $path );
-		if ( is_null( $matches ) ) {
+		if ( $matches === null ) {
 			// Try with the normalized path (T100782)
 			$path = wfRemoveDotSegments( $path );
 			$path = preg_replace( '#/+#', '/', $path );
@@ -247,9 +266,9 @@ class PathRouter {
 		}
 
 		// We know the difference between null (no matches) and
-		// array() (a match with no data) but our WebRequest caller
-		// expects array() even when we have no matches so return
-		// a array() when we have null
+		// [] (a match with no data) but our WebRequest caller
+		// expects [] even when we have no matches so return
+		// a [] when we have null
 		return $matches ?? [];
 	}
 
@@ -264,7 +283,7 @@ class PathRouter {
 
 		foreach ( $this->patterns as $pattern ) {
 			$matches = self::extractTitle( $path, $pattern );
-			if ( !is_null( $matches ) ) {
+			if ( $matches !== null ) {
 				break;
 			}
 		}
@@ -273,7 +292,7 @@ class PathRouter {
 
 	/**
 	 * @param string $path
-	 * @param object $pattern
+	 * @param stdClass $pattern
 	 * @return array|null
 	 */
 	protected static function extractTitle( $path, $pattern ) {
@@ -373,9 +392,9 @@ class PathRouter {
 	protected static function expandParamValue( $pathMatches, $key, $value ) {
 		$error = false;
 
-		$replacer = function ( $m ) use ( $pathMatches, $key, &$error ) {
+		$replacer = static function ( $m ) use ( $pathMatches, $key, &$error ) {
 			if ( $m[1] == "key" ) {
-				if ( is_null( $key ) ) {
+				if ( $key === null ) {
 					$error = true;
 
 					return '';
@@ -400,5 +419,23 @@ class PathRouter {
 		}
 
 		return $value;
+	}
+
+	/**
+	 * @internal For use by Title and WebRequest only.
+	 * @param array $actionPaths
+	 * @param string $articlePath
+	 * @return string[]|false
+	 */
+	public static function getActionPaths( array $actionPaths, $articlePath ) {
+		if ( !$actionPaths ) {
+			return false;
+		}
+		// Processing of urls for this feature requires that 'view' is set.
+		// By default, set it to the pretty article path.
+		if ( !isset( $actionPaths['view'] ) ) {
+			$actionPaths['view'] = $articlePath;
+		}
+		return $actionPaths;
 	}
 }

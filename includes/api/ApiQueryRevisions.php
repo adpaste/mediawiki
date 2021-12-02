@@ -20,9 +20,14 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Content\IContentHandlerFactory;
+use MediaWiki\Content\Transform\ContentTransformer;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\RevisionStore;
+use MediaWiki\Revision\SlotRoleRegistry;
 use MediaWiki\Storage\NameTableAccessException;
+use MediaWiki\Storage\NameTableStore;
 
 /**
  * A query action to enumerate revisions of a given page, or show top revisions
@@ -34,60 +39,56 @@ use MediaWiki\Storage\NameTableAccessException;
  */
 class ApiQueryRevisions extends ApiQueryRevisionsBase {
 
-	private $token = null;
+	/** @var RevisionStore */
+	private $revisionStore;
 
-	public function __construct( ApiQuery $query, $moduleName ) {
-		parent::__construct( $query, $moduleName, 'rv' );
-	}
+	/** @var NameTableStore */
+	private $changeTagDefStore;
 
-	private $tokenFunctions;
-
-	/** @deprecated since 1.24 */
-	protected function getTokenFunctions() {
-		// tokenname => function
-		// function prototype is func($pageid, $title, $rev)
-		// should return token or false
-
-		// Don't call the hooks twice
-		if ( isset( $this->tokenFunctions ) ) {
-			return $this->tokenFunctions;
-		}
-
-		// If we're in a mode that breaks the same-origin policy, no tokens can
-		// be obtained
-		if ( $this->lacksSameOriginSecurity() ) {
-			return [];
-		}
-
-		$this->tokenFunctions = [
-			'rollback' => [ self::class, 'getRollbackToken' ]
-		];
-		Hooks::run( 'APIQueryRevisionsTokens', [ &$this->tokenFunctions ] );
-
-		return $this->tokenFunctions;
-	}
+	/** @var ActorMigration */
+	private $actorMigration;
 
 	/**
-	 * @deprecated since 1.24
-	 * @param int $pageid
-	 * @param Title $title
-	 * @param Revision $rev
-	 * @return bool|string
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param RevisionStore $revisionStore
+	 * @param IContentHandlerFactory $contentHandlerFactory
+	 * @param ParserFactory $parserFactory
+	 * @param SlotRoleRegistry $slotRoleRegistry
+	 * @param NameTableStore $changeTagDefStore
+	 * @param ActorMigration $actorMigration
+	 * @param ContentTransformer $contentTransformer
 	 */
-	public static function getRollbackToken( $pageid, $title, $rev ) {
-		global $wgUser;
-		if ( !$wgUser->isAllowed( 'rollback' ) ) {
-			return false;
-		}
-
-		return $wgUser->getEditToken( 'rollback' );
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		RevisionStore $revisionStore,
+		IContentHandlerFactory $contentHandlerFactory,
+		ParserFactory $parserFactory,
+		SlotRoleRegistry $slotRoleRegistry,
+		NameTableStore $changeTagDefStore,
+		ActorMigration $actorMigration,
+		ContentTransformer $contentTransformer
+	) {
+		parent::__construct(
+			$query,
+			$moduleName,
+			'rv',
+			$revisionStore,
+			$contentHandlerFactory,
+			$parserFactory,
+			$slotRoleRegistry,
+			$contentTransformer
+		);
+		$this->revisionStore = $revisionStore;
+		$this->changeTagDefStore = $changeTagDefStore;
+		$this->actorMigration = $actorMigration;
 	}
 
 	protected function run( ApiPageSet $resultPageSet = null ) {
 		global $wgActorTableSchemaMigrationStage;
 
 		$params = $this->extractRequestParams( false );
-		$revisionStore = MediaWikiServices::getInstance()->getRevisionStore();
 
 		// If any of those parameters are used, work in 'enumeration' mode.
 		// Enum mode can only be used when exactly one page is provided.
@@ -114,7 +115,7 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 
 		if ( $revCount > 0 && $enumRevMode ) {
 			$this->dieWithError(
-				[ 'apierror-revisions-nolist', $this->getModulePrefix() ], 'invalidparammix'
+				[ 'apierror-revisions-norevids', $this->getModulePrefix() ], 'invalidparammix'
 			);
 		}
 
@@ -136,8 +137,17 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 		$idField = 'rev_id';
 		$tsField = 'rev_timestamp';
 		$pageField = 'rev_page';
+
+		$ignoreIndex = [
+			// T224017: `rev_timestamp` is never the correct index to use for this module, but
+			// MariaDB sometimes insists on trying to use it anyway. Tell it not to.
+			// Last checked with MariaDB 10.4.13
+			'revision' => 'rev_timestamp',
+		];
+		$useIndex = [];
+
 		if ( $params['user'] !== null &&
-			( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW )
+			( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_TEMP )
 		) {
 			// We're going to want to use the page_actor_timestamp index (on revision_actor_temp)
 			// so use that table's denormalized fields.
@@ -148,18 +158,11 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 
 		if ( $resultPageSet === null ) {
 			$this->parseParameters( $params );
-			$this->token = $params['token'];
-			$opts = [];
-			if ( $this->token !== null || $pageCount > 0 ) {
-				$opts[] = 'page';
-			}
-			if ( $this->fetchContent ) {
-				$opts[] = 'text';
-			}
+			$opts = [ 'page' ];
 			if ( $this->fld_user ) {
 				$opts[] = 'user';
 			}
-			$revQuery = $revisionStore->getQueryInfo( $opts );
+			$revQuery = $this->revisionStore->getQueryInfo( $opts );
 
 			if ( $idField !== 'rev_id' ) {
 				$aliasFields = [ 'rev_id' => $idField, 'rev_timestamp' => $tsField, 'rev_page' => $pageField ];
@@ -193,9 +196,8 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 			$this->addJoinConds(
 				[ 'change_tag' => [ 'JOIN', [ 'rev_id=ct_rev_id' ] ] ]
 			);
-			$changeTagDefStore = MediaWikiServices::getInstance()->getChangeTagDefStore();
 			try {
-				$this->addWhereFld( 'ct_tag_id', $changeTagDefStore->getId( $params['tag'] ) );
+				$this->addWhereFld( 'ct_tag_id', $this->changeTagDefStore->getId( $params['tag'] ) );
 			} catch ( NameTableAccessException $exception ) {
 				// Return nothing.
 				$this->addWhere( '1=0' );
@@ -204,11 +206,11 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 
 		if ( $resultPageSet === null && $this->fetchContent ) {
 			// For each page we will request, the user must have read rights for that page
-			$user = $this->getUser();
 			$status = Status::newGood();
+
 			/** @var Title $title */
 			foreach ( $pageSet->getGoodTitles() as $title ) {
-				if ( !$title->userCan( 'read', $user ) ) {
+				if ( !$this->getAuthority()->authorizeRead( 'read', $title ) ) {
 					$status->fatal( ApiMessage::create(
 						[ 'apierror-cannotviewtitle', wfEscapeWikiText( $title->getPrefixedText() ) ],
 						'accessdenied'
@@ -320,23 +322,33 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 			$this->addWhereFld( $pageField, reset( $ids ) );
 
 			if ( $params['user'] !== null ) {
-				$actorQuery = ActorMigration::newMigration()
-					->getWhere( $db, 'rev_user', User::newFromName( $params['user'], false ) );
+				$actorQuery = $this->actorMigration->getWhere( $db, 'rev_user', $params['user'] );
 				$this->addTables( $actorQuery['tables'] );
 				$this->addJoinConds( $actorQuery['joins'] );
 				$this->addWhere( $actorQuery['conds'] );
 			} elseif ( $params['excludeuser'] !== null ) {
-				$actorQuery = ActorMigration::newMigration()
-					->getWhere( $db, 'rev_user', User::newFromName( $params['excludeuser'], false ) );
+				$actorQuery = $this->actorMigration->getWhere( $db, 'rev_user', $params['excludeuser'] );
 				$this->addTables( $actorQuery['tables'] );
 				$this->addJoinConds( $actorQuery['joins'] );
 				$this->addWhere( 'NOT(' . $actorQuery['conds'] . ')' );
+			} else {
+				// T270033 Index renaming
+				$revIndex = $this->getDB()->indexExists( 'revision', 'page_timestamp',  __METHOD__ )
+					? 'page_timestamp'
+					: 'rev_page_timestamp';
+				// T258480: MariaDB ends up using rev_page_actor_timestamp in some cases here.
+				// Last checked with MariaDB 10.4.13
+				// Unless we are filtering by user (see above), we always want to use the
+				// "history" index on the revision table, namely page_timestamp.
+				$useIndex['revision'] = $revIndex;
 			}
+
 			if ( $params['user'] !== null || $params['excludeuser'] !== null ) {
 				// Paranoia: avoid brute force searches (T19342)
-				if ( !$this->getUser()->isAllowed( 'deletedhistory' ) ) {
+				if ( !$this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
 					$bitmask = RevisionRecord::DELETED_USER;
-				} elseif ( !$this->getUser()->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
+				} elseif ( !$this->getAuthority()->isAllowedAny( 'suppressrevision', 'viewsuppressed' )
+				) {
 					$bitmask = RevisionRecord::DELETED_USER | RevisionRecord::DELETED_RESTRICTED;
 				} else {
 					$bitmask = 0;
@@ -392,6 +404,12 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 
 		$this->addOption( 'LIMIT', $this->limit + 1 );
 
+		$this->addOption( 'IGNORE INDEX', $ignoreIndex );
+
+		if ( $useIndex ) {
+			$this->addOption( 'USE INDEX', $useIndex );
+		}
+
 		$count = 0;
 		$generated = [];
 		$hookData = [];
@@ -416,23 +434,8 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 			if ( $resultPageSet !== null ) {
 				$generated[] = $row->rev_id;
 			} else {
-				$revision = $revisionStore->newRevisionFromRow( $row );
+				$revision = $this->revisionStore->newRevisionFromRow( $row, 0, Title::newFromRow( $row ) );
 				$rev = $this->extractRevisionInfo( $revision, $row );
-
-				if ( $this->token !== null ) {
-					$title = Title::newFromLinkTarget( $revision->getPageAsLinkTarget() );
-					$revisionCompat = new Revision( $revision );
-					$tokenFunctions = $this->getTokenFunctions();
-					foreach ( $this->token as $t ) {
-						$val = call_user_func( $tokenFunctions[$t], $title->getArticleID(), $title, $revisionCompat );
-						if ( $val === false ) {
-							$this->addWarning( [ 'apiwarn-tokennotallowed', $t ] );
-						} else {
-							$rev[$t . 'token'] = $val;
-						}
-					}
-				}
-
 				$fit = $this->processRow( $row, $rev, $hookData ) &&
 					$this->addPageSubItem( $row->rev_page, $rev, 'rev' );
 				if ( !$fit ) {
@@ -453,13 +456,6 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 		if ( $resultPageSet !== null ) {
 			$resultPageSet->populateFromRevisionIDs( $generated );
 		}
-	}
-
-	public function getCacheMode( $params ) {
-		if ( isset( $params['token'] ) ) {
-			return 'private';
-		}
-		return parent::getCacheMode( $params );
 	}
 
 	public function getAllowedParams() {
@@ -491,18 +487,17 @@ class ApiQueryRevisions extends ApiQueryRevisionsBase {
 			],
 			'user' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'id', 'interwiki' ],
+				UserDef::PARAM_RETURN_OBJECT => true,
 				ApiBase::PARAM_HELP_MSG_INFO => [ [ 'singlepageonly' ] ],
 			],
 			'excludeuser' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'id', 'interwiki' ],
+				UserDef::PARAM_RETURN_OBJECT => true,
 				ApiBase::PARAM_HELP_MSG_INFO => [ [ 'singlepageonly' ] ],
 			],
 			'tag' => null,
-			'token' => [
-				ApiBase::PARAM_DEPRECATED => true,
-				ApiBase::PARAM_TYPE => array_keys( $this->getTokenFunctions() ),
-				ApiBase::PARAM_ISMULTI => true
-			],
 			'continue' => [
 				ApiBase::PARAM_HELP_MSG => 'api-help-param-continue',
 			],

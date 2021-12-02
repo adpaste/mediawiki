@@ -23,6 +23,8 @@
  * @ingroup Content
  */
 
+use MediaWiki\Content\Transform\PreSaveTransformParams;
+
 /**
  * Base content handler implementation for flat text contents.
  *
@@ -45,6 +47,7 @@ class TextContentHandler extends ContentHandler {
 	public function serializeContent( Content $content, $format = null ) {
 		$this->checkFormat( $format );
 
+		// @phan-suppress-next-line PhanUndeclaredMethod
 		return $content->getText();
 	}
 
@@ -159,4 +162,29 @@ class TextContentHandler extends ContentHandler {
 		return $fields;
 	}
 
+	public function preSaveTransform(
+		Content $content,
+		PreSaveTransformParams $pstParams
+	): Content {
+		$shouldCallDeprecatedMethod = $this->shouldCallDeprecatedContentTransformMethod(
+			$content,
+			$pstParams
+		);
+
+		if ( $shouldCallDeprecatedMethod ) {
+			return $this->callDeprecatedContentPST(
+				$content,
+				$pstParams
+			);
+		}
+
+		'@phan-var TextContent $content';
+
+		$text = $content->getText();
+
+		$pst = TextContent::normalizeLineEndings( $text );
+
+		$contentClass = $this->getContentClass();
+		return ( $text === $pst ) ? $content : new $contentClass( $pst, $content->getModel() );
+	}
 }

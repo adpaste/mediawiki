@@ -23,6 +23,9 @@
  * @ingroup Content
  */
 
+use MediaWiki\Content\Transform\PreloadTransformParams;
+use MediaWiki\Content\Transform\PreSaveTransformParams;
+use MediaWiki\Languages\LanguageNameUtils;
 use MediaWiki\MediaWikiServices;
 
 /**
@@ -53,16 +56,22 @@ class WikitextContentHandler extends TextContentHandler {
 	public function makeRedirectContent( Title $destination, $text = '' ) {
 		$optionalColon = '';
 
-		if ( $destination->getNamespace() == NS_CATEGORY ) {
+		$services = MediaWikiServices::getInstance();
+		if ( $destination->getNamespace() === NS_CATEGORY ) {
 			$optionalColon = ':';
 		} else {
 			$iw = $destination->getInterwiki();
-			if ( $iw && Language::fetchLanguageName( $iw, null, 'mw' ) ) {
+			if ( $iw && $services
+					->getLanguageNameUtils()
+					->getLanguageName( $iw,
+						LanguageNameUtils::AUTONYMS,
+						LanguageNameUtils::DEFINED )
+			) {
 				$optionalColon = ':';
 			}
 		}
 
-		$mwRedir = MediaWikiServices::getInstance()->getMagicWordFactory()->get( 'redirect' );
+		$mwRedir = $services->getMagicWordFactory()->get( 'redirect' );
 		$redirectText = $mwRedir->getSynonym( 0 ) .
 			' [[' . $optionalColon . $destination->getFullText() . ']]';
 
@@ -111,7 +120,6 @@ class WikitextContentHandler extends TextContentHandler {
 	}
 
 	/**
-	 * Get file handler
 	 * @return FileContentHandler
 	 */
 	protected function getFileHandler() {
@@ -155,7 +163,7 @@ class WikitextContentHandler extends TextContentHandler {
 		$fields['defaultsort'] = $structure->getDefaultSort();
 
 		// Until we have full first-class content handler for files, we invoke it explicitly here
-		if ( NS_FILE == $page->getTitle()->getNamespace() ) {
+		if ( $page->getTitle()->getNamespace() === NS_FILE ) {
 			$fields = array_merge( $fields,
 					$this->getFileHandler()->getDataForSearchIndex( $page, $parserOutput, $engine ) );
 		}
@@ -182,4 +190,80 @@ class WikitextContentHandler extends TextContentHandler {
 		return parent::serializeContent( $content, $format );
 	}
 
+	public function preSaveTransform(
+		Content $content,
+		PreSaveTransformParams $pstParams
+	): Content {
+		$shouldCallDeprecatedMethod = $this->shouldCallDeprecatedContentTransformMethod(
+			$content,
+			$pstParams
+		);
+
+		if ( $shouldCallDeprecatedMethod ) {
+			return $this->callDeprecatedContentPST(
+				$content,
+				$pstParams
+			);
+		}
+
+		'@phan-var WikitextContent $content';
+
+		$text = $content->getText();
+
+		$parser = MediaWikiServices::getInstance()->getParser();
+		$pst = $parser->preSaveTransform(
+			$text,
+			$pstParams->getPage(),
+			$pstParams->getUser(),
+			$pstParams->getParserOptions()
+		);
+
+		if ( $text === $pst ) {
+			return $content;
+		}
+
+		$contentClass = $this->getContentClass();
+		$ret = new $contentClass( $pst );
+		$ret->setPreSaveTransformFlags( $parser->getOutput()->getAllFlags() );
+		return $ret;
+	}
+
+	/**
+	 * Returns a Content object with preload transformations applied (or this
+	 * object if no transformations apply).
+	 *
+	 * @param Content $content
+	 * @param PreloadTransformParams $pltParams
+	 *
+	 * @return Content
+	 */
+	public function preloadTransform(
+		Content $content,
+		PreloadTransformParams $pltParams
+	): Content {
+		$shouldCallDeprecatedMethod = $this->shouldCallDeprecatedContentTransformMethod(
+			$content,
+			$pltParams
+		);
+
+		if ( $shouldCallDeprecatedMethod ) {
+			return $this->callDeprecatedContentPLT(
+				$content,
+				$pltParams
+			);
+		}
+
+		'@phan-var WikitextContent $content';
+
+		$text = $content->getText();
+		$plt = MediaWikiServices::getInstance()->getParser()->getPreloadText(
+			$text,
+			$pltParams->getPage(),
+			$pltParams->getParserOptions(),
+			$pltParams->getParams()
+		);
+
+		$contentClass = $this->getContentClass();
+		return new $contentClass( $plt );
+	}
 }

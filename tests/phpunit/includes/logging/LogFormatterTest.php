@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\User\UserIdentityValue;
+
 /**
  * @group Database
  */
@@ -31,31 +33,28 @@ class LogFormatterTest extends MediaWikiLangTestCase {
 	 */
 	protected $user_comment;
 
-	public static function setUpBeforeClass() {
+	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
 
 		global $wgExtensionMessagesFiles;
 		self::$oldExtMsgFiles = $wgExtensionMessagesFiles;
 		$wgExtensionMessagesFiles['LogTests'] = __DIR__ . '/LogTests.i18n.php';
-		Language::getLocalisationCache()->recache( 'en' );
 	}
 
-	public static function tearDownAfterClass() {
+	public static function tearDownAfterClass(): void {
 		global $wgExtensionMessagesFiles;
 		$wgExtensionMessagesFiles = self::$oldExtMsgFiles;
-		Language::getLocalisationCache()->recache( 'en' );
 
 		parent::tearDownAfterClass();
 	}
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->setMwGlobals( [
 			'wgLogTypes' => [ 'phpunit' ],
 			'wgLogActionsHandlers' => [ 'phpunit/test' => LogFormatter::class,
 				'phpunit/param' => LogFormatter::class ],
-			'wgUser' => User::newFromName( 'Testuser' ),
 		] );
 
 		$this->user = User::newFromName( 'Testuser' );
@@ -218,6 +217,23 @@ class LogFormatterTest extends MediaWikiLangTestCase {
 	 * @covers LogFormatter::newFromEntry
 	 * @covers LogFormatter::getActionText
 	 */
+	public function testLogParamsTypeUserLink_empty() {
+		$params = [ '4:user-link:userLink' => ':' ];
+
+		$entry = $this->newLogEntry( 'param', $params );
+		$formatter = LogFormatter::newFromEntry( $entry );
+
+		$this->context->setLanguage( 'qqx' );
+		$formatter->setContext( $this->context );
+
+		$logParam = $formatter->getActionText();
+		$this->assertStringContainsString( '(empty-username)', $logParam );
+	}
+
+	/**
+	 * @covers LogFormatter::newFromEntry
+	 * @covers LogFormatter::getActionText
+	 */
 	public function testLogParamsTypeTitleLink() {
 		$params = [ '4:title-link:titleLink' => $this->title->getText() ];
 		$expected = Linker::link( $this->title, null, [], [] );
@@ -246,6 +262,20 @@ class LogFormatterTest extends MediaWikiLangTestCase {
 		$logParam = $formatter->getActionText();
 
 		$this->assertEquals( $expected, $logParam );
+	}
+
+	/**
+	 * @covers LogFormatter::getPerformerElement
+	 */
+	public function testGetPerformerElement() {
+		$entry = $this->newLogEntry( 'param', [] );
+		$entry->setPerformer( new UserIdentityValue( 1328435, 'Test' ) );
+
+		$formatter = LogFormatter::newFromEntry( $entry );
+		$formatter->setContext( $this->context );
+
+		$element = $formatter->getPerformerElement();
+		$this->assertStringContainsString( 'User:Test', $element );
 	}
 
 	/**
@@ -635,8 +665,9 @@ class LogFormatterTest extends MediaWikiLangTestCase {
 	 * @param string $type Log type (move, delete, suppress, patrol ...)
 	 * @param string $action A log type action
 	 * @param array $params
-	 * @param string $comment (optional) A comment for the log action
-	 * @param string $msg (optional) A message for PHPUnit :-)
+	 * @param string|null $comment A comment for the log action
+	 * @param string $msg
+	 * @param bool $legacy
 	 */
 	protected function assertIRCComment( $expected, $type, $action, $params,
 		$comment = null, $msg = '', $legacy = false

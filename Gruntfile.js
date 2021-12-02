@@ -1,7 +1,5 @@
 /* eslint-env node */
-
 module.exports = function ( grunt ) {
-
 	var wgServer = process.env.MW_SERVER,
 		wgScriptPath = process.env.MW_SCRIPT_PATH,
 		karmaProxy = {};
@@ -9,10 +7,8 @@ module.exports = function ( grunt ) {
 	grunt.loadNpmTasks( 'grunt-banana-checker' );
 	grunt.loadNpmTasks( 'grunt-contrib-copy' );
 	grunt.loadNpmTasks( 'grunt-eslint' );
-	grunt.loadNpmTasks( 'grunt-jsonlint' );
 	grunt.loadNpmTasks( 'grunt-karma' );
 	grunt.loadNpmTasks( 'grunt-stylelint' );
-	grunt.loadNpmTasks( 'grunt-svgmin' );
 
 	karmaProxy[ wgScriptPath ] = {
 		target: wgServer + wgScriptPath,
@@ -22,76 +18,29 @@ module.exports = function ( grunt ) {
 	grunt.initConfig( {
 		eslint: {
 			options: {
-				reportUnusedDisableDirectives: true,
-				cache: true
+				extensions: [ '.js', '.json', '.vue' ],
+				cache: true,
+				fix: grunt.option( 'fix' )
 			},
-			all: [
-				'**/*.js',
-				'!docs/**',
-				'!node_modules/**',
-				'!resources/lib/**',
-				'!resources/src/jquery.tipsy/**',
-				'!resources/src/mediawiki.libs.jpegmeta/**',
-				// Third-party code of PHPUnit coverage report
-				'!tests/coverage/**',
-				'!vendor/**',
-				// Explicitly say "**/*.js" here in case of symlinks
-				'!extensions/**/*.js',
-				'!skins/**/*.js'
-			]
-		},
-		jsonlint: {
-			all: [
-				'**/*.json',
-				'!{docs/js,extensions,node_modules,skins,vendor}/**'
-			]
+			all: '.'
 		},
 		banana: {
 			options: {
+				requireLowerCase: false,
 				disallowBlankTranslations: false
 			},
 			core: 'languages/i18n/',
 			exif: 'languages/i18n/exif/',
 			api: 'includes/api/i18n/',
-			installer: 'includes/installer/i18n/'
+			rest: 'includes/Rest/i18n/',
+			installer: 'includes/installer/i18n/',
+			paramvalidator: 'includes/libs/ParamValidator/i18n/'
 		},
 		stylelint: {
-			src: '{resources/src,mw-config}/**/*.{css,less}'
-		},
-		svgmin: {
 			options: {
-				js2svg: {
-					indent: '\t',
-					pretty: true
-				},
-				multipass: true,
-				plugins: [ {
-					cleanupIDs: false
-				}, {
-					removeDesc: false
-				}, {
-					removeRasterImages: true
-				}, {
-					removeTitle: false
-				}, {
-					removeViewBox: false
-				}, {
-					removeXMLProcInst: false
-				}, {
-					sortAttrs: true
-				} ]
+				reportNeedlessDisables: true
 			},
-			all: {
-				files: [ {
-					expand: true,
-					cwd: 'resources/src',
-					src: [
-						'**/*.svg'
-					],
-					dest: 'resources/src/',
-					ext: '.svg'
-				} ]
-			}
+			src: '{resources/src,mw-config}/**/*.{css,less,vue}'
 		},
 		watch: {
 			files: [
@@ -107,12 +56,8 @@ module.exports = function ( grunt ) {
 					ChromeCustom: {
 						base: 'ChromeHeadless',
 						// Chrome requires --no-sandbox in Docker/CI.
-						// Newer CI images expose CHROMIUM_FLAGS which sets this (and
-						// anything else it might need) automatically. Older CI images,
-						// (including Quibble for MW) don't set it yet.
-						flags: ( process.env.CHROMIUM_FLAGS ||
-							( process.env.ZUUL_PROJECT ? '--no-sandbox' : '' )
-						).split( ' ' )
+						// WMF CI images expose CHROMIUM_FLAGS which sets that.
+						flags: ( process.env.CHROMIUM_FLAGS || '' ).split( ' ' )
 					}
 				},
 				proxies: karmaProxy,
@@ -122,7 +67,7 @@ module.exports = function ( grunt ) {
 					included: true,
 					served: false
 				} ],
-				logLevel: 'DEBUG',
+				logLevel: ( process.env.ZUUL_PROJECT ? 'DEBUG' : 'INFO' ),
 				frameworks: [ 'qunit' ],
 				reporters: [ 'mocha' ],
 				singleRun: true,
@@ -153,19 +98,21 @@ module.exports = function ( grunt ) {
 	} );
 
 	grunt.registerTask( 'assert-mw-env', function () {
+		var ok = true;
 		if ( !process.env.MW_SERVER ) {
 			grunt.log.error( 'Environment variable MW_SERVER must be set.\n' +
 				'Set this like $wgServer, e.g. "http://localhost"'
 			);
+			ok = false;
 		}
 		if ( !process.env.MW_SCRIPT_PATH ) {
 			grunt.log.error( 'Environment variable MW_SCRIPT_PATH must be set.\n' +
 				'Set this like $wgScriptPath, e.g. "/w"' );
+			ok = false;
 		}
-		return !!( process.env.MW_SERVER && process.env.MW_SCRIPT_PATH );
+		return ok;
 	} );
 
-	grunt.registerTask( 'minify', 'svgmin' );
 	grunt.registerTask( 'lint', [ 'eslint', 'banana', 'stylelint' ] );
 	grunt.registerTask( 'qunit', [ 'assert-mw-env', 'karma:main' ] );
 };

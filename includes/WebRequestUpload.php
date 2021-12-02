@@ -22,14 +22,22 @@
 
 use MediaWiki\MediaWikiServices;
 
+// The point of this class is to be a wrapper around super globals
+// phpcs:disable MediaWiki.Usage.SuperGlobalsUsage.SuperGlobals
+
 /**
  * Object to access the $_FILES array
  *
  * @ingroup HTTP
  */
 class WebRequestUpload {
+	/** All keys a fileinfo has to specific to work with this class */
+	public const REQUIRED_FILEINFO_KEYS = [ 'name', 'size', 'tmp_name', 'type', 'error', ];
+	/** @var WebRequest */
 	protected $request;
+	/** @var bool */
 	protected $doesExist;
+	/** @var array|null */
 	protected $fileInfo;
 
 	/**
@@ -65,13 +73,15 @@ class WebRequestUpload {
 			return null;
 		}
 
+		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable Okay after exists check
 		$name = $this->fileInfo['name'];
 
 		# Safari sends filenames in HTML-encoded Unicode form D...
 		# Horrid and evil! Let's try to make some kind of sense of it.
 		$name = Sanitizer::decodeCharReferences( $name );
 		$name = MediaWikiServices::getInstance()->getContentLanguage()->normalize( $name );
-		wfDebug( __METHOD__ . ": {$this->fileInfo['name']} normalized to '$name'\n" );
+		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable Okay after exists check
+		wfDebug( __METHOD__ . ": {$this->fileInfo['name']} normalized to '$name'" );
 		return $name;
 	}
 
@@ -85,6 +95,7 @@ class WebRequestUpload {
 			return 0;
 		}
 
+		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable Okay after exists check
 		return $this->fileInfo['size'];
 	}
 
@@ -98,12 +109,28 @@ class WebRequestUpload {
 			return null;
 		}
 
+		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable Okay after exists check
 		return $this->fileInfo['tmp_name'];
 	}
 
 	/**
+	 * Return the client specified content type
+	 *
+	 * @since 1.35
+	 * @return string|null Type or null if non-existent
+	 */
+	public function getType() {
+		if ( !$this->exists() ) {
+			return null;
+		}
+
+		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable Okay after exists check
+		return $this->fileInfo['type'];
+	}
+
+	/**
 	 * Return the upload error. See link for explanation
-	 * https://secure.php.net/manual/en/features.file-upload.errors.php
+	 * https://www.php.net/manual/en/features.file-upload.errors.php
 	 *
 	 * @return int One of the UPLOAD_ constants, 0 if non-existent
 	 */
@@ -112,6 +139,7 @@ class WebRequestUpload {
 			return 0; # UPLOAD_ERR_OK
 		}
 
+		// @phan-suppress-next-line PhanTypeArraySuspiciousNullable Okay after exists check
 		return $this->fileInfo['error'];
 	}
 
@@ -128,10 +156,7 @@ class WebRequestUpload {
 		}
 
 		$contentLength = $this->request->getHeader( 'Content-Length' );
-		$maxPostSize = wfShorthandToInteger(
-			ini_get( 'post_max_size' ) ?: ini_get( 'hhvm.server.max_post_size' ),
-			0
-		);
+		$maxPostSize = wfShorthandToInteger( ini_get( 'post_max_size' ), 0 );
 
 		if ( $maxPostSize && $contentLength > $maxPostSize ) {
 			# post_max_size is exceeded

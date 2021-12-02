@@ -31,17 +31,18 @@ namespace MediaWiki\Session;
  */
 class Token {
 	/** CSRF token suffix. Plus and terminal backslash are included to stop
-	 * editing from certain broken proxies. */
-	const SUFFIX = '+\\';
+	 * editing from certain broken proxies.
+	 */
+	public const SUFFIX = '+\\';
 
 	/** @var string */
-	private $secret = '';
+	private $secret;
 
 	/** @var string */
-	private $salt = '';
+	private $salt;
 
 	/** @var bool */
-	private $new = false;
+	private $new;
 
 	/**
 	 * @param string $secret Token secret
@@ -101,11 +102,14 @@ class Token {
 
 	/**
 	 * Test if the token-string matches this token
-	 * @param string $userToken
+	 * @param string|null $userToken
 	 * @param int|null $maxAge Return false if $userToken is older than this many seconds
 	 * @return bool
 	 */
 	public function match( $userToken, $maxAge = null ) {
+		if ( !$userToken ) {
+			return false;
+		}
 		$timestamp = self::getTimestamp( $userToken );
 		if ( $timestamp === null ) {
 			return false;

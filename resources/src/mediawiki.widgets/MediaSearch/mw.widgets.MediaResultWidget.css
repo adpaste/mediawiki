@@ -23,7 +23,6 @@
 	opacity: 0;
 	display: inline-block;
 	-webkit-transition: opacity 400ms;
-	-moz-transition: opacity 400ms;
 	transition: opacity 400ms;
 }
 
@@ -57,7 +56,6 @@
 }
 
 .mw-widget-mediaResultWidget-error .mw-widget-mediaResultWidget-thumbnail {
-	/* @embed */
 	background-image: url( broken-image.png );
 	background-size: auto;
 	background-position: center center;

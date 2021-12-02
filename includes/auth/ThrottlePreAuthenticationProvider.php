@@ -22,7 +22,6 @@
 namespace MediaWiki\Auth;
 
 use BagOStuff;
-use Config;
 
 /**
  * A pre-authentication provider to throttle authentication actions.
@@ -61,9 +60,7 @@ class ThrottlePreAuthenticationProvider extends AbstractPreAuthenticationProvide
 		$this->cache = $params['cache'] ?? \ObjectCache::getLocalClusterInstance();
 	}
 
-	public function setConfig( Config $config ) {
-		parent::setConfig( $config );
-
+	protected function postInitSetup() {
 		$accountCreationThrottle = $this->config->get( 'AccountCreationThrottle' );
 		// Handle old $wgAccountCreationThrottle format (number of attempts per 24 hours)
 		if ( !is_array( $accountCreationThrottle ) ) {
@@ -105,8 +102,8 @@ class ThrottlePreAuthenticationProvider extends AbstractPreAuthenticationProvide
 
 		$ip = $this->manager->getRequest()->getIP();
 
-		if ( !\Hooks::run( 'ExemptFromAccountCreationThrottle', [ $ip ] ) ) {
-			$this->logger->debug( __METHOD__ . ": a hook allowed account creation w/o throttle\n" );
+		if ( !$this->getHookRunner()->onExemptFromAccountCreationThrottle( $ip ) ) {
+			$this->logger->debug( __METHOD__ . ": a hook allowed account creation w/o throttle" );
 			return \StatusValue::newGood();
 		}
 
@@ -129,12 +126,16 @@ class ThrottlePreAuthenticationProvider extends AbstractPreAuthenticationProvide
 		try {
 			$username = AuthenticationRequest::getUsernameFromRequests( $reqs );
 		} catch ( \UnexpectedValueException $e ) {
-			$username = '';
+			$username = null;
 		}
 
 		// Get everything this username could normalize to, and throttle each one individually.
 		// If nothing uses usernames, just throttle by IP.
-		$usernames = $this->manager->normalizeUsername( $username );
+		if ( $username !== null ) {
+			$usernames = $this->manager->normalizeUsername( $username );
+		} else {
+			$usernames = [ null ];
+		}
 		$result = false;
 		foreach ( $usernames as $name ) {
 			$r = $this->passwordAttemptThrottle->increase( $name, $ip, __METHOD__ );

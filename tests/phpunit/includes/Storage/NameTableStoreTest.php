@@ -8,7 +8,7 @@ use HashBagOStuff;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Storage\NameTableAccessException;
 use MediaWiki\Storage\NameTableStore;
-use MediaWikiTestCase;
+use MediaWikiIntegrationTestCase;
 use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Log\NullLogger;
 use RuntimeException;
@@ -23,11 +23,11 @@ use Wikimedia\TestingAccessWrapper;
  * @group Database
  * @covers \MediaWiki\Storage\NameTableStore
  */
-class NameTableStoreTest extends MediaWikiTestCase {
+class NameTableStoreTest extends MediaWikiIntegrationTestCase {
 
-	public function setUp() {
-		$this->tablesUsed[] = 'slot_roles';
+	protected function setUp(): void {
 		parent::setUp();
+		$this->tablesUsed[] = 'slot_roles';
 	}
 
 	protected function addCoreDBData() {
@@ -47,16 +47,15 @@ class NameTableStoreTest extends MediaWikiTestCase {
 	}
 
 	/**
-	 * @param $db
-	 * @return \PHPUnit_Framework_MockObject_MockObject|LoadBalancer
+	 * @param IDatabase $db
+	 * @return LoadBalancer
 	 */
 	private function getMockLoadBalancer( $db ) {
 		$mock = $this->getMockBuilder( LoadBalancer::class )
 			->disableOriginalConstructor()
 			->getMock();
-		$mock->expects( $this->any() )
-			->method( 'getConnectionRef' )
-			->willReturnCallback( function ( $i ) use ( $mock, $db ) {
+		$mock->method( 'getConnectionRef' )
+			->willReturnCallback( static function ( $i ) use ( $mock, $db ) {
 				return new MaintainableDBConnRef( $mock, $db, $i );
 			} );
 		return $mock;
@@ -90,7 +89,7 @@ class NameTableStoreTest extends MediaWikiTestCase {
 			$mock->expects( is_int( $count ) ? $this->exactly( $count ) : $this->any() )
 				->method( $method )
 				->willReturnCallback( function ( ...$args ) use ( $method ) {
-					return call_user_func_array( [ $this->db, $method ], $args );
+					return $this->db->$method( ...$args );
 				} );
 		}
 		return $mock;
@@ -190,7 +189,7 @@ class NameTableStoreTest extends MediaWikiTestCase {
 		yield [
 			'X',
 			'X',
-			function ( $name ) {
+			static function ( $name ) {
 				return $name;
 			}
 		];
@@ -229,17 +228,23 @@ class NameTableStoreTest extends MediaWikiTestCase {
 	/**
 	 * @dataProvider provideGetName
 	 */
-	public function testGetName( $cacheBag, $insertCalls, $selectCalls ) {
+	public function testGetName( BagOStuff $cacheBag, $insertCalls, $selectCalls ) {
+		$now = microtime( true );
+		$cacheBag->setMockTime( $now );
 		// Check for operations to in-memory cache (IMC) and persistent cache (PC)
 		$store = $this->getNameTableSqlStore( $cacheBag, $insertCalls, $selectCalls );
 
 		// Get 1 ID and make sure getName returns correctly
 		$fooId = $store->acquireId( 'foo' ); // regen PC, set IMC, update IMC, tombstone PC
+		$now += 0.01;
 		$this->assertSame( 'foo', $store->getName( $fooId ) ); // use IMC
+		$now += 0.01;
 
 		// Get another ID and make sure getName returns correctly
 		$barId = $store->acquireId( 'bar' ); // update IMC, tombstone PC
+		$now += 0.01;
 		$this->assertSame( 'bar', $store->getName( $barId ) ); // use IMC
+		$now += 0.01;
 
 		// Blitz the cache and make sure it still returns
 		TestingAccessWrapper::newFromObject( $store )->tableCache = null; // clear IMC
@@ -249,6 +254,7 @@ class NameTableStoreTest extends MediaWikiTestCase {
 		// Blitz the cache again and get another ID and make sure getName returns correctly
 		TestingAccessWrapper::newFromObject( $store )->tableCache = null; // clear IMC
 		$bazId = $store->acquireId( 'baz' ); // set IMC using interim PC, update IMC, tombstone PC
+		$now += 0.01;
 		$this->assertSame( 'baz', $store->getName( $bazId ) ); // uses IMC
 		$this->assertSame( 'baz', $store->getName( $bazId ) ); // uses IMC
 	}
@@ -343,7 +349,7 @@ class NameTableStoreTest extends MediaWikiTestCase {
 			1,
 			1,
 			null,
-			function ( $insertFields ) {
+			static function ( $insertFields ) {
 				$insertFields['role_id'] = 7251;
 				return $insertFields;
 			}
@@ -381,7 +387,7 @@ class NameTableStoreTest extends MediaWikiTestCase {
 
 		$db = $this->getProxyDb( 2 );
 		$db->method( 'insert' )
-			->willReturnCallback( function () use ( &$insertCalls, $db ) {
+			->willReturnCallback( static function () use ( &$insertCalls ) {
 				$insertCalls++;
 				switch ( $insertCalls ) {
 					case 1:
@@ -417,6 +423,9 @@ class NameTableStoreTest extends MediaWikiTestCase {
 	}
 
 	public function testTransactionRollbackWithInterference() {
+		// FIXME: https://phabricator.wikimedia.org/T259085
+		$this->markTestSkippedIfDbType( 'sqlite' );
+
 		$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
 
 		// Two instances hitting the real database using separate caches.
@@ -437,9 +446,10 @@ class NameTableStoreTest extends MediaWikiTestCase {
 
 		$quuxId = null;
 		$this->db->onTransactionResolution(
-			function () use ( $store1, &$quuxId ) {
+			static function () use ( $store1, &$quuxId ) {
 				$quuxId = $store1->acquireId( 'quux' );
-			}
+			},
+			__METHOD__
 		);
 
 		$store1->acquireId( 'foo' );

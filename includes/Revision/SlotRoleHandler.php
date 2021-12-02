@@ -23,11 +23,14 @@
 namespace MediaWiki\Revision;
 
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\Page\PageIdentity;
 
 /**
  * SlotRoleHandler instances are used to declare the existence and behavior of slot roles.
  * Most importantly, they control which content model can be used for the slot, and how it is
- * represented in the rendered verswion of page content.
+ * represented in the rendered version of page content.
+ *
+ * @stable to extend
  *
  * @since 1.33
  */
@@ -39,7 +42,7 @@ class SlotRoleHandler {
 	private $role;
 
 	/**
-	 * @var array
+	 * @var string[]
 	 * @see getOutputLayoutHints
 	 */
 	private $layout = [
@@ -49,22 +52,36 @@ class SlotRoleHandler {
 	];
 
 	/**
+	 * @var bool
+	 */
+	private $derived;
+
+	/**
 	 * @var string
 	 */
 	private $contentModel;
 
 	/**
+	 * @stable to call
+	 *
 	 * @param string $role The name of the slot role defined by this SlotRoleHandler. See
 	 *        SlotRoleRegistry::defineRole for more information.
 	 * @param string $contentModel The default content model for this slot. As per the default
 	 *        implementation of isAllowedModel(), also the only content model allowed for the
 	 *        slot. Subclasses may however handle default and allowed models differently.
-	 * @param array $layout Layout hints, for use by RevisionRenderer. See getOutputLayoutHints.
+	 * @param string[] $layout Layout hints, for use by RevisionRenderer. See getOutputLayoutHints.
+	 * @param bool $derived Is this handler for a derived slot? Derived slots allow information that
+	 *        is derived from the content of a page to be stored even if it is generated
+	 *        asynchronously or updated later. Their size is not included in the revision size,
+	 *        their hash does not contribute to the revision hash, and updates are not included
+	 *        in revision history.
+	 * @since 1.36 optional $derived parameter added
 	 */
-	public function __construct( $role, $contentModel, $layout = [] ) {
+	public function __construct( $role, $contentModel, $layout = [], bool $derived = false ) {
 		$this->role = $role;
 		$this->contentModel = $contentModel;
 		$this->layout = array_merge( $this->layout, $layout );
+		$this->derived = $derived;
 	}
 
 	/**
@@ -92,15 +109,25 @@ class SlotRoleHandler {
 	 *   Further values that may be supported in the future include "prepend". A "weight" key
 	 *   may be introduced for more fine grained control.
 	 *
-	 * @return array an associative array of hints
+	 * @stable to override
+	 * @return string[] an associative array of hints
 	 */
 	public function getOutputLayoutHints() {
 		return $this->layout;
 	}
 
 	/**
+	 * @return bool Is this a handler for a derived slot?
+	 * @since 1.36
+	 */
+	public function isDerived(): bool {
+		return $this->derived;
+	}
+
+	/**
 	 * The message key for the translation of the slot name.
 	 *
+	 * @stable to override
 	 * @return string
 	 */
 	public function getNameMessageKey() {
@@ -114,11 +141,13 @@ class SlotRoleHandler {
 	 * Subclasses may base the choice on default model on the page title or namespace.
 	 * The choice should not depend on external state, such as the page content.
 	 *
-	 * @param LinkTarget $page
+	 * @stable to override
+	 *
+	 * @param LinkTarget|PageIdentity $page
 	 *
 	 * @return string
 	 */
-	public function getDefaultModel( LinkTarget $page ) {
+	public function getDefaultModel( $page ) {
 		return $this->contentModel;
 	}
 
@@ -129,15 +158,17 @@ class SlotRoleHandler {
 	 * constructor. Subclasses may allow other models and may base the decision on the page title
 	 * or namespace. The choice should not depend on external state, such as the page content.
 	 *
+	 * @stable to override
+	 *
 	 * @note This should be checked when creating new revisions. Existing revisions
 	 *       are not guaranteed to comply with the return value.
 	 *
 	 * @param string $model
-	 * @param LinkTarget $page
+	 * @param PageIdentity $page
 	 *
 	 * @return bool
 	 */
-	public function isAllowedModel( $model, LinkTarget $page ) {
+	public function isAllowedModel( $model, PageIdentity $page ) {
 		return ( $model === $this->contentModel );
 	}
 
@@ -150,7 +181,9 @@ class SlotRoleHandler {
 	 *
 	 * The default implementation always returns false.
 	 *
-	 * @return string
+	 * @stable to override
+	 *
+	 * @return bool
 	 */
 	public function supportsArticleCount() {
 		return false;

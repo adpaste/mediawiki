@@ -29,6 +29,10 @@ use Wikimedia\Rdbms\IResultWrapper;
 /**
  * The TitleArray class only exists to provide the newFromResult method at pre-
  * sent.
+ * The documentation of the return types for the abstract current/key functions
+ * helps static code analyzer to treat this as Iterator<Title>
+ *
+ * @method int count()
  */
 abstract class TitleArray implements Iterator {
 	/**
@@ -37,23 +41,19 @@ abstract class TitleArray implements Iterator {
 	 *   page_latest (if those will be used).  See Title::newFromRow.
 	 * @return TitleArrayFromResult
 	 */
-	static function newFromResult( $res ) {
-		$array = null;
-		if ( !Hooks::run( 'TitleArrayFromResult', [ &$array, $res ] ) ) {
-			return null;
-		}
-		if ( $array === null ) {
-			$array = self::newFromResult_internal( $res );
-		}
-		return $array;
+	public static function newFromResult( $res ) {
+		// TODO consider merging this class with TitleArrayFromResult now that the
+		// TitleArrayFromResult hook has been removed
+		return new TitleArrayFromResult( $res );
 	}
 
 	/**
-	 * @param IResultWrapper $res
-	 * @return TitleArrayFromResult
+	 * @return Title
 	 */
-	protected static function newFromResult_internal( $res ) {
-		$array = new TitleArrayFromResult( $res );
-		return $array;
-	}
+	abstract public function current(): Title;
+
+	/**
+	 * @return int
+	 */
+	abstract public function key(): int;
 }

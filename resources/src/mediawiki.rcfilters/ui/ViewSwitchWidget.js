@@ -1,84 +1,80 @@
-( function () {
-	var GroupWidget = require( './GroupWidget.js' ),
-		ViewSwitchWidget;
+var ViewSwitchWidget;
 
-	/**
-	 * A widget for the footer for the default view, allowing to switch views
-	 *
-	 * @class mw.rcfilters.ui.ViewSwitchWidget
-	 * @extends OO.ui.Widget
-	 *
-	 * @constructor
-	 * @param {mw.rcfilters.Controller} controller Controller
-	 * @param {mw.rcfilters.dm.FiltersViewModel} model View model
-	 * @param {Object} [config] Configuration object
-	 */
-	ViewSwitchWidget = function MwRcfiltersUiViewSwitchWidget( controller, model, config ) {
-		config = config || {};
+/**
+ * A widget for the footer for the default view, allowing to switch views
+ *
+ * @class mw.rcfilters.ui.ViewSwitchWidget
+ * @extends OO.ui.Widget
+ *
+ * @constructor
+ * @param {mw.rcfilters.Controller} controller Controller
+ * @param {mw.rcfilters.dm.FiltersViewModel} model View model
+ * @param {Object} [config] Configuration object
+ */
+ViewSwitchWidget = function MwRcfiltersUiViewSwitchWidget( controller, model, config ) {
+	config = config || {};
 
-		// Parent
-		ViewSwitchWidget.parent.call( this, config );
+	// Parent
+	ViewSwitchWidget.parent.call( this, config );
 
-		this.controller = controller;
-		this.model = model;
+	this.controller = controller;
+	this.model = model;
 
-		this.buttons = new GroupWidget( {
-			events: {
-				click: 'buttonClick'
-			},
-			items: [
-				new OO.ui.ButtonWidget( {
-					data: 'namespaces',
-					icon: 'article',
-					label: mw.msg( 'namespaces' )
-				} ),
-				new OO.ui.ButtonWidget( {
-					data: 'tags',
-					icon: 'tag',
-					label: mw.msg( 'rcfilters-view-tags' )
-				} )
-			]
-		} );
+	this.buttons = new OO.ui.ButtonGroupWidget( {
+		items: [
+			new OO.ui.ButtonWidget( {
+				data: 'namespaces',
+				icon: 'article',
+				label: mw.msg( 'namespaces' )
+			} ),
+			new OO.ui.ButtonWidget( {
+				data: 'tags',
+				icon: 'tag',
+				label: mw.msg( 'rcfilters-view-tags' )
+			} )
+		]
+	} );
 
-		// Events
-		this.model.connect( this, { update: 'onModelUpdate' } );
-		this.buttons.connect( this, { buttonClick: 'onButtonClick' } );
+	this.buttons.aggregate( { click: 'buttonClick' } );
 
-		this.$element
-			.addClass( 'mw-rcfilters-ui-viewSwitchWidget' )
-			.append(
-				new OO.ui.LabelWidget( {
-					label: mw.msg( 'rcfilters-advancedfilters' )
-				} ).$element,
-				$( '<div>' )
-					.addClass( 'mw-rcfilters-ui-viewSwitchWidget-buttons' )
-					.append( this.buttons.$element )
-			);
-	};
+	// Events
+	this.model.connect( this, { update: 'onModelUpdate' } );
+	this.buttons.connect( this, { buttonClick: 'onButtonClick' } );
 
-	/* Initialize */
+	this.$element
+		.addClass( 'mw-rcfilters-ui-viewSwitchWidget' )
+		.append(
+			new OO.ui.LabelWidget( {
+				label: mw.msg( 'rcfilters-advancedfilters' )
+			} ).$element,
+			$( '<div>' )
+				.addClass( 'mw-rcfilters-ui-viewSwitchWidget-buttons' )
+				.append( this.buttons.$element )
+		);
+};
 
-	OO.inheritClass( ViewSwitchWidget, OO.ui.Widget );
+/* Initialize */
 
-	/**
-	 * Respond to model update event
-	 */
-	ViewSwitchWidget.prototype.onModelUpdate = function () {
-		var currentView = this.model.getCurrentView();
+OO.inheritClass( ViewSwitchWidget, OO.ui.Widget );
 
-		this.buttons.getItems().forEach( function ( buttonWidget ) {
-			buttonWidget.setActive( buttonWidget.getData() === currentView );
-		} );
-	};
+/**
+ * Respond to model update event
+ */
+ViewSwitchWidget.prototype.onModelUpdate = function () {
+	var currentView = this.model.getCurrentView();
 
-	/**
-	 * Respond to button switch click
-	 *
-	 * @param {OO.ui.ButtonWidget} buttonWidget Clicked button
-	 */
-	ViewSwitchWidget.prototype.onButtonClick = function ( buttonWidget ) {
-		this.controller.switchView( buttonWidget.getData() );
-	};
+	this.buttons.getItems().forEach( function ( buttonWidget ) {
+		buttonWidget.setActive( buttonWidget.getData() === currentView );
+	} );
+};
 
-	module.exports = ViewSwitchWidget;
-}() );
+/**
+ * Respond to button switch click
+ *
+ * @param {OO.ui.ButtonWidget} buttonWidget Clicked button
+ */
+ViewSwitchWidget.prototype.onButtonClick = function ( buttonWidget ) {
+	this.controller.switchView( buttonWidget.getData() );
+};
+
+module.exports = ViewSwitchWidget;

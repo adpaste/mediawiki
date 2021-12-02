@@ -18,6 +18,7 @@
  * @file
  */
 
+use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
 use MediaWiki\MediaWikiServices;
 
 /**
@@ -26,6 +27,7 @@ use MediaWiki\MediaWikiServices;
  * @ingroup Media
  */
 class ImageHistoryList extends ContextSource {
+	use ProtectedHookAccessorTrait;
 
 	/**
 	 * @var Title
@@ -91,7 +93,7 @@ class ImageHistoryList extends ContextSource {
 		. Xml::openElement( 'table', [ 'class' => 'wikitable filehistory' ] ) . "\n"
 		. '<tr><th></th>'
 		. ( $this->current->isLocal()
-		&& ( $this->getUser()->isAllowedAny( 'delete', 'deletedhistory' ) ) ? '<th></th>' : '' )
+		&& ( $this->getAuthority()->isAllowedAny( 'delete', 'deletedhistory' ) ) ? '<th></th>' : '' )
 		. '<th>' . $this->msg( 'filehist-datetime' )->escaped() . '</th>'
 		. ( $this->showThumb ? '<th>' . $this->msg( 'filehist-thumb' )->escaped() . '</th>' : '' )
 		. '<th>' . $this->msg( 'filehist-dimensions' )->escaped() . '</th>'
@@ -116,34 +118,36 @@ class ImageHistoryList extends ContextSource {
 	public function imageHistoryLine( $iscur, $file ) {
 		$user = $this->getUser();
 		$lang = $this->getLanguage();
+		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
 		$timestamp = wfTimestamp( TS_MW, $file->getTimestamp() );
+		// @phan-suppress-next-line PhanUndeclaredMethod
 		$img = $iscur ? $file->getName() : $file->getArchiveName();
-		$userId = $file->getUser( 'id' );
-		$userText = $file->getUser( 'text' );
+		$uploader = $file->getUploader( File::FOR_THIS_USER, $user );
 		$description = $file->getDescription( File::FOR_THIS_USER, $user );
 
 		$local = $this->current->isLocal();
 		$row = $selected = '';
 
 		// Deletion link
-		if ( $local && ( $user->isAllowedAny( 'delete', 'deletedhistory' ) ) ) {
+		if ( $local && ( $this->getAuthority()->isAllowedAny( 'delete', 'deletedhistory' ) ) ) {
 			$row .= '<td>';
 			# Link to remove from history
-			if ( $user->isAllowed( 'delete' ) ) {
+			if ( $this->getAuthority()->isAllowed( 'delete' ) ) {
 				$q = [ 'action' => 'delete' ];
 				if ( !$iscur ) {
 					$q['oldimage'] = $img;
 				}
-				$row .= Linker::linkKnown(
+				$row .= $linkRenderer->makeKnownLink(
 					$this->title,
-					$this->msg( $iscur ? 'filehist-deleteall' : 'filehist-deleteone' )->escaped(),
+					$this->msg( $iscur ? 'filehist-deleteall' : 'filehist-deleteone' )->text(),
 					[], $q
 				);
 			}
 			# Link to hide content. Don't show useless link to people who cannot hide revisions.
-			$canHide = $user->isAllowed( 'deleterevision' );
-			if ( $canHide || ( $user->isAllowed( 'deletedhistory' ) && $file->getVisibility() ) ) {
-				if ( $user->isAllowed( 'delete' ) ) {
+			$canHide = $this->getAuthority()->isAllowed( 'deleterevision' );
+			if ( $canHide || ( $this->getAuthority()->isAllowed( 'deletedhistory' )
+					&& $file->getVisibility() ) ) {
+				if ( $this->getAuthority()->isAllowed( 'delete' ) ) {
 					$row .= '<br />';
 				}
 				// If file is top revision or locked from this user, don't link
@@ -168,15 +172,15 @@ class ImageHistoryList extends ContextSource {
 		$row .= '<td>';
 		if ( $iscur ) {
 			$row .= $this->msg( 'filehist-current' )->escaped();
-		} elseif ( $local && $this->title->quickUserCan( 'edit', $user )
-			&& $this->title->quickUserCan( 'upload', $user )
+		} elseif ( $local && $this->getAuthority()->probablyCan( 'edit', $this->title )
+			&& $this->getAuthority()->probablyCan( 'upload', $this->title )
 		) {
 			if ( $file->isDeleted( File::DELETED_FILE ) ) {
 				$row .= $this->msg( 'filehist-revert' )->escaped();
 			} else {
-				$row .= Linker::linkKnown(
+				$row .= $linkRenderer->makeKnownLink(
 					$this->title,
-					$this->msg( 'filehist-revert' )->escaped(),
+					$this->msg( 'filehist-revert' )->text(),
 					[],
 					[
 						'action' => 'revert',
@@ -198,12 +202,12 @@ class ImageHistoryList extends ContextSource {
 				$lang->userTimeAndDate( $timestamp, $user )
 			);
 		} elseif ( $file->isDeleted( File::DELETED_FILE ) ) {
-			$timeAndDate = htmlspecialchars( $lang->userTimeAndDate( $timestamp, $user ) );
+			$timeAndDate = $lang->userTimeAndDate( $timestamp, $user );
 			if ( $local ) {
 				$this->preventClickjacking();
 				$revdel = SpecialPage::getTitleFor( 'Revisiondelete' );
 				# Make a link to review the image
-				$url = Linker::linkKnown(
+				$url = $linkRenderer->makeKnownLink(
 					$revdel,
 					$timeAndDate,
 					[],
@@ -214,7 +218,7 @@ class ImageHistoryList extends ContextSource {
 					]
 				);
 			} else {
-				$url = $timeAndDate;
+				$url = htmlspecialchars( $timeAndDate );
 			}
 			$row .= '<span class="history-deleted">' . $url . '</span>';
 		} elseif ( !$file->exists() ) {
@@ -248,18 +252,16 @@ class ImageHistoryList extends ContextSource {
 		// Uploading user
 		$row .= '<td>';
 		// Hide deleted usernames
-		if ( $file->isDeleted( File::DELETED_USER ) ) {
+		if ( $uploader && $local ) {
+			$row .= Linker::userLink( $uploader->getId(), $uploader->getName() );
+			$row .= '<span style="white-space: nowrap;">';
+			$row .= Linker::userToolLinks( $uploader->getId(), $uploader->getName() );
+			$row .= '</span>';
+		} elseif ( $uploader ) {
+			$row .= htmlspecialchars( $uploader->getName() );
+		} else {
 			$row .= '<span class="history-deleted">'
 				. $this->msg( 'rev-deleted-user' )->escaped() . '</span>';
-		} else {
-			if ( $local ) {
-				$row .= Linker::userLink( $userId, $userText );
-				$row .= '<span style="white-space: nowrap;">';
-				$row .= Linker::userToolLinks( $userId, $userText );
-				$row .= '</span>';
-			} else {
-				$row .= htmlspecialchars( $userText );
-			}
 		}
 		$row .= '</td>';
 
@@ -277,7 +279,7 @@ class ImageHistoryList extends ContextSource {
 		}
 
 		$rowClass = null;
-		Hooks::run( 'ImagePageFileHistoryLine', [ $this, $file, &$row, &$rowClass ] );
+		$this->getHookRunner()->onImagePageFileHistoryLine( $this, $file, $row, $rowClass );
 		$classAttr = $rowClass ? " class='$rowClass'" : '';
 
 		return "<tr{$classAttr}>{$row}</tr>\n";

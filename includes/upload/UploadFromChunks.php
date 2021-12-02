@@ -1,4 +1,7 @@
 <?php
+
+use MediaWiki\MediaWikiServices;
+
 /**
  * Backend for uploading files from chunks.
  *
@@ -28,12 +31,19 @@
  * @author Michael Dale
  */
 class UploadFromChunks extends UploadFromFile {
+	/** @var LocalRepo */
+	private $repo;
+	/** @var UploadStash */
+	public $stash;
+	/** @var User */
+	public $user;
+
 	protected $mOffset;
 	protected $mChunkIndex;
 	protected $mFileKey;
 	protected $mVirtualTempPath;
-	/** @var LocalRepo */
-	private $repo;
+
+	/** @noinspection PhpMissingParentConstructorInspection */
 
 	/**
 	 * Setup local pointers to stash, repo and user (similar to UploadFromStash)
@@ -48,13 +58,13 @@ class UploadFromChunks extends UploadFromFile {
 		if ( $repo ) {
 			$this->repo = $repo;
 		} else {
-			$this->repo = RepoGroup::singleton()->getLocalRepo();
+			$this->repo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
 		}
 
 		if ( $stash ) {
 			$this->stash = $stash;
 		} else {
-			wfDebug( __METHOD__ . " creating new UploadFromChunks instance for " . $user->getId() . "\n" );
+			wfDebug( __METHOD__ . " creating new UploadFromChunks instance for " . $user->getId() );
 			$this->stash = new UploadStash( $this->repo, $this->user );
 		}
 	}
@@ -70,39 +80,6 @@ class UploadFromChunks extends UploadFromFile {
 		}
 
 		return parent::tryStashFile( $user, $isPartial );
-	}
-
-	/**
-	 * @inheritDoc
-	 * @throws UploadChunkVerificationException
-	 * @deprecated since 1.28 Use tryStashFile() instead
-	 */
-	public function stashFile( User $user = null ) {
-		wfDeprecated( __METHOD__, '1.28' );
-		$this->verifyChunk();
-		return parent::stashFile( $user );
-	}
-
-	/**
-	 * @inheritDoc
-	 * @throws UploadChunkVerificationException
-	 * @deprecated since 1.28
-	 */
-	public function stashFileGetKey() {
-		wfDeprecated( __METHOD__, '1.28' );
-		$this->verifyChunk();
-		return parent::stashFileGetKey();
-	}
-
-	/**
-	 * @inheritDoc
-	 * @throws UploadChunkVerificationException
-	 * @deprecated since 1.28
-	 */
-	public function stashSession() {
-		wfDeprecated( __METHOD__, '1.28' );
-		$this->verifyChunk();
-		return parent::stashSession();
 	}
 
 	/**
@@ -145,6 +122,7 @@ class UploadFromChunks extends UploadFromFile {
 		$this->getChunkStatus();
 
 		$metadata = $this->stash->getMetadata( $key );
+		// @phan-suppress-next-line SecurityCheckMulti,SecurityCheck-PathTraversal
 		$this->initializePathInfo( $name,
 			$this->getRealPath( $metadata['us_path'] ),
 			$metadata['us_size'],
@@ -159,7 +137,7 @@ class UploadFromChunks extends UploadFromFile {
 	public function concatenateChunks() {
 		$chunkIndex = $this->getChunkIndex();
 		wfDebug( __METHOD__ . " concatenate {$this->mChunkIndex} chunks:" .
-			$this->getOffset() . ' inx:' . $chunkIndex . "\n" );
+			$this->getOffset() . ' inx:' . $chunkIndex );
 
 		// Concatenate all the chunks to mVirtualTempPath
 		$fileList = [];
@@ -171,7 +149,8 @@ class UploadFromChunks extends UploadFromFile {
 		// Get the file extension from the last chunk
 		$ext = FileBackend::extensionFromPath( $this->mVirtualTempPath );
 		// Get a 0-byte temp file to perform the concatenation at
-		$tmpFile = TempFSFile::factory( 'chunkedupload_', $ext, wfTempDir() );
+		$tmpFile = MediaWikiServices::getInstance()->getTempFSFileFactory()
+			->newTempFSFile( 'chunkedupload_', $ext );
 		$tmpPath = false; // fail in concatenate()
 		if ( $tmpFile ) {
 			// keep alive with $this
@@ -228,7 +207,7 @@ class UploadFromChunks extends UploadFromFile {
 	 * @param int $index
 	 * @return string
 	 */
-	function getVirtualChunkLocation( $index ) {
+	private function getVirtualChunkLocation( $index ) {
 		return $this->repo->getVirtualUrl( 'temp' ) .
 			'/' .
 			$this->repo->getHashPath(
@@ -285,9 +264,9 @@ class UploadFromChunks extends UploadFromFile {
 	 */
 	private function updateChunkStatus() {
 		wfDebug( __METHOD__ . " update chunk status for {$this->mFileKey} offset:" .
-			$this->getOffset() . ' inx:' . $this->getChunkIndex() . "\n" );
+			$this->getOffset() . ' inx:' . $this->getChunkIndex() );
 
-		$dbw = $this->repo->getMasterDB();
+		$dbw = $this->repo->getPrimaryDB();
 		$dbw->update(
 			'uploadstash',
 			[
@@ -304,9 +283,9 @@ class UploadFromChunks extends UploadFromFile {
 	 * Get the chunk db state and populate update relevant local values
 	 */
 	private function getChunkStatus() {
-		// get Master db to avoid race conditions.
+		// get primary db to avoid race conditions.
 		// Otherwise, if chunk upload time < replag there will be spurious errors
-		$dbw = $this->repo->getMasterDB();
+		$dbw = $this->repo->getPrimaryDB();
 		$row = $dbw->selectRow(
 			'uploadstash',
 			[

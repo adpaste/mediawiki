@@ -26,12 +26,13 @@
  *
  * Data will not persist and is not shared with other processes.
  *
+ * @newable
  * @ingroup Cache
  */
-class HashBagOStuff extends BagOStuff {
+class HashBagOStuff extends MediumSpecificBagOStuff {
 	/** @var mixed[] */
 	protected $bag = [];
-	/** @var int Max entries allowed */
+	/** @var int|double Max entries allowed, INF for unlimited */
 	protected $maxCacheKeys;
 
 	/** @var string CAS token prefix for this instance */
@@ -40,25 +41,33 @@ class HashBagOStuff extends BagOStuff {
 	/** @var int CAS token counter */
 	private static $casCounter = 0;
 
-	const KEY_VAL = 0;
-	const KEY_EXP = 1;
-	const KEY_CAS = 2;
+	public const KEY_VAL = 0;
+	public const KEY_EXP = 1;
+	public const KEY_CAS = 2;
 
 	/**
+	 * @stable to call
 	 * @param array $params Additional parameters include:
 	 *   - maxKeys : only allow this many keys (using oldest-first eviction)
+	 * @phpcs:ignore Generic.Files.LineLength
+	 * @phan-param array{logger?:Psr\Log\LoggerInterface,asyncHandler?:callable,keyspace?:string,reportDupes?:bool,syncTimeout?:int,segmentationSize?:int,segmentedValueMaxSize?:int,maxKeys?:int} $params
 	 */
-	function __construct( $params = [] ) {
+	public function __construct( $params = [] ) {
+		$params['segmentationSize'] = $params['segmentationSize'] ?? INF;
 		parent::__construct( $params );
 
 		$this->token = microtime( true ) . ':' . mt_rand();
-		$this->maxCacheKeys = $params['maxKeys'] ?? INF;
-		if ( $this->maxCacheKeys <= 0 ) {
+		$maxKeys = $params['maxKeys'] ?? INF;
+		if ( $maxKeys !== INF && ( !is_int( $maxKeys ) || $maxKeys <= 0 ) ) {
 			throw new InvalidArgumentException( '$maxKeys parameter must be above zero' );
 		}
+		$this->maxCacheKeys = $maxKeys;
+
+		$this->attrMap[self::ATTR_DURABILITY] = self::QOS_DURABILITY_SCRIPT;
 	}
 
 	protected function doGet( $key, $flags = 0, &$casToken = null ) {
+		$getToken = ( $casToken === self::PASS_BY_REF );
 		$casToken = null;
 
 		if ( !$this->hasKey( $key ) || $this->expire( $key ) ) {
@@ -70,17 +79,19 @@ class HashBagOStuff extends BagOStuff {
 		unset( $this->bag[$key] );
 		$this->bag[$key] = $temp;
 
-		$casToken = $this->bag[$key][self::KEY_CAS];
+		if ( $getToken ) {
+			$casToken = $this->bag[$key][self::KEY_CAS];
+		}
 
 		return $this->bag[$key][self::KEY_VAL];
 	}
 
-	public function set( $key, $value, $exptime = 0, $flags = 0 ) {
+	protected function doSet( $key, $value, $exptime = 0, $flags = 0 ) {
 		// Refresh key position for maxCacheKeys eviction
 		unset( $this->bag[$key] );
 		$this->bag[$key] = [
 			self::KEY_VAL => $value,
-			self::KEY_EXP => $this->convertToExpiry( $exptime ),
+			self::KEY_EXP => $this->getExpirationAsTimestamp( $exptime ),
 			self::KEY_CAS => $this->token . ':' . ++self::$casCounter
 		];
 
@@ -93,30 +104,34 @@ class HashBagOStuff extends BagOStuff {
 		return true;
 	}
 
-	public function add( $key, $value, $exptime = 0, $flags = 0 ) {
-		if ( $this->get( $key ) === false ) {
-			return $this->set( $key, $value, $exptime, $flags );
+	protected function doAdd( $key, $value, $exptime = 0, $flags = 0 ) {
+		if ( $this->hasKey( $key ) && !$this->expire( $key ) ) {
+			return false; // key already set
 		}
 
-		return false; // key already set
+		return $this->doSet( $key, $value, $exptime, $flags );
 	}
 
-	public function delete( $key, $flags = 0 ) {
+	protected function doDelete( $key, $flags = 0 ) {
 		unset( $this->bag[$key] );
 
 		return true;
 	}
 
-	public function incr( $key, $value = 1 ) {
+	public function incr( $key, $value = 1, $flags = 0 ) {
 		$n = $this->get( $key );
 		if ( $this->isInteger( $n ) ) {
-			$n = max( $n + intval( $value ), 0 );
+			$n = max( $n + (int)$value, 0 );
 			$this->bag[$key][self::KEY_VAL] = $n;
 
 			return $n;
 		}
 
 		return false;
+	}
+
+	public function decr( $key, $value = 1, $flags = 0 ) {
+		return $this->incr( $key, -$value, $flags );
 	}
 
 	/**
@@ -136,9 +151,19 @@ class HashBagOStuff extends BagOStuff {
 			return false;
 		}
 
-		$this->delete( $key );
+		$this->doDelete( $key );
 
 		return true;
+	}
+
+	public function setNewPreparedValues( array $valueByKey ) {
+		// Do not bother with serialization as this class does not serialize values
+		$sizes = [];
+		foreach ( $valueByKey as $value ) {
+			$sizes[] = $this->guessSerialValueSize( $value );
+		}
+
+		return $sizes;
 	}
 
 	/**
@@ -148,7 +173,15 @@ class HashBagOStuff extends BagOStuff {
 	 * @return bool
 	 * @since 1.27
 	 */
-	protected function hasKey( $key ) {
+	public function hasKey( $key ) {
 		return isset( $this->bag[$key] );
+	}
+
+	public function makeKeyInternal( $keyspace, $components ) {
+		return $this->genericKeyFromComponents( $keyspace, ...$components );
+	}
+
+	protected function convertGenericKey( $key ) {
+		return $key; // short-circuit; already uses "generic" keys
 	}
 }

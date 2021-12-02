@@ -20,6 +20,8 @@
  * @file
  */
 
+use MediaWiki\Http\HttpRequestFactory;
+
 /**
  * Web access for files temporarily stored by UploadStash.
  *
@@ -34,8 +36,14 @@
  * @ingroup Upload
  */
 class SpecialUploadStash extends UnlistedSpecialPage {
-	// UploadStash
+	/** @var UploadStash|null */
 	private $stash;
+
+	/** @var LocalRepo */
+	private $localRepo;
+
+	/** @var HttpRequestFactory */
+	private $httpRequestFactory;
 
 	/**
 	 * Since we are directly writing the file to STDOUT,
@@ -47,10 +55,19 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * This service is really for thumbnails and other such previews while
 	 * uploading.
 	 */
-	const MAX_SERVE_BYTES = 1048576; // 1MB
+	private const MAX_SERVE_BYTES = 1048576; // 1 MiB
 
-	public function __construct() {
+	/**
+	 * @param RepoGroup $repoGroup
+	 * @param HttpRequestFactory $httpRequestFactory
+	 */
+	public function __construct(
+		RepoGroup $repoGroup,
+		HttpRequestFactory $httpRequestFactory
+	) {
 		parent::__construct( 'UploadStash', 'upload' );
+		$this->localRepo = $repoGroup->getLocalRepo();
+		$this->httpRequestFactory = $httpRequestFactory;
 	}
 
 	public function doesWrites() {
@@ -62,19 +79,19 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 *
 	 * @param string|null $subPage Subpage, e.g. in
 	 *   https://example.com/wiki/Special:UploadStash/foo.jpg, the "foo.jpg" part
-	 * @return bool Success
 	 */
 	public function execute( $subPage ) {
 		$this->useTransactionalTimeLimit();
 
-		$this->stash = RepoGroup::singleton()->getLocalRepo()->getUploadStash( $this->getUser() );
+		// This is not set in constructor, because the context with the user is not safe to be set
+		$this->stash = $this->localRepo->getUploadStash( $this->getUser() );
 		$this->checkPermissions();
 
 		if ( $subPage === null || $subPage === '' ) {
-			return $this->showUploads();
+			$this->showUploads();
+		} else {
+			$this->showUpload( $subPage );
 		}
-
-		return $this->showUpload( $subPage );
 	}
 
 	/**
@@ -83,7 +100,6 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 *
 	 * @param string $key The key of a particular requested file
 	 * @throws HttpError
-	 * @return bool
 	 */
 	public function showUpload( $key ) {
 		// prevent callers from doing standard HTML output -- we'll take it from here
@@ -92,21 +108,13 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 		try {
 			$params = $this->parseKey( $key );
 			if ( $params['type'] === 'thumb' ) {
-				return $this->outputThumbFromStash( $params['file'], $params['params'] );
+				$this->outputThumbFromStash( $params['file'], $params['params'] );
 			} else {
-				return $this->outputLocalFile( $params['file'] );
+				$this->outputLocalFile( $params['file'] );
 			}
+			return;
 		} catch ( UploadStashFileNotFoundException $e ) {
 			$code = 404;
-			$message = $e->getMessage();
-		} catch ( UploadStashZeroLengthFileException $e ) {
-			$code = 500;
-			$message = $e->getMessage();
-		} catch ( UploadStashBadPathException $e ) {
-			$code = 500;
-			$message = $e->getMessage();
-		} catch ( SpecialUploadStashTooLargeException $e ) {
-			$code = 500;
 			$message = $e->getMessage();
 		} catch ( Exception $e ) {
 			$code = 500;
@@ -173,7 +181,9 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 		// is part of our horrible NFS-based system, we create a file on a mount
 		// point here, but fetch the scaled file from somewhere else that
 		// happens to share it over NFS.
-		if ( $this->getConfig()->get( 'UploadStashScalerBaseUrl' ) ) {
+		if ( $file->getRepo()->getThumbProxyUrl()
+			|| $this->getConfig()->get( 'UploadStashScalerBaseUrl' )
+		) {
 			$this->outputRemoteScaledThumb( $file, $params, $flags );
 		} else {
 			$this->outputLocallyScaledThumb( $file, $params, $flags );
@@ -187,7 +197,6 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * @param array $params Scaling parameters ( e.g. [ width => '50' ] );
 	 * @param int $flags Scaling flags ( see File:: constants )
 	 * @throws MWException|UploadStashFileNotFoundException
-	 * @return bool Success
 	 */
 	private function outputLocallyScaledThumb( $file, $params, $flags ) {
 		// n.b. this is stupid, we insist on re-transforming the file every time we are invoked. We rely
@@ -213,13 +222,8 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 		// n.b. MIME type may be different from original (ogx original -> jpeg thumb)
 		$thumbFile = new UnregisteredLocalFile( false,
 			$this->stash->repo, $thumbnailImage->getStoragePath(), false );
-		if ( !$thumbFile ) {
-			throw new UploadStashFileNotFoundException(
-				$this->msg( 'uploadstash-file-not-found-no-object' )
-			);
-		}
 
-		return $this->outputLocalFile( $thumbFile );
+		$this->outputLocalFile( $thumbFile );
 	}
 
 	/**
@@ -239,35 +243,36 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * @param array $params Scaling parameters ( e.g. [ width => '50' ] );
 	 * @param int $flags Scaling flags ( see File:: constants )
 	 * @throws MWException
-	 * @return bool Success
 	 */
 	private function outputRemoteScaledThumb( $file, $params, $flags ) {
-		// This option probably looks something like
-		// '//upload.wikimedia.org/wikipedia/test/thumb/temp'. Do not use
-		// trailing slash.
-		$scalerBaseUrl = $this->getConfig()->get( 'UploadStashScalerBaseUrl' );
-
-		if ( preg_match( '/^\/\//', $scalerBaseUrl ) ) {
-			// this is apparently a protocol-relative URL, which makes no sense in this context,
-			// since this is used for communication that's internal to the application.
-			// default to http.
-			$scalerBaseUrl = wfExpandUrl( $scalerBaseUrl, PROTO_CANONICAL );
-		}
-
 		// We need to use generateThumbName() instead of thumbName(), because
 		// the suffix needs to match the file name for the remote thumbnailer
 		// to work
 		$scalerThumbName = $file->generateThumbName( $file->getName(), $params );
-		$scalerThumbUrl = $scalerBaseUrl . '/' . $file->getUrlRel() .
-			'/' . rawurlencode( $scalerThumbName );
 
 		// If a thumb proxy is set up for the repo, we favor that, as that will
 		// keep the request internal
 		$thumbProxyUrl = $file->getRepo()->getThumbProxyUrl();
-
 		if ( strlen( $thumbProxyUrl ) ) {
 			$scalerThumbUrl = $thumbProxyUrl . 'temp/' . $file->getUrlRel() .
-			'/' . rawurlencode( $scalerThumbName );
+				'/' . rawurlencode( $scalerThumbName );
+			$secret = $file->getRepo()->getThumbProxySecret();
+		} else {
+			// This option probably looks something like
+			// '//upload.wikimedia.org/wikipedia/test/thumb/temp'. Do not use
+			// trailing slash.
+			$scalerBaseUrl = $this->getConfig()->get( 'UploadStashScalerBaseUrl' );
+
+			if ( preg_match( '/^\/\//', $scalerBaseUrl ) ) {
+				// this is apparently a protocol-relative URL, which makes no sense in this context,
+				// since this is used for communication that's internal to the application.
+				// default to http.
+				$scalerBaseUrl = wfExpandUrl( $scalerBaseUrl, PROTO_CANONICAL );
+			}
+
+			$scalerThumbUrl = $scalerBaseUrl . '/' . $file->getUrlRel() .
+				'/' . rawurlencode( $scalerThumbName );
+			$secret = false;
 		}
 
 		// make an http request based on wgUploadStashScalerBaseUrl to lazy-create
@@ -276,9 +281,7 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 			'method' => 'GET',
 			'timeout' => 5 // T90599 attempt to time out cleanly
 		];
-		$req = MWHttpRequest::factory( $scalerThumbUrl, $httpOptions, __METHOD__ );
-
-		$secret = $file->getRepo()->getThumbProxySecret();
+		$req = $this->httpRequestFactory->create( $scalerThumbUrl, $httpOptions, __METHOD__ );
 
 		// Pass a secret key shared with the proxied service if any
 		if ( strlen( $secret ) ) {
@@ -303,7 +306,7 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 			);
 		}
 
-		return $this->outputContents( $req->getContent(), $contentType );
+		$this->outputContents( $req->getContent(), $contentType );
 	}
 
 	/**
@@ -313,7 +316,6 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * @param File $file File object with a local path (e.g. UnregisteredLocalFile,
 	 *   LocalFile. Oddly these don't share an ancestor!)
 	 * @throws SpecialUploadStashTooLargeException
-	 * @return bool
 	 */
 	private function outputLocalFile( File $file ) {
 		if ( $file->getSize() > self::MAX_SERVE_BYTES ) {
@@ -322,7 +324,7 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 			);
 		}
 
-		return $file->getRepo()->streamFile( $file->getPath(),
+		$file->getRepo()->streamFileWithStatus( $file->getPath(),
 			[ 'Content-Transfer-Encoding: binary',
 				'Expires: Sun, 17-Jan-2038 19:14:07 GMT' ]
 		);
@@ -334,7 +336,6 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	 * @param string $content
 	 * @param string $contentType MIME type
 	 * @throws SpecialUploadStashTooLargeException
-	 * @return bool
 	 */
 	private function outputContents( $content, $contentType ) {
 		$size = strlen( $content );
@@ -347,8 +348,6 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 		wfResetOutputBuffers();
 		self::outputFileHeaders( $contentType, $size );
 		print $content;
-
-		return true;
 	}
 
 	/**
@@ -370,31 +369,8 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 	}
 
 	/**
-	 * Static callback for the HTMLForm in showUploads, to process
-	 * Note the stash has to be recreated since this is being called in a static context.
-	 * This works, because there really is only one stash per logged-in user, despite appearances.
-	 *
-	 * @param array $formData
-	 * @param HTMLForm $form
-	 * @return Status
-	 */
-	public static function tryClearStashedUploads( $formData, $form ) {
-		if ( isset( $formData['Clear'] ) ) {
-			$stash = RepoGroup::singleton()->getLocalRepo()->getUploadStash( $form->getUser() );
-			wfDebug( 'stash has: ' . print_r( $stash->listFiles(), true ) . "\n" );
-
-			if ( !$stash->clear() ) {
-				return Status::newFatal( 'uploadstash-errclear' );
-			}
-		}
-
-		return Status::newGood();
-	}
-
-	/**
 	 * Default action when we don't have a subpage -- just show links to the uploads we have,
 	 * Also show a button to clear stashed files
-	 * @return bool
 	 */
 	private function showUploads() {
 		// sets the title, etc.
@@ -414,7 +390,17 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 			]
 		], $context, 'clearStashedUploads' );
 		$form->setSubmitDestructive();
-		$form->setSubmitCallback( [ __CLASS__, 'tryClearStashedUploads' ] );
+		$form->setSubmitCallback( function ( $formData, $form ) {
+			if ( isset( $formData['Clear'] ) ) {
+				wfDebug( 'stash has: ' . print_r( $this->stash->listFiles(), true ) );
+
+				if ( !$this->stash->clear() ) {
+					return Status::newFatal( 'uploadstash-errclear' );
+				}
+			}
+
+			return Status::newGood();
+		} );
 		$form->setSubmitTextMsg( 'uploadstash-clear' );
 
 		$form->prepareForm();
@@ -459,7 +445,5 @@ class SpecialUploadStash extends UnlistedSpecialPage {
 				. $refreshHtml
 			) );
 		}
-
-		return true;
 	}
 }

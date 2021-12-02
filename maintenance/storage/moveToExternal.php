@@ -21,39 +21,47 @@
  * @ingroup Maintenance ExternalStorage
  */
 
+// NO_AUTOLOAD -- file scope code
+
+use MediaWiki\MediaWikiServices;
+
 define( 'REPORTING_INTERVAL', 1 );
 
 if ( !defined( 'MEDIAWIKI' ) ) {
 	$optionsWithArgs = [ 'e', 's' ];
-	require_once __DIR__ . '/../commandLine.inc';
+	require_once __DIR__ . '/../CommandLineInc.php';
 	require_once 'resolveStubs.php';
 
 	$fname = 'moveToExternal';
 
-	if ( !isset( $args[0] ) ) {
-		print "Usage: php moveToExternal.php [-s <startid>] [-e <endid>] <cluster>\n";
+	if ( !isset( $args[1] ) ) {
+		print "Usage: php moveToExternal.php [-s <startid>] [-e <endid>] <type> <location>\n";
 		exit;
 	}
 
-	$cluster = $args[0];
-	$dbw = wfGetDB( DB_MASTER );
+	$type = $args[0]; // e.g. "DB" or "mwstore"
+	$location = $args[1]; // e.g. "cluster12" or "global-swift"
+	$dbw = wfGetDB( DB_PRIMARY );
 
-	$maxID = $options['e'] ?? $dbw->selectField( 'text', 'MAX(old_id)', '', $fname );
-	$minID = $options['s'] ?? 1;
+	$maxID = (int)( $options['e'] ?? $dbw->selectField( 'text', 'MAX(old_id)', '', $fname ) );
+	$minID = (int)( $options['s'] ?? 1 );
 
-	moveToExternal( $cluster, $maxID, $minID );
+	moveToExternal( $type, $location, $maxID, $minID );
 }
 
-function moveToExternal( $cluster, $maxID, $minID = 1 ) {
+function moveToExternal( $type, $location, $maxID, $minID = 1 ) {
 	$fname = 'moveToExternal';
-	$dbw = wfGetDB( DB_MASTER );
+	$dbw = wfGetDB( DB_PRIMARY );
 	$dbr = wfGetDB( DB_REPLICA );
 
 	$count = $maxID - $minID + 1;
 	$blockSize = 1000;
 	$numBlocks = ceil( $count / $blockSize );
 	print "Moving text rows from $minID to $maxID to external storage\n";
-	$ext = new ExternalStoreDB;
+
+	$esFactory = MediaWikiServices::getInstance()->getExternalStoreFactory();
+	$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+	$extStore = $esFactory->getStore( $type );
 	$numMoved = 0;
 
 	for ( $block = 0; $block < $numBlocks; $block++ ) {
@@ -62,14 +70,15 @@ function moveToExternal( $cluster, $maxID, $minID = 1 ) {
 
 		if ( !( $block % REPORTING_INTERVAL ) ) {
 			print "oldid=$blockStart, moved=$numMoved\n";
-			wfWaitForSlaves();
+			$lbFactory->waitForReplication();
 		}
 
 		$res = $dbr->select( 'text', [ 'old_id', 'old_flags', 'old_text' ],
 			[
 				"old_id BETWEEN $blockStart AND $blockEnd",
 				'old_flags NOT ' . $dbr->buildLike( $dbr->anyString(), 'external', $dbr->anyString() ),
-			], $fname );
+			], $fname
+		);
 		foreach ( $res as $row ) {
 			# Resolve stubs
 			$text = $row->old_text;
@@ -108,7 +117,7 @@ function moveToExternal( $cluster, $maxID, $minID = 1 ) {
 			# print "Storing "  . strlen( $text ) . " bytes to $url\n";
 			# print "old_id=$id\n";
 
-			$url = $ext->store( $cluster, $text );
+			$url = $extStore->store( $location, $text );
 			if ( !$url ) {
 				print "Error writing to external storage\n";
 				exit;

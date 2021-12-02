@@ -13,9 +13,6 @@ require_once __DIR__ . '/Maintenance.php';
  */
 class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 
-	/** @var array|null */
-	private $arActorQuery = null;
-
 	private $deleted = 0;
 	private $reassigned = 0;
 
@@ -33,7 +30,7 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 
 	protected function doDBUpdates() {
 		$this->output( "Deduplicating ar_rev_id...\n" );
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		// Sanity check. If this is a new install, we don't need to do anything here.
 		if ( PopulateArchiveRevId::isNewInstall( $dbw ) ) {
 			$this->output( "New install, nothing to do here.\n" );
@@ -46,7 +43,6 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 		$maxId = $dbw->selectField( 'archive', 'MAX(ar_rev_id)', [], __METHOD__ );
 		$batchSize = $this->getBatchSize();
 
-		$this->arActorQuery = ActorMigration::newMigration()->getJoin( 'ar_user' );
 		$revActorQuery = ActorMigration::newMigration()->getJoin( 'rev_user' );
 
 		for ( $id = $minId; $id <= $maxId; $id += $batchSize ) {
@@ -58,14 +54,14 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 			// to try to prevent deletions or undeletions from confusing things.
 			$dbw->selectRowCount(
 				'archive',
-				1,
+				'1',
 				[ 'ar_rev_id >= ' . (int)$id, 'ar_rev_id <= ' . (int)$endId ],
 				__METHOD__,
 				[ 'FOR UPDATE' ]
 			);
 			$dbw->selectRowCount(
 				'revision',
-				1,
+				'1',
 				[ 'rev_id >= ' . (int)$id, 'rev_id <= ' . (int)$endId ],
 				__METHOD__,
 				[ 'LOCK IN SHARE MODE' ]
@@ -113,18 +109,16 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 	 * Process a set of ar_rev_ids
 	 * @param IDatabase $dbw
 	 * @param int[] $arRevIds IDs to process
-	 * @param object[] $revRows Existing revision-table row data
+	 * @param stdClass[] $revRows Existing revision-table row data
 	 */
 	private function processArRevIds( IDatabase $dbw, array $arRevIds, array $revRows ) {
 		// Select all the data we need for deduplication
 		$res = $dbw->select(
-			[ 'archive' ] + $this->arActorQuery['tables'],
-			[ 'ar_id', 'ar_rev_id', 'ar_namespace', 'ar_title', 'ar_timestamp', 'ar_sha1' ]
-				+ $this->arActorQuery['fields'],
+			[ 'archive' ],
+			[ 'ar_id', 'ar_rev_id', 'ar_namespace', 'ar_title', 'ar_actor',
+				'ar_timestamp', 'ar_sha1' ],
 			[ 'ar_rev_id' => $arRevIds ],
-			__METHOD__,
-			[],
-			$this->arActorQuery['joins']
+			__METHOD__
 		);
 
 		// Determine which rows we need to delete or reassign
@@ -147,8 +141,7 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 				// of page, because moves can change IDs and titles.
 				if ( $row->ar_timestamp === $revRow->rev_timestamp &&
 					$row->ar_sha1 === $revRow->rev_sha1 &&
-					$row->ar_user === $revRow->rev_user &&
-					$row->ar_user_text === $revRow->rev_user_text
+					$row->ar_actor === $revRow->rev_actor
 				) {
 					$this->output(
 						"Row $row->ar_id duplicates revision row for rev_id $revRow->rev_id, deleting\n"
@@ -195,7 +188,7 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 
 	/**
 	 * Make a key identifying a "unique" change from a row
-	 * @param object $row
+	 * @param stdClass $row
 	 * @return string
 	 */
 	private function getSeenKey( $row ) {
@@ -204,12 +197,11 @@ class DeduplicateArchiveRevId extends LoggedUpdateMaintenance {
 			$row->ar_title,
 			$row->ar_timestamp,
 			$row->ar_sha1,
-			$row->ar_user,
-			$row->ar_user_text,
+			$row->ar_actor,
 		] );
 	}
 
 }
 
-$maintClass = "DeduplicateArchiveRevId";
+$maintClass = DeduplicateArchiveRevId::class;
 require_once RUN_MAINTENANCE_IF_MAIN;

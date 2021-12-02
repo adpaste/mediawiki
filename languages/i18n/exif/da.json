@@ -4,6 +4,7 @@
 			"Byrial",
 			"Christian List",
 			"EPO",
+			"Jhertel",
 			"Peter Alberti",
 			"Saederup92"
 		]
@@ -18,8 +19,8 @@
 	"exif-planarconfiguration": "Dataretning",
 	"exif-ycbcrsubsampling": "Subsamplingrate fra Y til C",
 	"exif-ycbcrpositioning": "Y og C positionering",
-	"exif-xresolution": "Horisontal opløsning",
-	"exif-yresolution": "Vertikal opløsning",
+	"exif-xresolution": "Vandret opløsning",
+	"exif-yresolution": "Lodret opløsning",
 	"exif-stripoffsets": "Bileddata-forskydning",
 	"exif-rowsperstrip": "Antal linjer pr. stribe",
 	"exif-stripbytecounts": "Bytes pr. komprimeret stribe",
@@ -264,6 +265,8 @@
 	"exif-scenetype-1": "Normal",
 	"exif-customrendered-0": "Standard",
 	"exif-customrendered-1": "Brugerdefineret",
+	"exif-customrendered-4": "Oprindelig (for HDR)",
+	"exif-customrendered-8": "Portræt",
 	"exif-exposuremode-0": "Automatisk belysning",
 	"exif-exposuremode-1": "Manuel belysning",
 	"exif-exposuremode-2": "Belysningsrække",
@@ -349,5 +352,9 @@
 	"exif-urgency-normal": "Normal ($1)",
 	"exif-urgency-low": "Lav ($1)",
 	"exif-urgency-high": "Høj ($1)",
-	"exif-urgency-other": "Bruger-defineret prioritet ($1)"
+	"exif-urgency-other": "Bruger-defineret prioritet ($1)",
+	"exif-usepanoramaviewer-true": "Ja",
+	"exif-usepanoramaviewer-false": "Nej",
+	"exif-exposurelockused-true": "Ja",
+	"exif-exposurelockused-false": "Nej"
 }

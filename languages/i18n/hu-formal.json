@@ -3,10 +3,11 @@
 		"authors": [
 			"Dani",
 			"Futhark1988",
+			"Matma Rex",
+			"Misibacsi",
 			"Máté",
 			"R-Joe",
-			"Tacsipacsi",
-			"Misibacsi"
+			"Tacsipacsi"
 		]
 	},
 	"tog-underline": "Hivatkozások aláhúzása:",
@@ -30,9 +31,9 @@
 	"tog-enotifminoredits": "Értesítés küldése e-mailben akkor is, ha egy Ön által figyelt lap vagy fájl megváltozik (apró változtatás)",
 	"tog-enotifrevealaddr": "Jelenítse meg az e-mail címét a figyelmeztető e-mailekben",
 	"tog-shownumberswatching": "A lapot figyelő szerkesztők számának megjelenítése",
-	"tog-oldsig": "A jelenlegi aláírás:",
+	"tog-oldsig": "A jelenlegi aláírása:",
 	"tog-fancysig": "Az aláírás wikiszöveg (nem lesz automatikusan hivatkozásba rakva)",
-	"tog-uselivepreview": "Élő előnézet használata (kísérleti)",
+	"tog-uselivepreview": "Előnézetek megjelenítése az oldal újratöltése nélkül",
 	"tog-forceeditsummary": "Figyelmeztetés megjelenítése, ha nem ad meg szerkesztési összefoglalót",
 	"tog-watchlisthideown": "Az Ön szerkesztéseinek elrejtése a figyelőlistáról",
 	"tog-watchlisthidebots": "Robotok szerkesztéseinek elrejtése",
@@ -114,7 +115,6 @@
 	"category-article-count-limited": "Ebben a kategóriában a következő {{PLURAL:$1|lap|$1 lap}} található:",
 	"category-file-count": "{{PLURAL:$2|Csak a következő fájl található ebben a kategóriában.|Az összesen $2 fájlból a következő $1-t listázza ez a kategórialap, a többi a további oldalakon található.}}",
 	"category-file-count-limited": "Ebben a kategóriában a következő {{PLURAL:$1|lap|$1 lap}} található:",
-	"listingcontinuesabbrev": "folyt.",
 	"index-category": "Indexelt lapok",
 	"noindex-category": "Nem indexelt lapok",
 	"broken-file-category": "Hibás fájlhivatkozásokat tartalmazó lapok",
@@ -125,7 +125,7 @@
 	"moredotdotdot": "Tovább…",
 	"mypage": "‎Lapom",
 	"mytalk": "Vitalap",
-	"anontalk": "Az IP-címhez tartozó vitalap",
+	"anontalk": "Vitalap",
 	"navigation": "Navigáció",
 	"and": "&#32;és",
 	"faq": "GyIK",
@@ -142,7 +142,7 @@
 	"searcharticle": "Menjen",
 	"history": "Laptörténet",
 	"history_short": "Laptörténet",
-	"updatedmarker": "az utolsó látogatása óta frissítették",
+	"updatedmarker": "az utolsó látogatása óta frissítve",
 	"printableversion": "Nyomtatható változat",
 	"permalink": "Hivatkozás erre a változatra",
 	"print": "Nyomtatás",
@@ -238,5 +238,7 @@
 	"mw-widgets-abandonedit-discard": "Változtatások elvetése",
 	"mw-widgets-abandonedit-keep": "Szerkesztés folytatása",
 	"mw-widgets-abandonedit-title": "Biztos benne?",
+	"mw-widgets-mediasearch-input-placeholder": "Média keresése",
+	"mw-widgets-mediasearch-noresults": "Nincs találat.",
 	"sessionprovider-nocookies": "A sütik le lehetnek tiltva. Engedélyezze a sütiket, és próbálja meg újra!"
 }

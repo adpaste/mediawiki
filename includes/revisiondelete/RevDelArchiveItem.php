@@ -19,13 +19,24 @@
  * @ingroup RevisionDelete
  */
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Revision\RevisionFactory;
+
 /**
  * Item class for a archive table row
  */
 class RevDelArchiveItem extends RevDelRevisionItem {
-	protected static function initRevision( $list, $row ) {
-		return Revision::newFromArchiveRow( $row,
-			[ 'page' => $list->title->getArticleID() ] );
+	protected static function initRevisionRecord( $list, $row ) {
+		$revRecord = MediaWikiServices::getInstance()
+			->getRevisionFactory()
+			->newRevisionFromArchiveRow(
+				$row,
+				RevisionFactory::READ_NORMAL,
+				null,
+				[ 'page_id' => $list->getPage()->getId() ]
+			);
+
+		return $revRecord;
 	}
 
 	public function getIdField() {
@@ -50,16 +61,16 @@ class RevDelArchiveItem extends RevDelRevisionItem {
 
 	public function getId() {
 		# Convert DB timestamp to MW timestamp
-		return $this->revision->getTimestamp();
+		return $this->revisionRecord->getTimestamp();
 	}
 
 	public function setBits( $bits ) {
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->update( 'archive',
 			[ 'ar_deleted' => $bits ],
 			[
-				'ar_namespace' => $this->list->title->getNamespace(),
-				'ar_title' => $this->list->title->getDBkey(),
+				'ar_namespace' => $this->list->getPage()->getNamespace(),
+				'ar_title' => $this->list->getPage()->getDBkey(),
 				// use timestamp for index
 				'ar_timestamp' => $this->row->ar_timestamp,
 				'ar_rev_id' => $this->row->ar_rev_id,
@@ -72,7 +83,7 @@ class RevDelArchiveItem extends RevDelRevisionItem {
 
 	protected function getRevisionLink() {
 		$date = $this->list->getLanguage()->userTimeAndDate(
-			$this->revision->getTimestamp(), $this->list->getUser() );
+			$this->revisionRecord->getTimestamp(), $this->list->getUser() );
 
 		if ( $this->isDeleted() && !$this->canViewContent() ) {
 			return htmlspecialchars( $date );
@@ -83,8 +94,8 @@ class RevDelArchiveItem extends RevDelRevisionItem {
 			$date,
 			[],
 			[
-				'target' => $this->list->title->getPrefixedText(),
-				'timestamp' => $this->revision->getTimestamp()
+				'target' => $this->list->getPageName(),
+				'timestamp' => $this->revisionRecord->getTimestamp()
 			]
 		);
 	}
@@ -99,9 +110,9 @@ class RevDelArchiveItem extends RevDelRevisionItem {
 			$this->list->msg( 'diff' )->text(),
 			[],
 			[
-				'target' => $this->list->title->getPrefixedText(),
+				'target' => $this->list->getPageName(),
 				'diff' => 'prev',
-				'timestamp' => $this->revision->getTimestamp()
+				'timestamp' => $this->revisionRecord->getTimestamp()
 			]
 		);
 	}

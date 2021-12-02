@@ -32,6 +32,7 @@ class OldChangesList extends ChangesList {
 	 * @param int|null $linenumber (default null)
 	 *
 	 * @return string|bool
+	 * @return-taint none
 	 */
 	public function recentChangesLine( &$rc, $watched = false, $linenumber = null ) {
 		$classes = $this->getHTMLClasses( $rc, $watched );
@@ -53,10 +54,8 @@ class OldChangesList extends ChangesList {
 
 		$attribs = $this->getDataAttributes( $rc );
 
-		// Avoid PHP 7.1 warning from passing $this by reference
-		$list = $this;
-		if ( !Hooks::run( 'OldChangesListRecentChangesLine',
-			[ &$list, &$html, $rc, &$classes, &$attribs ] )
+		if ( !$this->getHookRunner()->onOldChangesListRecentChangesLine(
+			$this, $html, $rc, $classes, $attribs )
 		) {
 			return false;
 		}
@@ -69,9 +68,9 @@ class OldChangesList extends ChangesList {
 		$this->insertDateHeader( $dateheader, $rc->mAttribs['rc_timestamp'] );
 
 		$html = $this->getHighlightsContainerDiv() . $html;
-		$attribs['class'] = implode( ' ', $classes );
+		$attribs['class'] = $classes;
 
-		return $dateheader . Html::rawElement( 'li', $attribs,  $html ) . "\n";
+		return $dateheader . Html::rawElement( 'li', $attribs, $html ) . "\n";
 	}
 
 	/**
@@ -87,7 +86,7 @@ class OldChangesList extends ChangesList {
 
 		if ( $rc->mAttribs['rc_log_type'] ) {
 			$logtitle = SpecialPage::getTitleFor( 'Log', $rc->mAttribs['rc_log_type'] );
-			$this->insertLog( $html, $logtitle, $rc->mAttribs['rc_log_type'] );
+			$this->insertLog( $html, $logtitle, $rc->mAttribs['rc_log_type'], false );
 			$flags = $this->recentChangesFlags( [ 'unpatrolled' => $unpatrolled,
 				'bot' => $rc->mAttribs['rc_bot'] ], '' );
 			if ( $flags !== '' ) {
@@ -98,7 +97,7 @@ class OldChangesList extends ChangesList {
 			list( $name, $htmlubpage ) = MediaWikiServices::getInstance()->getSpecialPageFactory()->
 				resolveAlias( $rc->mAttribs['rc_title'] );
 			if ( $name == 'Log' ) {
-				$this->insertLog( $html, $rc->getTitle(), $htmlubpage );
+				$this->insertLog( $html, $rc->getTitle(), $htmlubpage, false );
 			}
 		// Regular entries
 		} else {

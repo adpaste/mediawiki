@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\MediaWikiServices;
+use Wikimedia\Rdbms\LoadBalancerSingle;
+
 /**
  * @group Search
  * @group Database
@@ -18,7 +21,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 	 * Checks for database type & version.
 	 * Will skip current test if DB does not support search.
 	 */
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		// Search tests require MySQL or SQLite with FTS
@@ -36,13 +39,15 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 			'wgCapitalLinks' => true,
 			'wgCapitalLinkOverrides' => [
 				NS_CATEGORY => false // for testCompletionSearchMustRespectCapitalLinkOverrides
-			]
+			],
 		] );
 
-		$this->search = new $searchType( $this->db );
+		$lb = LoadBalancerSingle::newFromConnection( $this->db );
+		$this->search = new $searchType( $lb );
+		$this->search->setHookContainer( MediaWikiServices::getInstance()->getHookContainer() );
 	}
 
-	protected function tearDown() {
+	protected function tearDown(): void {
 		unset( $this->search );
 
 		parent::tearDown();
@@ -61,7 +66,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 			'wgCapitalLinks' => true,
 			'wgCapitalLinkOverrides' => [
 				NS_CATEGORY => false // for testCompletionSearchMustRespectCapitalLinkOverrides
-			]
+			],
 		] );
 
 		$this->insertPage( 'Not_Main_Page', 'This is not a main page' );
@@ -94,7 +99,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 			$this->markTestIncomplete( __CLASS__ . " does no yet support non-wikitext content "
 				. "in the main namespace" );
 		}
-		$this->assertTrue( is_object( $results ) );
+		$this->assertIsObject( $results );
 
 		$matches = [];
 		foreach ( $results as $row ) {
@@ -187,7 +192,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 		$match = $res->getIterator()->current();
 		$snippet = "A <span class='searchmatch'>" . $phrase . "</span>";
 		$this->assertStringStartsWith( $snippet,
-			$match->getTextSnippet( $res->termMatches() ),
+			$match->getTextSnippet(),
 			"Highlight a phrase search" );
 	}
 
@@ -241,6 +246,11 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 				'Category:Search is not search',
 				[ NS_CATEGORY ],
 			],
+			'Copy-pasted wikilinks with invalid characters will still find the page' => [
+				'[[smithee]]',
+				'Smithee',
+				[ NS_MAIN ],
+			],
 		];
 	}
 
@@ -262,7 +272,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 	) {
 		$this->search->setNamespaces( $namespaces );
 		$results = $this->search->completionSearch( $search );
-		$this->assertEquals( 1, $results->getSize() );
+		$this->assertSame( 1, $results->getSize() );
 		$this->assertEquals( $expectedSuggestion, $results->getSuggestions()[0]->getText() );
 	}
 
@@ -271,26 +281,25 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 	 */
 	public function testSearchIndexFields() {
 		/**
-		 * @var $mockEngine SearchEngine
+		 * @var SearchEngine $mockEngine
 		 */
 		$mockEngine = $this->getMockBuilder( SearchEngine::class )
-			->setMethods( [ 'makeSearchFieldMapping' ] )->getMock();
+			->onlyMethods( [ 'makeSearchFieldMapping' ] )->getMock();
 
 		$mockFieldBuilder = function ( $name, $type ) {
 			$mockField =
 				$this->getMockBuilder( SearchIndexFieldDefinition::class )->setConstructorArgs( [
 					$name,
-					$type
+					$type,
 				] )->getMock();
 
-			$mockField->expects( $this->any() )->method( 'getMapping' )->willReturn( [
+			$mockField->method( 'getMapping' )->willReturn( [
 				'testData' => 'test',
 				'name' => $name,
 				'type' => $type,
 			] );
 
-			$mockField->expects( $this->any() )
-				->method( 'merge' )
+			$mockField->method( 'merge' )
 				->willReturn( $mockField );
 
 			return $mockField;
@@ -302,11 +311,12 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 
 		// Not using mock since PHPUnit mocks do not work properly with references in params
 		$this->setTemporaryHook( 'SearchIndexFields',
-			function ( &$fields, SearchEngine $engine ) use ( $mockFieldBuilder ) {
+			static function ( &$fields, SearchEngine $engine ) use ( $mockFieldBuilder ) {
 				$fields['testField'] =
 					$mockFieldBuilder( "testField", SearchIndexField::INDEX_TYPE_TEXT );
 				return true;
 			} );
+		$mockEngine->setHookContainer( MediaWikiServices::getInstance()->getHookContainer() );
 
 		$fields = $mockEngine->getSearchIndexFields();
 		$this->assertArrayHasKey( 'language', $fields );
@@ -343,8 +353,9 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 		$setAugmentor = $this->createMock( ResultSetAugmentor::class );
 		$setAugmentor->expects( $this->once() )
 			->method( 'augmentAll' )
-			->willReturnCallback( function ( SearchResultSet $resultSet ) {
+			->willReturnCallback( static function ( ISearchResultSet $resultSet ) {
 				$data = [];
+				/** @var SearchResult $result */
 				foreach ( $resultSet as $result ) {
 					$id = $result->getTitle()->getArticleID();
 					$data[$id] = "Result:$id:" . $result->getTitle()->getText();
@@ -356,7 +367,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 		$rowAugmentor = $this->createMock( ResultAugmentor::class );
 		$rowAugmentor->expects( $this->exactly( 2 ) )
 			->method( 'augment' )
-			->willReturnCallback( function ( SearchResult $result ) {
+			->willReturnCallback( static function ( SearchResult $result ) {
 				$id = $result->getTitle()->getArticleID();
 				return "Result2:$id:" . $result->getTitle()->getText();
 			} );
@@ -377,20 +388,22 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 
 		$engine = new MockCompletionSearchEngine();
 		$engine->setLimitOffset( 10, 0 );
+		$engine->setHookContainer( MediaWikiServices::getInstance()->getHookContainer() );
 		$results = $engine->completionSearch( 'foo' );
 		$this->assertEquals( 5, $results->getSize() );
 		$this->assertTrue( $results->hasMoreResults() );
 
 		$engine->setLimitOffset( 10, 10 );
 		$results = $engine->completionSearch( 'foo' );
-		$this->assertEquals( 1, $results->getSize() );
+		$this->assertSame( 1, $results->getSize() );
 		$this->assertFalse( $results->hasMoreResults() );
 	}
 
 	private function editSearchResultPage( $title ) {
 		$page = WikiPage::factory( Title::newFromText( $title ) );
-		$page->doEditContent(
+		$page->doUserEditContent(
 			new WikitextContent( 'UTContent' ),
+			$this->getTestSysop()->getUser(),
 			'UTPageSummary',
 			EDIT_NEW | EDIT_SUPPRESS_RC
 		);
@@ -402,7 +415,7 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 				[
 					'query' => 'foo',
 				],
-				false
+				false,
 			],
 			'empty' => [
 				[
@@ -442,47 +455,43 @@ class SearchEngineTest extends MediaWikiLangTestCase {
 					'query' => 'all:test',
 					'withAll' => false,
 				],
-				false
+				false,
 			],
 			'ns only' => [
 				[
 					'query' => 'help:',
 				],
-				[ '', [ NS_HELP ] ]
+				[ '', [ NS_HELP ] ],
 			],
 			'all only' => [
 				[
 					'query' => 'all:',
 					'withAll' => true,
 				],
-				[ '', null ]
+				[ '', null ],
 			],
 			'all wins over namespace when first' => [
 				[
 					'query' => 'all:help:test',
 					'withAll' => true,
 				],
-				[ 'help:test', null ]
+				[ 'help:test', null ],
 			],
 			'ns wins over all when first' => [
 				[
 					'query' => 'help:all:test',
 					'withAll' => true,
 				],
-				[ 'all:test', [ NS_HELP ] ]
+				[ 'all:test', [ NS_HELP ] ],
 			],
 		];
 	}
 
 	/**
 	 * @dataProvider provideDataForParseNamespacePrefix
-	 * @param array $params
-	 * @param  array|false $expected
-	 * @throws FatalError
-	 * @throws MWException
 	 */
 	public function testParseNamespacePrefix( array $params, $expected ) {
-		$this->setTemporaryHook( 'PrefixSearchExtractNamespace', function ( &$namespaces, &$query ) {
+		$this->setTemporaryHook( 'PrefixSearchExtractNamespace', static function ( &$namespaces, &$query ) {
 			if ( strpos( $query, 'hélp:' ) === 0 ) {
 				$namespaces = [ NS_HELP ];
 				$query = substr( $query, strlen( 'hélp:' ) );

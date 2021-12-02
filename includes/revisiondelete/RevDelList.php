@@ -19,18 +19,43 @@
  * @ingroup RevisionDelete
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\PageIdentity;
+use MediaWiki\Revision\RevisionRecord;
+use Wikimedia\Rdbms\LBFactory;
 
 /**
  * Abstract base class for a list of deletable items. The list class
  * needs to be able to make a query from a set of identifiers to pull
  * relevant rows, to return RevDelItem subclasses wrapping them, and
  * to wrap bulk update operations.
+ *
+ * @property RevDelItem $current
+ * @method RevDelItem next()
+ * @method RevDelItem reset()
+ * @method RevDelItem current()
  */
 abstract class RevDelList extends RevisionListBase {
-	function __construct( IContextSource $context, Title $title, array $ids ) {
-		parent::__construct( $context, $title );
+
+	/** @var LBFactory */
+	private $lbFactory;
+
+	/**
+	 * @param IContextSource $context
+	 * @param PageIdentity $page
+	 * @param array $ids
+	 * @param LBFactory $lbFactory
+	 */
+	public function __construct(
+		IContextSource $context,
+		PageIdentity $page,
+		array $ids,
+		LBFactory $lbFactory
+	) {
+		parent::__construct( $context, $page );
+
+		// ids is a protected variable in RevisionListBase
 		$this->ids = $ids;
+		$this->lbFactory = $lbFactory;
 	}
 
 	/**
@@ -106,8 +131,6 @@ abstract class RevDelList extends RevisionListBase {
 	 * @since 1.23 Added 'perItemStatus' param
 	 */
 	public function setVisibility( array $params ) {
-		global $wgActorTableSchemaMigrationStage;
-
 		$status = Status::newGood();
 
 		$bitPars = $params['value'];
@@ -116,7 +139,7 @@ abstract class RevDelList extends RevisionListBase {
 
 		// CAS-style checks are done on the _deleted fields so the select
 		// does not need to use FOR UPDATE nor be in the atomic section
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = $this->lbFactory->getMainLB()->getConnectionRef( DB_PRIMARY );
 		$this->res = $this->doQuery( $dbw );
 
 		$status->merge( $this->acquireItemLocks() );
@@ -133,10 +156,10 @@ abstract class RevDelList extends RevisionListBase {
 			__METHOD__
 		);
 
-		$missing = array_flip( $this->ids );
+		$missing = array_fill_keys( $this->ids, true );
 		$this->clearFileOps();
 		$idsForLog = [];
-		$authorIds = $authorIPs = $authorActors = [];
+		$authorActors = [];
 
 		if ( $perItemStatus ) {
 			$status->itemStatuses = [];
@@ -195,7 +218,7 @@ abstract class RevDelList extends RevisionListBase {
 				$status->failCount++;
 				continue;
 			// Cannot just "hide from Sysops" without hiding any fields
-			} elseif ( $newBits == Revision::DELETED_RESTRICTED ) {
+			} elseif ( $newBits == RevisionRecord::DELETED_RESTRICTED ) {
 				$itemStatus->warning(
 					'revdelete-only-restricted', $item->formatDate(), $item->formatTime() );
 				$status->failCount++;
@@ -218,29 +241,7 @@ abstract class RevDelList extends RevisionListBase {
 				$virtualOldBits |= $removedBits;
 
 				$status->successCount++;
-				if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_WRITE_OLD ) {
-					if ( $item->getAuthorId() > 0 ) {
-						$authorIds[] = $item->getAuthorId();
-					} elseif ( IP::isIPAddress( $item->getAuthorName() ) ) {
-						$authorIPs[] = $item->getAuthorName();
-					}
-					if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_WRITE_NEW ) {
-						$actorId = $item->getAuthorActor();
-						// During migration, the actor field might be empty. If so, populate
-						// it here.
-						if ( !$actorId ) {
-							if ( $item->getAuthorId() > 0 ) {
-								$user = User::newFromId( $item->getAuthorId() );
-							} else {
-								$user = User::newFromName( $item->getAuthorName(), false );
-							}
-							$actorId = $user->getActorId( $dbw );
-						}
-						$authorActors[] = $actorId;
-					}
-				} elseif ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_WRITE_NEW ) {
-					$authorActors[] = $item->getAuthorActor();
-				}
+				$authorActors[] = $item->getAuthorActor();
 
 				// Save the old and new bits in $visibilityChangeMap for
 				// later use.
@@ -277,20 +278,13 @@ abstract class RevDelList extends RevisionListBase {
 		$status->merge( $this->doPreCommitUpdates() );
 		if ( !$status->isOK() ) {
 			// Fatal error, such as no configured archive directory or I/O failures
-			$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
-			$lbFactory->rollbackMasterChanges( __METHOD__ );
+			$this->lbFactory->rollbackPrimaryChanges( __METHOD__ );
 			return $status;
 		}
 
 		// Log it
 		$authorFields = [];
-		if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_WRITE_OLD ) {
-			$authorFields['authorIds'] = $authorIds;
-			$authorFields['authorIPs'] = $authorIPs;
-		}
-		if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_WRITE_NEW ) {
-			$authorFields['authorActors'] = $authorActors;
-		}
+		$authorFields['authorActors'] = $authorActors;
 		$this->updateLog(
 			$logType,
 			[
@@ -339,12 +333,21 @@ abstract class RevDelList extends RevisionListBase {
 	}
 
 	/**
-	 * Reload the list data from the master DB. This can be done after setVisibility()
+	 * Reload the list data from the primary DB. This can be done after setVisibility()
 	 * to allow $item->getHTML() to show the new data.
+	 * @since 1.37
 	 */
-	function reloadFromMaster() {
-		$dbw = wfGetDB( DB_MASTER );
+	public function reloadFromPrimary() {
+		$dbw = $this->lbFactory->getMainLB()->getConnectionRef( DB_PRIMARY );
 		$this->res = $this->doQuery( $dbw );
+	}
+
+	/**
+	 * @deprecated since 1.37; please use reloadFromPrimary() instead.
+	 */
+	public function reloadFromMaster() {
+		wfDeprecated( __METHOD__, '1.37' );
+		$this->reloadFromPrimary();
 	}
 
 	/**
@@ -356,8 +359,6 @@ abstract class RevDelList extends RevisionListBase {
 	 *     title:           The target title
 	 *     ids:             The ID list
 	 *     comment:         The log comment
-	 *     authorIds:       The array of the user IDs of the offenders
-	 *     authorIPs:       The array of the IP/anon user offenders
 	 *     authorActors:    The array of the actor IDs of the offenders
 	 *     tags:            The array of change tags to apply to the log entry
 	 * @throws MWException
@@ -380,12 +381,6 @@ abstract class RevDelList extends RevisionListBase {
 		$relations = [
 			$field => $params['ids'],
 		];
-		if ( isset( $params['authorIds'] ) ) {
-			$relations += [
-				'target_author_id' => $params['authorIds'],
-				'target_author_ip' => $params['authorIPs'],
-			];
-		}
 		if ( isset( $params['authorActors'] ) ) {
 			$relations += [
 				'target_author_actor' => $params['authorActors'],
@@ -393,7 +388,7 @@ abstract class RevDelList extends RevisionListBase {
 		}
 		$logEntry->setRelations( $relations );
 		// Apply change tags to the log entry
-		$logEntry->setTags( $params['tags'] );
+		$logEntry->addTags( $params['tags'] );
 		$logId = $logEntry->insert();
 		$logEntry->publish( $logId );
 	}

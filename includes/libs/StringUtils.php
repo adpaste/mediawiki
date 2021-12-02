@@ -1,4 +1,7 @@
 <?php
+
+use Wikimedia\AtEase\AtEase;
+
 /**
  * Methods to play with strings.
  *
@@ -38,7 +41,7 @@ class StringUtils {
 	 * @param string $value String to check
 	 * @return bool Whether the given $value is a valid UTF-8 encoded string
 	 */
-	static function isUtf8( $value ) {
+	public static function isUtf8( $value ) {
 		return mb_check_encoding( (string)$value, 'UTF-8' );
 	}
 
@@ -53,7 +56,7 @@ class StringUtils {
 	 * @param bool $nested True iff the delimiters are allowed to nest.
 	 * @return ArrayIterator
 	 */
-	static function delimiterExplode( $startDelim, $endDelim, $separator,
+	public static function delimiterExplode( $startDelim, $endDelim, $separator,
 		$subject, $nested = false ) {
 		$inputPos = 0;
 		$lastPos = 0;
@@ -112,7 +115,7 @@ class StringUtils {
 	 * @param string $subject
 	 * @return string
 	 */
-	static function hungryDelimiterReplace( $startDelim, $endDelim, $replace, $subject ) {
+	public static function hungryDelimiterReplace( $startDelim, $endDelim, $replace, $subject ) {
 		$segments = explode( $startDelim, $subject );
 		$output = array_shift( $segments );
 		foreach ( $segments as $s ) {
@@ -151,7 +154,7 @@ class StringUtils {
 	 * @throws InvalidArgumentException
 	 * @return string
 	 */
-	static function delimiterReplaceCallback( $startDelim, $endDelim, $callback,
+	private static function delimiterReplaceCallback( $startDelim, $endDelim, $callback,
 		$subject, $flags = ''
 	) {
 		$inputPos = 0;
@@ -242,45 +245,16 @@ class StringUtils {
 	 * @param string $flags Regular expression flags
 	 * @return string The string with the matches replaced
 	 */
-	static function delimiterReplace( $startDelim, $endDelim, $replace, $subject, $flags = '' ) {
+	public static function delimiterReplace(
+		$startDelim, $endDelim, $replace, $subject, $flags = ''
+	) {
 		return self::delimiterReplaceCallback(
 			$startDelim, $endDelim,
-			function ( array $matches ) use ( $replace ) {
+			static function ( array $matches ) use ( $replace ) {
 				return strtr( $replace, [ '$0' => $matches[0], '$1' => $matches[1] ] );
 			},
 			$subject, $flags
 		);
-	}
-
-	/**
-	 * More or less "markup-safe" explode()
-	 * Ignores any instances of the separator inside `<...>`
-	 * @param string $separator
-	 * @param string $text
-	 * @return array
-	 */
-	static function explodeMarkup( $separator, $text ) {
-		$placeholder = "\x00";
-
-		// Remove placeholder instances
-		$text = str_replace( $placeholder, '', $text );
-
-		// Replace instances of the separator inside HTML-like tags with the placeholder
-		$cleaned = self::delimiterReplaceCallback(
-			'<', '>',
-			function ( array $matches ) use ( $separator, $placeholder ) {
-				return str_replace( $separator, $placeholder, $matches[0] );
-			},
-			$text
-		);
-
-		// Explode, then put the replaced separators back in
-		$items = explode( $separator, $cleaned );
-		foreach ( $items as $i => $str ) {
-			$items[$i] = str_replace( $placeholder, $separator, $str );
-		}
-
-		return $items;
 	}
 
 	/**
@@ -291,7 +265,7 @@ class StringUtils {
 	 * @param string $text
 	 * @return string
 	 */
-	static function replaceMarkup( $search, $replace, $text ) {
+	public static function replaceMarkup( $search, $replace, $text ) {
 		$placeholder = "\x00";
 
 		// Remove placeholder instances
@@ -300,7 +274,7 @@ class StringUtils {
 		// Replace instances of the separator inside HTML-like tags with the placeholder
 		$cleaned = self::delimiterReplaceCallback(
 			'<', '>',
-			function ( array $matches ) use ( $search, $placeholder ) {
+			static function ( array $matches ) use ( $search, $placeholder ) {
 				return str_replace( $search, $placeholder, $matches[0] );
 			},
 			$text
@@ -314,16 +288,32 @@ class StringUtils {
 	}
 
 	/**
+	 * Utility function to check if the given string is a valid PCRE regex. Avoids
+	 * manually calling suppressWarnings and restoreWarnings, and provides a
+	 * one-line solution without the need to use @.
+	 *
+	 * @since 1.34
+	 * @param string $string The string you want to check being a valid regex
+	 * @return bool
+	 */
+	public static function isValidPCRERegex( $string ) {
+		AtEase::suppressWarnings();
+		// @phan-suppress-next-line PhanParamSuspiciousOrder False positive
+		$isValid = preg_match( $string, '' );
+		AtEase::restoreWarnings();
+		return $isValid !== false;
+	}
+
+	/**
 	 * Escape a string to make it suitable for inclusion in a preg_replace()
 	 * replacement parameter.
 	 *
 	 * @param string $string
 	 * @return string
 	 */
-	static function escapeRegexReplacement( $string ) {
+	public static function escapeRegexReplacement( $string ) {
 		$string = str_replace( '\\', '\\\\', $string );
-		$string = str_replace( '$', '\\$', $string );
-		return $string;
+		return str_replace( '$', '\\$', $string );
 	}
 
 	/**
@@ -333,7 +323,7 @@ class StringUtils {
 	 * @param string $subject
 	 * @return ArrayIterator|ExplodeIterator
 	 */
-	static function explode( $separator, $subject ) {
+	public static function explode( $separator, $subject ) {
 		if ( substr_count( $subject, $separator ) > 1000 ) {
 			return new ExplodeIterator( $separator, $subject );
 		} else {

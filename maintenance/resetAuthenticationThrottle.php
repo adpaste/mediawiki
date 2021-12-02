@@ -21,9 +21,10 @@
  * @ingroup Maintenance
  */
 
-use MediaWiki\Auth\AuthManager;
 use MediaWiki\Auth\Throttler;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MediaWikiServices;
+use Wikimedia\IPUtils;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -57,10 +58,10 @@ class ResetAuthenticationThrottle extends Maintenance {
 		if ( !$forLogin && !$forSignup ) {
 			$this->fatalError( 'At least one of --login and --signup is required!' );
 		} elseif ( $forLogin && ( $ip === null || $username === null ) ) {
-			$this->fatalError( '--usename and --ip are both required when using --login!' );
+			$this->fatalError( '--user and --ip are both required when using --login!' );
 		} elseif ( $forSignup && $ip === null ) {
 			$this->fatalError( '--ip is required when using --signup!' );
-		} elseif ( $ip !== null && !IP::isValid( $ip ) ) {
+		} elseif ( $ip !== null && !IPUtils::isValid( $ip ) ) {
 			$this->fatalError( "Not a valid IP: $ip" );
 		}
 
@@ -86,7 +87,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 	 * @param string|null $ip
 	 */
 	protected function clearLoginThrottle( $rawUsername, $ip ) {
-		$this->output( 'Clearing login throttle... ' );
+		$this->output( 'Clearing login throttle...' );
 
 		$passwordAttemptThrottle = $this->getConfig()->get( 'PasswordAttemptThrottle' );
 		if ( !$passwordAttemptThrottle ) {
@@ -99,7 +100,8 @@ class ResetAuthenticationThrottle extends Maintenance {
 			'cache' => ObjectCache::getLocalClusterInstance(),
 		] );
 		if ( $rawUsername !== null ) {
-			$usernames = AuthManager::singleton()->normalizeUsername( $rawUsername );
+			$usernames = MediaWikiServices::getInstance()->getAuthManager()
+				->normalizeUsername( $rawUsername );
 			if ( !$usernames ) {
 				$this->fatalError( "Not a valid username: $rawUsername" );
 			}
@@ -123,7 +125,7 @@ class ResetAuthenticationThrottle extends Maintenance {
 	 * @param string $ip
 	 */
 	protected function clearSignupThrottle( $ip ) {
-		$this->output( 'Clearing signup throttle... ' );
+		$this->output( 'Clearing signup throttle...' );
 
 		$accountCreationThrottle = $this->getConfig()->get( 'AccountCreationThrottle' );
 		if ( !is_array( $accountCreationThrottle ) ) {

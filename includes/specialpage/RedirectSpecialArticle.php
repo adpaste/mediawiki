@@ -82,10 +82,18 @@
  *    }
  * @endcode
  *
+ * @stable to extend
+ *
  * @ingroup SpecialPage
  */
 abstract class RedirectSpecialArticle extends RedirectSpecialPage {
-	function __construct( $name ) {
+
+	/**
+	 * @stable to call
+	 *
+	 * @param string $name
+	 */
+	public function __construct( $name ) {
 		parent::__construct( $name );
 		$redirectParams = [
 			'action',
@@ -103,7 +111,28 @@ abstract class RedirectSpecialArticle extends RedirectSpecialPage {
 			'ctype', 'maxage', 'smaxage',
 		];
 
-		Hooks::run( "RedirectSpecialArticleRedirectParams", [ &$redirectParams ] );
+		$this->getHookRunner()->onRedirectSpecialArticleRedirectParams( $redirectParams );
 		$this->mAllowedRedirectParams = $redirectParams;
 	}
+
+	/**
+	 * @inheritDoc
+	 */
+	public function getRedirectQuery( $subpage ) {
+		$query = parent::getRedirectQuery( $subpage );
+		$title = $this->getRedirect( $subpage );
+		// Avoid double redirect for action=edit&redlink=1 for existing pages
+		// (compare to the check in EditPage::edit)
+		if (
+			$query && isset( $query['action'] ) && isset( $query['redlink'] ) &&
+			( $query['action'] === 'edit' || $query['action'] === 'submit' ) &&
+			(bool)$query['redlink'] &&
+			$title instanceof Title &&
+			$title->exists()
+		) {
+			return false;
+		}
+		return $query;
+	}
+
 }

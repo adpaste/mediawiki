@@ -19,27 +19,43 @@
  * @ingroup RevisionDelete
  */
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Revision\RevisionRecord;
+
 /**
  * Item class for a live revision table row
+ *
+ * @property RevDelRevisionList $list
  */
 class RevDelRevisionItem extends RevDelItem {
-	/** @var Revision */
-	public $revision;
+	/** @var RevisionRecord */
+	public $revisionRecord;
 
-	public function __construct( $list, $row ) {
+	public function __construct( RevisionListBase $list, $row ) {
 		parent::__construct( $list, $row );
-		$this->revision = static::initRevision( $list, $row );
+		$this->revisionRecord = static::initRevisionRecord( $list, $row );
 	}
 
 	/**
-	 * Create revision object from $row sourced from $list
+	 * Create RevisionRecord object from $row sourced from $list
 	 *
 	 * @param RevisionListBase $list
 	 * @param mixed $row
-	 * @return Revision
+	 * @return RevisionRecord
 	 */
-	protected static function initRevision( $list, $row ) {
-		return new Revision( $row );
+	protected static function initRevisionRecord( $list, $row ) {
+		return MediaWikiServices::getInstance()
+			->getRevisionFactory()
+			->newRevisionFromRow( $row );
+	}
+
+	/**
+	 * Get the RevisionRecord for the item
+	 *
+	 * @return RevisionRecord
+	 */
+	protected function getRevisionRecord(): RevisionRecord {
+		return $this->revisionRecord;
 	}
 
 	public function getIdField() {
@@ -63,25 +79,33 @@ class RevDelRevisionItem extends RevDelItem {
 	}
 
 	public function canView() {
-		return $this->revision->userCan( Revision::DELETED_RESTRICTED, $this->list->getUser() );
+		return $this->getRevisionRecord()->userCan(
+			RevisionRecord::DELETED_RESTRICTED,
+			$this->list->getAuthority()
+		);
 	}
 
 	public function canViewContent() {
-		return $this->revision->userCan( Revision::DELETED_TEXT, $this->list->getUser() );
+		return $this->getRevisionRecord()->userCan(
+			RevisionRecord::DELETED_TEXT,
+			$this->list->getAuthority()
+		);
 	}
 
 	public function getBits() {
-		return $this->revision->getVisibility();
+		return $this->getRevisionRecord()->getVisibility();
 	}
 
 	public function setBits( $bits ) {
-		$dbw = wfGetDB( DB_MASTER );
+		$revRecord = $this->getRevisionRecord();
+
+		$dbw = wfGetDB( DB_PRIMARY );
 		// Update revision table
 		$dbw->update( 'revision',
 			[ 'rev_deleted' => $bits ],
 			[
-				'rev_id' => $this->revision->getId(),
-				'rev_page' => $this->revision->getPage(),
+				'rev_id' => $revRecord->getId(),
+				'rev_page' => $revRecord->getPageId(),
 				'rev_deleted' => $this->getBits() // cas
 			],
 			__METHOD__
@@ -97,9 +121,7 @@ class RevDelRevisionItem extends RevDelItem {
 				'rc_patrolled' => RecentChange::PRC_AUTOPATROLLED
 			],
 			[
-				'rc_this_oldid' => $this->revision->getId(), // condition
-				// non-unique timestamp index
-				'rc_timestamp' => $dbw->timestamp( $this->revision->getTimestamp() ),
+				'rc_this_oldid' => $revRecord->getId(), // condition
 			],
 			__METHOD__
 		);
@@ -108,11 +130,11 @@ class RevDelRevisionItem extends RevDelItem {
 	}
 
 	public function isDeleted() {
-		return $this->revision->isDeleted( Revision::DELETED_TEXT );
+		return $this->getRevisionRecord()->isDeleted( RevisionRecord::DELETED_TEXT );
 	}
 
 	public function isHideCurrentOp( $newBits ) {
-		return ( $newBits & Revision::DELETED_TEXT )
+		return ( $newBits & RevisionRecord::DELETED_TEXT )
 			&& $this->list->getCurrent() == $this->getId();
 	}
 
@@ -123,18 +145,20 @@ class RevDelRevisionItem extends RevDelItem {
 	 */
 	protected function getRevisionLink() {
 		$date = $this->list->getLanguage()->userTimeAndDate(
-			$this->revision->getTimestamp(), $this->list->getUser() );
+			$this->getRevisionRecord()->getTimestamp(),
+			$this->list->getUser()
+		);
 
 		if ( $this->isDeleted() && !$this->canViewContent() ) {
 			return htmlspecialchars( $date );
 		}
 
 		return $this->getLinkRenderer()->makeKnownLink(
-			$this->list->title,
+			$this->list->getPage(),
 			$date,
 			[],
 			[
-				'oldid' => $this->revision->getId(),
+				'oldid' => $this->getRevisionRecord()->getId(),
 				'unhide' => 1
 			]
 		);
@@ -150,15 +174,15 @@ class RevDelRevisionItem extends RevDelItem {
 			return $this->list->msg( 'diff' )->escaped();
 		} else {
 			return $this->getLinkRenderer()->makeKnownLink(
-					$this->list->title,
-					$this->list->msg( 'diff' )->text(),
-					[],
-					[
-						'diff' => $this->revision->getId(),
-						'oldid' => 'prev',
-						'unhide' => 1
-					]
-				);
+				$this->list->getPage(),
+				$this->list->msg( 'diff' )->text(),
+				[],
+				[
+					'diff' => $this->getRevisionRecord()->getId(),
+					'oldid' => 'prev',
+					'unhide' => 1
+				]
+			);
 		}
 	}
 
@@ -167,13 +191,16 @@ class RevDelRevisionItem extends RevDelItem {
 	 * change tags and everything
 	 */
 	public function getHTML() {
+		$revRecord = $this->getRevisionRecord();
+
 		$difflink = $this->list->msg( 'parentheses' )
 			->rawParams( $this->getDiffLink() )->escaped();
 		$revlink = $this->getRevisionLink();
-		$userlink = Linker::revUserLink( $this->revision );
-		$comment = Linker::revComment( $this->revision );
+		$userlink = Linker::revUserLink( $revRecord );
+		$comment = Linker::revComment( $revRecord );
 		if ( $this->isDeleted() ) {
-			$revlink = "<span class=\"history-deleted\">$revlink</span>";
+			$class = Linker::getRevisionDeletedClass( $revRecord );
+			$revlink = "<span class=\"$class\">$revlink</span>";
 		}
 		$content = "$difflink $revlink $userlink $comment";
 		$attribs = [];
@@ -198,24 +225,26 @@ class RevDelRevisionItem extends RevDelItem {
 	}
 
 	public function getApiData( ApiResult $result ) {
-		$rev = $this->revision;
-		$user = $this->list->getUser();
+		$revRecord = $this->getRevisionRecord();
+		$authority = $this->list->getAuthority();
 		$ret = [
-			'id' => $rev->getId(),
-			'timestamp' => wfTimestamp( TS_ISO_8601, $rev->getTimestamp() ),
-			'userhidden' => (bool)$rev->isDeleted( Revision::DELETED_USER ),
-			'commenthidden' => (bool)$rev->isDeleted( Revision::DELETED_COMMENT ),
-			'texthidden' => (bool)$rev->isDeleted( Revision::DELETED_TEXT ),
+			'id' => $revRecord->getId(),
+			'timestamp' => wfTimestamp( TS_ISO_8601, $revRecord->getTimestamp() ),
+			'userhidden' => (bool)$revRecord->isDeleted( RevisionRecord::DELETED_USER ),
+			'commenthidden' => (bool)$revRecord->isDeleted( RevisionRecord::DELETED_COMMENT ),
+			'texthidden' => (bool)$revRecord->isDeleted( RevisionRecord::DELETED_TEXT ),
 		];
-		if ( $rev->userCan( Revision::DELETED_USER, $user ) ) {
+		if ( $revRecord->userCan( RevisionRecord::DELETED_USER, $authority ) ) {
+			$revUser = $revRecord->getUser( RevisionRecord::FOR_THIS_USER, $authority );
 			$ret += [
-				'userid' => $rev->getUser( Revision::FOR_THIS_USER ),
-				'user' => $rev->getUserText( Revision::FOR_THIS_USER ),
+				'userid' => $revUser ? $revUser->getId() : 0,
+				'user' => $revUser ? $revUser->getName() : '',
 			];
 		}
-		if ( $rev->userCan( Revision::DELETED_COMMENT, $user ) ) {
+		if ( $revRecord->userCan( RevisionRecord::DELETED_COMMENT, $authority ) ) {
+			$revComment = $revRecord->getComment( RevisionRecord::FOR_THIS_USER, $authority );
 			$ret += [
-				'comment' => $rev->getComment( Revision::FOR_THIS_USER ),
+				'comment' => $revComment ? $revComment->text : ''
 			];
 		}
 

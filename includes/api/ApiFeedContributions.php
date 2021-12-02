@@ -20,11 +20,17 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Api\ApiHookRunner;
+use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\Linker\LinkRenderer;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Revision\RevisionAccessException;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\User\UserFactory;
+use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * @ingroup API
@@ -33,6 +39,73 @@ class ApiFeedContributions extends ApiBase {
 
 	/** @var RevisionStore */
 	private $revisionStore;
+
+	/** @var TitleParser */
+	private $titleParser;
+
+	/** @var LinkRenderer */
+	private $linkRenderer;
+
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
+
+	/** @var HookContainer */
+	private $hookContainer;
+
+	/** @var ILoadBalancer */
+	private $loadBalancer;
+
+	/** @var NamespaceInfo */
+	private $namespaceInfo;
+
+	/** @var ActorMigration */
+	private $actorMigration;
+
+	/** @var UserFactory */
+	private $userFactory;
+
+	/** @var ApiHookRunner */
+	private $hookRunner;
+
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param RevisionStore $revisionStore
+	 * @param TitleParser $titleParser
+	 * @param LinkRenderer $linkRenderer
+	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param HookContainer $hookContainer
+	 * @param ILoadBalancer $loadBalancer
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param ActorMigration $actorMigration
+	 * @param UserFactory $userFactory
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		RevisionStore $revisionStore,
+		TitleParser $titleParser,
+		LinkRenderer $linkRenderer,
+		LinkBatchFactory $linkBatchFactory,
+		HookContainer $hookContainer,
+		ILoadBalancer $loadBalancer,
+		NamespaceInfo $namespaceInfo,
+		ActorMigration $actorMigration,
+		UserFactory $userFactory
+	) {
+		parent::__construct( $main, $action );
+		$this->revisionStore = $revisionStore;
+		$this->titleParser = $titleParser;
+		$this->linkRenderer = $linkRenderer;
+		$this->linkBatchFactory = $linkBatchFactory;
+		$this->hookContainer = $hookContainer;
+		$this->loadBalancer = $loadBalancer;
+		$this->namespaceInfo = $namespaceInfo;
+		$this->actorMigration = $actorMigration;
+		$this->userFactory = $userFactory;
+
+		$this->hookRunner = new ApiHookRunner( $hookContainer );
+	}
 
 	/**
 	 * This module uses a custom feed wrapper printer.
@@ -44,8 +117,6 @@ class ApiFeedContributions extends ApiBase {
 	}
 
 	public function execute() {
-		$this->revisionStore = MediaWikiServices::getInstance()->getRevisionStore();
-
 		$params = $this->extractRequestParams();
 
 		$config = $this->getConfig();
@@ -65,11 +136,14 @@ class ApiFeedContributions extends ApiBase {
 		$msg = wfMessage( 'Contributions' )->inContentLanguage()->text();
 		$feedTitle = $config->get( 'Sitename' ) . ' - ' . $msg .
 			' [' . $config->get( 'LanguageCode' ) . ']';
-		$feedUrl = SpecialPage::getTitleFor( 'Contributions', $params['user'] )->getFullURL();
 
-		$target = $params['user'] == 'newbies'
-			? 'newbies'
-			: Title::makeTitleSafe( NS_USER, $params['user'] )->getText();
+		$target = $params['user'];
+		if ( ExternalUserNames::isExternal( $target ) ) {
+			// Interwiki names make invalid titles, so put the target in the query instead.
+			$feedUrl = SpecialPage::getTitleFor( 'Contributions' )->getFullURL( [ 'target' => $target ] );
+		} else {
+			$feedUrl = SpecialPage::getTitleFor( 'Contributions', $target )->getFullURL();
+		}
 
 		$feed = new $feedClasses[$params['feedformat']] (
 			$feedTitle,
@@ -82,18 +156,30 @@ class ApiFeedContributions extends ApiBase {
 		$params['end'] = '';
 		$params = ContribsPager::processDateFilter( $params );
 
-		$pager = new ContribsPager( $this->getContext(), [
-			'target' => $target,
-			'namespace' => $params['namespace'],
-			'start' => $params['start'],
-			'end' => $params['end'],
-			'tagFilter' => $params['tagfilter'],
-			'deletedOnly' => $params['deletedonly'],
-			'topOnly' => $params['toponly'],
-			'newOnly' => $params['newonly'],
-			'hideMinor' => $params['hideminor'],
-			'showSizeDiff' => $params['showsizediff'],
-		] );
+		$targetUser = $this->userFactory->newFromName( $target, UserFactory::RIGOR_NONE );
+
+		$pager = new ContribsPager(
+			$this->getContext(), [
+				'target' => $target,
+				'namespace' => $params['namespace'],
+				'start' => $params['start'],
+				'end' => $params['end'],
+				'tagFilter' => $params['tagfilter'],
+				'deletedOnly' => $params['deletedonly'],
+				'topOnly' => $params['toponly'],
+				'newOnly' => $params['newonly'],
+				'hideMinor' => $params['hideminor'],
+				'showSizeDiff' => $params['showsizediff'],
+			],
+			$this->linkRenderer,
+			$this->linkBatchFactory,
+			$this->hookContainer,
+			$this->loadBalancer,
+			$this->actorMigration,
+			$this->revisionStore,
+			$this->namespaceInfo,
+			$targetUser
+		);
 
 		$feedLimit = $this->getConfig()->get( 'FeedLimit' );
 		if ( $pager->getLimit() > $feedLimit ) {
@@ -124,10 +210,8 @@ class ApiFeedContributions extends ApiBase {
 		// ContributionsLineEnding hook. Hook implementers may cancel
 		// the hook to signal the user is not allowed to read this item.
 		$feedItem = null;
-		$hookResult = Hooks::run(
-			'ApiFeedContributions::feedItem',
-			[ $row, $this->getContext(), &$feedItem ]
-		);
+		$hookResult = $this->hookRunner->onApiFeedContributions__feedItem(
+			$row, $this->getContext(), $feedItem );
 		// Hook returned a valid feed item
 		if ( $feedItem instanceof FeedItem ) {
 			return $feedItem;
@@ -138,10 +222,11 @@ class ApiFeedContributions extends ApiBase {
 
 		// Hook completed and did not return a valid feed item
 		$title = Title::makeTitle( (int)$row->page_namespace, $row->page_title );
-		if ( $title && $title->userCan( 'read', $this->getUser() ) ) {
+
+		if ( $title && $this->getAuthority()->authorizeRead( 'read', $title ) ) {
 			$date = $row->rev_timestamp;
 			$comments = $title->getTalkPage()->getFullURL();
-			$revision = $this->revisionStore->newRevisionFromRow( $row );
+			$revision = $this->revisionStore->newRevisionFromRow( $row, 0, $title );
 
 			return new FeedItem(
 				$title->getPrefixedText(),
@@ -207,6 +292,7 @@ class ApiFeedContributions extends ApiBase {
 			],
 			'user' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'cidr', 'id', 'interwiki' ],
 				ApiBase::PARAM_REQUIRED => true,
 			],
 			'namespace' => [

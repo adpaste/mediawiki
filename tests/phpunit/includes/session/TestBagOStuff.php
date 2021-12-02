@@ -2,13 +2,17 @@
 
 namespace MediaWiki\Session;
 
+use CachedBagOStuff;
+use HashBagOStuff;
+use RequestContext;
+
 /**
  * BagOStuff with utility functions for MediaWiki\\Session\\* testing
  */
-class TestBagOStuff extends \CachedBagOStuff {
+class TestBagOStuff extends CachedBagOStuff {
 
 	public function __construct() {
-		parent::__construct( new \HashBagOStuff );
+		parent::__construct( new HashBagOStuff );
 	}
 
 	/**
@@ -51,7 +55,7 @@ class TestBagOStuff extends \CachedBagOStuff {
 	 * @param array|mixed $blob Session metadata and data
 	 */
 	public function setRawSession( $id, $blob ) {
-		$expiry = \RequestContext::getMain()->getConfig()->get( 'ObjectCacheSessionExpiry' );
+		$expiry = RequestContext::getMain()->getConfig()->get( 'ObjectCacheSessionExpiry' );
 		$this->set( $this->makeKey( 'MWSession', $id ), $blob, $expiry );
 	}
 
@@ -68,7 +72,7 @@ class TestBagOStuff extends \CachedBagOStuff {
 	 * @return mixed
 	 */
 	public function getSessionFromBackend( $id ) {
-		return $this->backend->get( $this->makeKey( 'MWSession', $id ) );
+		return $this->store->get( $this->makeKey( 'MWSession', $id ) );
 	}
 
 	/**

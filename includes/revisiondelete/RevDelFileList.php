@@ -19,12 +19,21 @@
  * @ingroup RevisionDelete
  */
 
+use MediaWiki\Page\PageIdentity;
 use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\LBFactory;
 
 /**
  * List for oldimage table items
  */
 class RevDelFileList extends RevDelList {
+
+	/** @var HtmlCacheUpdater */
+	private $htmlCacheUpdater;
+
+	/** @var RepoGroup */
+	private $repoGroup;
+
 	/** @var array */
 	public $storeBatch;
 
@@ -33,6 +42,27 @@ class RevDelFileList extends RevDelList {
 
 	/** @var array */
 	public $cleanupBatch;
+
+	/**
+	 * @param IContextSource $context
+	 * @param PageIdentity $page
+	 * @param array $ids
+	 * @param LBFactory $lbFactory
+	 * @param HtmlCacheUpdater $htmlCacheUpdater
+	 * @param RepoGroup $repoGroup
+	 */
+	public function __construct(
+		IContextSource $context,
+		PageIdentity $page,
+		array $ids,
+		LBFactory $lbFactory,
+		HtmlCacheUpdater $htmlCacheUpdater,
+		RepoGroup $repoGroup
+	) {
+		parent::__construct( $context, $page, $ids, $lbFactory );
+		$this->htmlCacheUpdater = $htmlCacheUpdater;
+		$this->repoGroup = $repoGroup;
+	}
 
 	public function getType() {
 		return 'oldimage';
@@ -86,7 +116,7 @@ class RevDelFileList extends RevDelList {
 
 	public function doPreCommitUpdates() {
 		$status = Status::newGood();
-		$repo = RepoGroup::singleton()->getLocalRepo();
+		$repo = $this->repoGroup->getLocalRepo();
 		if ( $this->storeBatch ) {
 			$status->merge( $repo->storeBatch( $this->storeBatch, FileRepo::OVERWRITE_SAME ) );
 		}
@@ -109,7 +139,7 @@ class RevDelFileList extends RevDelList {
 	}
 
 	public function doPostCommitUpdates( array $visibilityChangeMap ) {
-		$file = wfLocalFile( $this->title );
+		$file = $this->repoGroup->getLocalRepo()->newFile( $this->title );
 		$file->purgeCache();
 		$file->purgeDescription();
 
@@ -120,9 +150,10 @@ class RevDelFileList extends RevDelList {
 			$file->purgeOldThumbnails( $archiveName );
 			$purgeUrls[] = $file->getArchiveUrl( $archiveName );
 		}
-		DeferredUpdates::addUpdate(
-			new CdnCacheUpdate( $purgeUrls ),
-			DeferredUpdates::PRESEND
+
+		$this->htmlCacheUpdater->purgeUrls(
+			$purgeUrls,
+			HtmlCacheUpdater::PURGE_INTENT_TXROUND_REFLECTED
 		);
 
 		return Status::newGood();

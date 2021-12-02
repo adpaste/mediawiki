@@ -25,11 +25,13 @@ use MediaWiki\MediaWikiServices;
 /**
  * @since 1.16.3
  * @author Tim Starling
+ * @stable to extend
  */
 abstract class Collation {
 	private static $instance;
 
 	/**
+	 * @deprecated 1.37 Use MediaWikiServices::getCollationFactory()->getCategoryCollation()
 	 * @since 1.16.3
 	 * @return Collation
 	 */
@@ -43,46 +45,13 @@ abstract class Collation {
 
 	/**
 	 * @since 1.16.3
+	 * @deprecated 1.37 Use MediaWikiServices::getCollationFactory()->makeCollation()
 	 * @throws MWException
 	 * @param string $collationName
 	 * @return Collation
 	 */
 	public static function factory( $collationName ) {
-		switch ( $collationName ) {
-			case 'uppercase':
-				return new UppercaseCollation;
-			case 'numeric':
-				return new NumericUppercaseCollation(
-					MediaWikiServices::getInstance()->getContentLanguage() );
-			case 'identity':
-				return new IdentityCollation;
-			case 'uca-default':
-				return new IcuCollation( 'root' );
-			case 'uca-default-u-kn':
-				return new IcuCollation( 'root-u-kn' );
-			case 'xx-uca-ckb':
-				return new CollationCkb;
-			case 'uppercase-ab':
-				return new AbkhazUppercaseCollation;
-			case 'uppercase-ba':
-				return new BashkirUppercaseCollation;
-			default:
-				$match = [];
-				if ( preg_match( '/^uca-([A-Za-z@=-]+)$/', $collationName, $match ) ) {
-					return new IcuCollation( $match[1] );
-				}
-
-				# Provide a mechanism for extensions to hook in.
-				$collationObject = null;
-				Hooks::run( 'Collation::factory', [ $collationName, &$collationObject ] );
-
-				if ( $collationObject instanceof self ) {
-					return $collationObject;
-				}
-
-				// If all else fails...
-				throw new MWException( __METHOD__ . ": unknown collation type \"$collationName\"" );
-		}
+		return MediaWikiServices::getInstance()->getCollationFactory()->makeCollation( $collationName );
 	}
 
 	/**
@@ -98,7 +67,7 @@ abstract class Collation {
 	 * @param string $string UTF-8 string
 	 * @return string Binary sortkey
 	 */
-	abstract function getSortKey( $string );
+	abstract public function getSortKey( $string );
 
 	/**
 	 * Given a string, return the logical "first letter" to be used for
@@ -125,6 +94,6 @@ abstract class Collation {
 	 * @param string $string UTF-8 string
 	 * @return string UTF-8 string corresponding to the first letter of input
 	 */
-	abstract function getFirstLetter( $string );
+	abstract public function getFirstLetter( $string );
 
 }

@@ -18,8 +18,36 @@
  * @file
  */
 
+use MediaWiki\FileBackend\FSFile\TempFSFileFactory;
+
+/**
+ * @ingroup API
+ */
 class ApiImageRotate extends ApiBase {
 	private $mPageSet = null;
+
+	/** @var RepoGroup */
+	private $repoGroup;
+
+	/** @var TempFSFileFactory */
+	private $tempFSFileFactory;
+
+	/**
+	 * @param ApiMain $mainModule
+	 * @param string $moduleName
+	 * @param RepoGroup $repoGroup
+	 * @param TempFSFileFactory $tempFSFileFactory
+	 */
+	public function __construct(
+		ApiMain $mainModule,
+		$moduleName,
+		RepoGroup $repoGroup,
+		TempFSFileFactory $tempFSFileFactory
+	) {
+		parent::__construct( $mainModule, $moduleName );
+		$this->repoGroup = $repoGroup;
+		$this->tempFSFileFactory = $tempFSFileFactory;
+	}
 
 	public function execute() {
 		$this->useTransactionalTimeLimit();
@@ -39,7 +67,7 @@ class ApiImageRotate extends ApiBase {
 
 		// Check if user can add tags
 		if ( $params['tags'] ) {
-			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $this->getUser() );
+			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $this->getAuthority() );
 			if ( !$ableToTag->isOK() ) {
 				$this->dieStatus( $ableToTag );
 			}
@@ -56,7 +84,7 @@ class ApiImageRotate extends ApiBase {
 				}
 			}
 
-			$file = wfFindFile( $title, [ 'latest' => true ] );
+			$file = $this->repoGroup->findFile( $title, [ 'latest' => true ] );
 			if ( !$file ) {
 				$r['result'] = 'Failure';
 				$r['errors'] = $this->getErrorFormatter()->arrayFromStatus(
@@ -76,15 +104,7 @@ class ApiImageRotate extends ApiBase {
 			}
 
 			// Check whether we're allowed to rotate this file
-			$permError = $this->checkTitleUserPermissions( $file->getTitle(), [ 'edit', 'upload' ] );
-			if ( $permError ) {
-				$r['result'] = 'Failure';
-				$r['errors'] = $this->getErrorFormatter()->arrayFromStatus(
-					$this->errorArrayToStatus( $permError )
-				);
-				$result[] = $r;
-				continue;
-			}
+			$this->checkTitleUserPermissions( $file->getTitle(), [ 'edit', 'upload' ] );
 
 			$srcPath = $file->getLocalRefPath();
 			if ( $srcPath === false ) {
@@ -96,8 +116,9 @@ class ApiImageRotate extends ApiBase {
 				continue;
 			}
 			$ext = strtolower( pathinfo( "$srcPath", PATHINFO_EXTENSION ) );
-			$tmpFile = TempFSFile::factory( 'rotate_', $ext, wfTempDir() );
+			$tmpFile = $this->tempFSFileFactory->newTempFSFile( 'rotate_', $ext );
 			$dstPath = $tmpFile->getPath();
+			// @phan-suppress-next-line PhanUndeclaredMethod
 			$err = $handler->rotate( $file, [
 				'srcPath' => $srcPath,
 				'dstPath' => $dstPath,
@@ -107,6 +128,7 @@ class ApiImageRotate extends ApiBase {
 				$comment = wfMessage(
 					'rotate-comment'
 				)->numParams( $rotation )->inContentLanguage()->text();
+				// @phan-suppress-next-line PhanUndeclaredMethod
 				$status = $file->upload(
 					$dstPath,
 					$comment,
@@ -114,7 +136,7 @@ class ApiImageRotate extends ApiBase {
 					0,
 					false,
 					false,
-					$this->getUser(),
+					$this->getAuthority(),
 					$params['tags'] ?: []
 				);
 				if ( $status->isGood() ) {

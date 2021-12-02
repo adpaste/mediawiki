@@ -62,24 +62,6 @@ class JsonContent extends TextContent {
 	}
 
 	/**
-	 * Beautifies JSON prior to save.
-	 *
-	 * @param Title $title
-	 * @param User $user
-	 * @param ParserOptions $popts
-	 * @return JsonContent
-	 */
-	public function preSaveTransform( Title $title, User $user, ParserOptions $popts ) {
-		// FIXME: WikiPage::doEditContent invokes PST before validation. As such, native data
-		// may be invalid (though PST result is discarded later in that case).
-		if ( !$this->isValid() ) {
-			return $this;
-		}
-
-		return new static( self::normalizeLineEndings( $this->beautifyJSON() ) );
-	}
-
-	/**
 	 * Set the HTML and add the appropriate styles.
 	 *
 	 * @param Title $title
@@ -163,7 +145,8 @@ class JsonContent extends TextContent {
 	 * @return string HTML.
 	 */
 	protected function objectRow( $key, $val ) {
-		$th = Html::element( 'th', [], $key );
+		$thContent = Html::element( 'span', [], $key );
+		$th = Html::rawElement( 'th', [], $thContent );
 		$td = $this->valueCell( $val );
 		return Html::rawElement( 'tr', [], $th . $td );
 	}
@@ -220,7 +203,7 @@ class JsonContent extends TextContent {
 			return Html::rawElement( 'td', [], $this->arrayTable( $val ) );
 		}
 
-		return Html::element( 'td', [ 'class' => 'value' ], $this->primitiveValue( $val ) );
+		return Html::element( 'td', [ 'class' => 'mw-json-value' ], $this->primitiveValue( $val ) );
 	}
 
 	/**

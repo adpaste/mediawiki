@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\Block\DatabaseBlock;
+use MediaWiki\MediaWikiServices;
+
 /**
  * @group API
  * @group Database
@@ -14,7 +17,7 @@ class ApiUnblockTest extends ApiTestCase {
 	/** @var User */
 	private $blockee;
 
-	public function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->tablesUsed = array_merge(
@@ -26,24 +29,24 @@ class ApiUnblockTest extends ApiTestCase {
 		$this->blockee = $this->getMutableTestUser()->getUser();
 
 		// Initialize a blocked user (used by most tests, although not all)
-		$block = new Block( [
+		$block = new DatabaseBlock( [
 			'address' => $this->blockee->getName(),
-			'by' => $this->blocker->getId(),
+			'by' => $this->blocker,
 		] );
-		$result = $block->insert();
+		$result = MediaWikiServices::getInstance()->getDatabaseBlockStore()->insertBlock( $block );
 		$this->assertNotFalse( $result, 'Could not insert block' );
-		$blockFromDB = Block::newFromID( $result['id'] );
-		$this->assertTrue( !is_null( $blockFromDB ), 'Could not retrieve block' );
+		$blockFromDB = DatabaseBlock::newFromID( $result['id'] );
+		$this->assertTrue( $blockFromDB !== null, 'Could not retrieve block' );
 	}
 
 	private function getBlockFromParams( array $params ) {
 		if ( array_key_exists( 'user', $params ) ) {
-			return Block::newFromTarget( $params['user'] );
+			return DatabaseBlock::newFromTarget( $params['user'] );
 		}
 		if ( array_key_exists( 'userid', $params ) ) {
-			return Block::newFromTarget( User::newFromId( $params['userid'] ) );
+			return DatabaseBlock::newFromTarget( User::newFromId( $params['userid'] ) );
 		}
-		return Block::newFromId( $params['id'] );
+		return DatabaseBlock::newFromID( $params['id'] );
 	}
 
 	/**
@@ -64,14 +67,12 @@ class ApiUnblockTest extends ApiTestCase {
 		// We only check later on whether the block existed to begin with, because maybe the caller
 		// expects doApiRequestWithToken to throw, in which case the block might not be expected to
 		// exist to begin with.
-		$this->assertInstanceOf( Block::class, $originalBlock, 'Block should initially exist' );
+		$this->assertInstanceOf( DatabaseBlock::class, $originalBlock, 'Block should initially exist' );
 		$this->assertNull( $this->getBlockFromParams( $params ), 'Block should have been removed' );
 	}
 
-	/**
-	 * @expectedException ApiUsageException
-	 */
 	public function testWithNoToken() {
+		$this->expectException( ApiUsageException::class );
 		$this->doApiRequest( [
 			'action' => 'unblock',
 			'user' => $this->blockee->getName(),
@@ -94,21 +95,21 @@ class ApiUnblockTest extends ApiTestCase {
 	public function testUnblockWhenBlocked() {
 		$this->setExpectedApiException( 'ipbblocked' );
 
-		$block = new Block( [
+		$block = new DatabaseBlock( [
 			'address' => $this->blocker->getName(),
-			'by' => $this->getTestUser( 'sysop' )->getUser()->getId(),
+			'by' => $this->getTestUser( 'sysop' )->getUser(),
 		] );
-		$block->insert();
+		MediaWikiServices::getInstance()->getDatabaseBlockStore()->insertBlock( $block );
 
 		$this->doUnblock();
 	}
 
 	public function testUnblockSelfWhenBlocked() {
-		$block = new Block( [
+		$block = new DatabaseBlock( [
 			'address' => $this->blocker->getName(),
-			'by' => $this->getTestUser( 'sysop' )->getUser()->getId(),
+			'by' => $this->getTestUser( 'sysop' )->getUser(),
 		] );
-		$result = $block->insert();
+		$result = MediaWikiServices::getInstance()->getDatabaseBlockStore()->insertBlock( $block );
 		$this->assertNotFalse( $result, 'Could not insert block' );
 
 		$this->doUnblock( [ 'user' => $this->blocker->getName() ] );
@@ -119,7 +120,7 @@ class ApiUnblockTest extends ApiTestCase {
 
 		$this->doUnblock( [ 'tags' => 'custom tag' ] );
 
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$this->assertSame( 1, (int)$dbw->selectField(
 			[ 'change_tag', 'logging', 'change_tag_def' ],
 			'COUNT(*)',
@@ -154,7 +155,7 @@ class ApiUnblockTest extends ApiTestCase {
 	}
 
 	public function testUnblockNonexistentBlock() {
-		$this->setExpectedAPIException( [ 'ipb_cant_unblock', $this->blocker->getName() ] );
+		$this->setExpectedApiException( [ 'ipb_cant_unblock', $this->blocker->getName() ] );
 
 		$this->doUnblock( [ 'user' => $this->blocker ] );
 	}

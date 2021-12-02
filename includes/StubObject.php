@@ -1,4 +1,8 @@
 <?php
+
+// phpcs:disable MediaWiki.Commenting.FunctionComment.ObjectTypeHintReturn
+// phpcs:disable MediaWiki.Commenting.FunctionComment.ObjectTypeHintParam
+
 /**
  * Delayed loading of global objects.
  *
@@ -41,6 +45,8 @@ use Wikimedia\ObjectFactory;
  * resort, you can use StubObject::isRealObject() to break the loop, but as a
  * general rule, the stub object mechanism should be transparent, and code
  * which refers to it should be kept to a minimum.
+ *
+ * @newable
  */
 class StubObject {
 	/** @var null|string */
@@ -56,6 +62,8 @@ class StubObject {
 	protected $params;
 
 	/**
+	 * @stable to call
+	 *
 	 * @param string|null $global Name of the global variable.
 	 * @param string|callable|null $class Name of the class of the real object
 	 *                               or a factory function to call
@@ -79,7 +87,7 @@ class StubObject {
 	 * @return bool True if $obj is not an instance of StubObject class.
 	 */
 	public static function isRealObject( $obj ) {
-		return is_object( $obj ) && !$obj instanceof StubObject;
+		return is_object( $obj ) && !$obj instanceof self;
 	}
 
 	/**
@@ -91,7 +99,7 @@ class StubObject {
 	 * @return void
 	 */
 	public static function unstub( &$obj ) {
-		if ( $obj instanceof StubObject ) {
+		if ( $obj instanceof self ) {
 			$obj = $obj->_unstub( 'unstub', 3 );
 		}
 	}
@@ -120,6 +128,9 @@ class StubObject {
 		$params = $this->factory
 			? [ 'factory' => $this->factory ]
 			: [ 'class' => $this->class ];
+
+		// ObjectFactory::getObjectFromSpec accepts an array, not just a callable (phan bug)
+		// @phan-suppress-next-line PhanTypeInvalidCallableArraySize
 		return ObjectFactory::getObjectFromSpec( $params + [
 			'args' => $this->params,
 			'closure_expansion' => false,
@@ -139,6 +150,50 @@ class StubObject {
 	}
 
 	/**
+	 * Wrapper for __get(), similar to _call() above
+	 *
+	 * @param string $name Name of the property to get
+	 * @return mixed
+	 */
+	public function _get( $name ) {
+		$this->_unstub( "__get($name)", 5 );
+		return $GLOBALS[$this->global]->$name;
+	}
+
+	/**
+	 * Function called by PHP if no property with that name exists in this
+	 * object.
+	 *
+	 * @param string $name Name of the property to get
+	 * @return mixed
+	 */
+	public function __get( $name ) {
+		return $this->_get( $name );
+	}
+
+	/**
+	 * Wrapper for __set(), similar to _call() above
+	 *
+	 * @param string $name Name of the property to set
+	 * @param mixed $value New property value
+	 */
+	public function _set( $name, $value ) {
+		$this->_unstub( "__set($name)", 5 );
+		$GLOBALS[$this->global]->$name = $value;
+	}
+
+	/**
+	 * Function called by PHP if no property with that name exists in this
+	 * object.
+	 *
+	 * @param string $name Name of the property to set
+	 * @param mixed $value New property value
+	 */
+	public function __set( $name, $value ) {
+		$this->_set( $name, $value );
+	}
+
+	/**
 	 * This function creates a new object of the real class and replace it in
 	 * the global variable.
 	 * This is public, for the convenience of external callers wishing to access
@@ -153,7 +208,7 @@ class StubObject {
 	public function _unstub( $name = '_unstub', $level = 2 ) {
 		static $recursionLevel = 0;
 
-		if ( !$GLOBALS[$this->global] instanceof StubObject ) {
+		if ( !$GLOBALS[$this->global] instanceof self ) {
 			return $GLOBALS[$this->global]; // already unstubbed.
 		}
 
@@ -164,45 +219,10 @@ class StubObject {
 					. "\${$this->global}->$name from $caller\n" );
 			}
 			wfDebug( "Unstubbing \${$this->global} on call of "
-				. "\${$this->global}::$name from $caller\n" );
+				. "\${$this->global}::$name from $caller" );
 			$GLOBALS[$this->global] = $this->_newObject();
 			--$recursionLevel;
 			return $GLOBALS[$this->global];
 		}
-	}
-}
-
-/**
- * Stub object for the user language. Assigned to the $wgLang global.
- */
-class StubUserLang extends StubObject {
-
-	public function __construct() {
-		parent::__construct( 'wgLang' );
-	}
-
-	/**
-	 * Call Language::findVariantLink after unstubbing $wgLang.
-	 *
-	 * This method is implemented with a full signature rather than relying on
-	 * __call so that the pass-by-reference signature of the proxied method is
-	 * honored.
-	 *
-	 * @param string &$link The name of the link
-	 * @param Title &$nt The title object of the link
-	 * @param bool $ignoreOtherCond To disable other conditions when
-	 *   we need to transclude a template or update a category's link
-	 */
-	public function findVariantLink( &$link, &$nt, $ignoreOtherCond = false ) {
-		global $wgLang;
-		$this->_unstub( 'findVariantLink', 3 );
-		$wgLang->findVariantLink( $link, $nt, $ignoreOtherCond );
-	}
-
-	/**
-	 * @return Language
-	 */
-	public function _newObject() {
-		return RequestContext::getMain()->getLanguage();
 	}
 }

@@ -1,7 +1,5 @@
 <?php
 /**
- * HTML cache invalidation of all pages linking to a given title.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -18,43 +16,43 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Cache
  */
+
+use MediaWiki\Page\PageReference;
 
 /**
- * Class to invalidate the HTML cache of all the pages linking to a given title.
+ * HTML file cache invalidation all the pages linking to a given title
  *
  * @ingroup Cache
+ * @deprecated Since 1.34; Enqueue jobs from HTMLCacheUpdateJob::newForBacklinks instead
  */
 class HTMLCacheUpdate extends DataUpdate {
-	/** @var Title */
-	public $mTitle;
-
+	/** @var PageReference */
+	private $pageTo;
 	/** @var string */
-	public $mTable;
+	private $table;
 
 	/**
-	 * @param Title $titleTo
+	 * @param PageReference $pageTo
 	 * @param string $table
 	 * @param string $causeAction Triggering action
 	 * @param string $causeAgent Triggering user
 	 */
-	function __construct(
-		Title $titleTo, $table, $causeAction = 'unknown', $causeAgent = 'unknown'
+	public function __construct(
+		PageReference $pageTo, $table, $causeAction = 'unknown', $causeAgent = 'unknown'
 	) {
-		$this->mTitle = $titleTo;
-		$this->mTable = $table;
+		$this->pageTo = $pageTo;
+		$this->table = $table;
 		$this->causeAction = $causeAction;
 		$this->causeAgent = $causeAgent;
 	}
 
 	public function doUpdate() {
 		$job = HTMLCacheUpdateJob::newForBacklinks(
-			$this->mTitle,
-			$this->mTable,
+			$this->pageTo,
+			$this->table,
 			[ 'causeAction' => $this->getCauseAction(), 'causeAgent' => $this->getCauseAgent() ]
 		);
-
 		JobQueueGroup::singleton()->lazyPush( $job );
 	}
 }

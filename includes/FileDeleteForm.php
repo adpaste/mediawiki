@@ -21,7 +21,13 @@
  * @author Rob Church <robchur@gmail.com>
  * @ingroup Media
  */
+
+use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Permissions\PermissionStatus;
+use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\Watchlist\WatchlistManager;
 
 /**
  * File deletion user interface
@@ -30,28 +36,62 @@ use MediaWiki\MediaWikiServices;
  */
 class FileDeleteForm {
 
-	/**
-	 * @var Title
-	 */
-	private $title = null;
+	/** @var Title */
+	private $title;
 
-	/**
-	 * @var File
-	 */
-	private $file = null;
+	/** @var LocalFile */
+	private $file;
 
-	/**
-	 * @var File
-	 */
+	/** @var LocalFile|null */
 	private $oldfile = null;
+
+	/** @var string */
 	private $oldimage = '';
 
+	/** @var IContextSource */
+	private $context;
+
+	/** @var ReadOnlyMode */
+	private $readOnlyMode;
+
+	/** @var RepoGroup */
+	private $repoGroup;
+
+	/** @var WatchlistManager */
+	private $watchlistManager;
+
+	/** @var LinkRenderer */
+	private $linkRenderer;
+
+	/** @var UserOptionsLookup */
+	private $userOptionsLookup;
+
 	/**
-	 * @param File $file File object we're deleting
+	 * @param LocalFile $file File object we're deleting
+	 * @param IContextSource $context
+	 * @param ReadOnlyMode $readOnlyMode
+	 * @param RepoGroup $repoGroup
+	 * @param WatchlistManager $watchlistManager
+	 * @param LinkRenderer $linkRenderer
+	 * @param UserOptionsLookup $userOptionsLookup
 	 */
-	public function __construct( $file ) {
+	public function __construct(
+		LocalFile $file,
+		IContextSource $context,
+		ReadOnlyMode $readOnlyMode,
+		RepoGroup $repoGroup,
+		WatchlistManager $watchlistManager,
+		LinkRenderer $linkRenderer,
+		UserOptionsLookup $userOptionsLookup
+	) {
 		$this->title = $file->getTitle();
 		$this->file = $file;
+		$this->context = $context;
+		$this->readOnlyMode = $readOnlyMode;
+		$this->repoGroup = $repoGroup;
+		$this->watchlistManager = $watchlistManager;
+		$this->linkRenderer = $linkRenderer;
+		$this->userOptionsLookup = $userOptionsLookup;
 	}
 
 	/**
@@ -59,51 +99,53 @@ class FileDeleteForm {
 	 * pending authentication, confirmation, etc.
 	 */
 	public function execute() {
-		global $wgOut, $wgRequest, $wgUser, $wgUploadMaintenance;
-
-		$permissionErrors = $this->title->getUserPermissionsErrors( 'delete', $wgUser );
-		if ( count( $permissionErrors ) ) {
-			throw new PermissionsError( 'delete', $permissionErrors );
-		}
-
-		if ( wfReadOnly() ) {
+		if ( $this->readOnlyMode->isReadOnly() ) {
 			throw new ReadOnlyError;
 		}
 
-		if ( $wgUploadMaintenance ) {
+		if ( $this->context->getConfig()->get( 'UploadMaintenance' ) ) {
 			throw new ErrorPageError( 'filedelete-maintenance-title', 'filedelete-maintenance' );
 		}
 
 		$this->setHeaders();
 
-		$this->oldimage = $wgRequest->getText( 'oldimage', false );
-		$token = $wgRequest->getText( 'wpEditToken' );
+		$request = $this->context->getRequest();
+		$this->oldimage = $request->getText( 'oldimage', '' );
+		$token = $request->getText( 'wpEditToken' );
 		# Flag to hide all contents of the archived revisions
-		$suppress = $wgRequest->getCheck( 'wpSuppress' ) && $wgUser->isAllowed( 'suppressrevision' );
+		$suppress = $request->getCheck( 'wpSuppress' ) &&
+			$this->context->getAuthority()->isAllowed( 'suppressrevision' );
 
 		if ( $this->oldimage ) {
-			$this->oldfile = RepoGroup::singleton()->getLocalRepo()->newFromArchiveName(
+			$this->oldfile = $this->repoGroup->getLocalRepo()->newFromArchiveName(
 				$this->title,
 				$this->oldimage
 			);
 		}
 
 		if ( !self::haveDeletableFile( $this->file, $this->oldfile, $this->oldimage ) ) {
-			$wgOut->addHTML( $this->prepareMessage( 'filedelete-nofile' ) );
-			$wgOut->addReturnTo( $this->title );
+			$this->context->getOutput()->addHTML( $this->prepareMessage( 'filedelete-nofile' ) );
+			$this->context->getOutput()->addReturnTo( $this->title );
 			return;
 		}
 
 		// Perform the deletion if appropriate
-		if ( $wgRequest->wasPosted() && $wgUser->matchEditToken( $token, $this->oldimage ) ) {
-			$deleteReasonList = $wgRequest->getText( 'wpDeleteReasonList' );
-			$deleteReason = $wgRequest->getText( 'wpReason' );
+		if ( $request->wasPosted() && $this->context->getUser()->matchEditToken( $token, $this->oldimage ) ) {
+			$permissionStatus = PermissionStatus::newEmpty();
+			if ( !$this->context->getAuthority()->authorizeWrite(
+				'delete', $this->title, $permissionStatus
+			) ) {
+				throw new PermissionsError( 'delete', $permissionStatus );
+			}
+
+			$deleteReasonList = $request->getText( 'wpDeleteReasonList' );
+			$deleteReason = $request->getText( 'wpReason' );
 
 			if ( $deleteReasonList == 'other' ) {
 				$reason = $deleteReason;
 			} elseif ( $deleteReason != '' ) {
 				// Entry from drop down menu + additional comment
-				$reason = $deleteReasonList . wfMessage( 'colon-separator' )
+				$reason = $deleteReasonList . $this->context->msg( 'colon-separator' )
 					->inContentLanguage()->text() . $deleteReason;
 			} else {
 				$reason = $deleteReasonList;
@@ -115,24 +157,32 @@ class FileDeleteForm {
 				$this->oldimage,
 				$reason,
 				$suppress,
-				$wgUser
+				$this->context->getUser()
 			);
 
+			$out = $this->context->getOutput();
+
 			if ( !$status->isGood() ) {
-				$wgOut->addHTML( '<h2>' . $this->prepareMessage( 'filedeleteerror-short' ) . "</h2>\n" );
-				$wgOut->wrapWikiTextAsInterface(
+				$out->addHTML(
+					'<h2>' . $this->prepareMessage( 'filedeleteerror-short' ) . "</h2>\n"
+				);
+				$out->wrapWikiTextAsInterface(
 					'error',
 					$status->getWikiText( 'filedeleteerror-short', 'filedeleteerror-long' )
 				);
 			}
 			if ( $status->isOK() ) {
-				$wgOut->setPageTitle( wfMessage( 'actioncomplete' ) );
-				$wgOut->addHTML( $this->prepareMessage( 'filedelete-success' ) );
+				$out->setPageTitle( $this->context->msg( 'actioncomplete' ) );
+				$out->addHTML( $this->prepareMessage( 'filedelete-success' ) );
 				// Return to the main page if we just deleted all versions of the
 				// file, otherwise go back to the description page
-				$wgOut->addReturnTo( $this->oldimage ? $this->title : Title::newMainPage() );
+				$out->addReturnTo( $this->oldimage ? $this->title : Title::newMainPage() );
 
-				WatchAction::doWatchOrUnwatch( $wgRequest->getCheck( 'wpWatch' ), $this->title, $wgUser );
+				$this->watchlistManager->setWatch(
+					$request->getCheck( 'wpWatch' ),
+					$this->context->getAuthority(),
+					$this->title
+				);
 			}
 			return;
 		}
@@ -145,27 +195,22 @@ class FileDeleteForm {
 	 * Really delete the file
 	 *
 	 * @param Title &$title
-	 * @param File &$file
-	 * @param string &$oldimage Archive name
+	 * @param LocalFile &$file
+	 * @param ?string &$oldimage Archive name
 	 * @param string $reason Reason of the deletion
 	 * @param bool $suppress Whether to mark all deleted versions as restricted
-	 * @param User|null $user User object performing the request
-	 * @param array $tags Tags to apply to the deletion action
+	 * @param UserIdentity $user
+	 * @param string[] $tags Tags to apply to the deletion action
 	 * @throws MWException
 	 * @return Status
 	 */
 	public static function doDelete( &$title, &$file, &$oldimage, $reason,
-		$suppress, User $user = null, $tags = []
-	) {
-		if ( $user === null ) {
-			global $wgUser;
-			$user = $wgUser;
-		}
-
+		$suppress, UserIdentity $user, $tags = []
+	): Status {
 		if ( $oldimage ) {
 			$page = null;
-			$status = $file->deleteOld( $oldimage, $reason, $suppress, $user );
-			if ( $status->ok ) {
+			$status = $file->deleteOldFile( $oldimage, $reason, $user, $suppress );
+			if ( $status->isOK() ) {
 				// Need to do a log item
 				$logComment = wfMessage( 'deletedrevision', $oldimage )->inContentLanguage()->text();
 				if ( trim( $reason ) != '' ) {
@@ -179,7 +224,7 @@ class FileDeleteForm {
 				$logEntry->setPerformer( $user );
 				$logEntry->setTarget( $title );
 				$logEntry->setComment( $logComment );
-				$logEntry->setTags( $tags );
+				$logEntry->addTags( $tags );
 				$logid = $logEntry->insert();
 				$logEntry->publish( $logid );
 
@@ -189,17 +234,25 @@ class FileDeleteForm {
 			$status = Status::newFatal( 'cannotdelete',
 				wfEscapeWikiText( $title->getPrefixedText() )
 			);
-			$page = WikiPage::factory( $title );
-			$dbw = wfGetDB( DB_MASTER );
+			$page = MediaWikiServices::getInstance()->getWikiPageFactory()->newFromTitle( $title );
+			'@phan-var WikiFilePage $page';
+			$dbw = wfGetDB( DB_PRIMARY );
 			$dbw->startAtomic( __METHOD__ );
 			// delete the associated article first
 			$error = '';
-			$deleteStatus = $page->doDeleteArticleReal( $reason, $suppress, 0, false, $error,
-				$user, $tags );
+			$deleteStatus = $page->doDeleteArticleReal(
+				$reason,
+				$user,
+				$suppress,
+				null,
+				$error,
+				null,
+				$tags
+			);
 			// doDeleteArticleReal() returns a non-fatal error status if the page
 			// or revision is missing, so check for isOK() rather than isGood()
 			if ( $deleteStatus->isOK() ) {
-				$status = $file->delete( $reason, $suppress, $user );
+				$status = $file->deleteFile( $reason, $user, $suppress );
 				if ( $status->isOK() ) {
 					if ( $deleteStatus->value === null ) {
 						// No log ID from doDeleteArticleReal(), probably
@@ -210,10 +263,10 @@ class FileDeleteForm {
 						$logEntry->setPerformer( $user );
 						$logEntry->setTarget( clone $title );
 						$logEntry->setComment( $reason );
-						$logEntry->setTags( $tags );
+						$logEntry->addTags( $tags );
 						$logid = $logEntry->insert();
 						$dbw->onTransactionPreCommitOrIdle(
-							function () use ( $logEntry, $logid ) {
+							static function () use ( $logEntry, $logid ) {
 								$logEntry->publish( $logid );
 							},
 							__METHOD__
@@ -226,7 +279,7 @@ class FileDeleteForm {
 				} else {
 					// Page deleted but file still there? rollback page delete
 					$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
-					$lbFactory->rollbackMasterChanges( __METHOD__ );
+					$lbFactory->rollbackPrimaryChanges( __METHOD__ );
 				}
 			} else {
 				$dbw->endAtomic( __METHOD__ );
@@ -234,7 +287,10 @@ class FileDeleteForm {
 		}
 
 		if ( $status->isOK() ) {
-			Hooks::run( 'FileDeleteComplete', [ &$file, &$oldimage, &$page, &$user, &$reason ] );
+			$legacyUser = MediaWikiServices::getInstance()
+				->getUserFactory()
+				->newFromUserIdentity( $user );
+			Hooks::runner()->onFileDeleteComplete( $file, $oldimage, $page, $legacyUser, $reason );
 		}
 
 		return $status;
@@ -244,23 +300,41 @@ class FileDeleteForm {
 	 * Show the confirmation form
 	 */
 	private function showForm() {
-		global $wgOut, $wgUser, $wgRequest;
+		$permissionStatus = PermissionStatus::newEmpty();
+		if ( !$this->context->getAuthority()->definitelyCan(
+			'delete', $this->title, $permissionStatus
+		) ) {
+			throw new PermissionsError( 'delete', $permissionStatus );
+		}
 
-		$wgOut->addModules( 'mediawiki.action.delete.file' );
+		$this->context->getOutput()->addModules( 'mediawiki.action.delete' );
+		$this->context->getOutput()->addModuleStyles( 'mediawiki.action.styles' );
 
-		$checkWatch = $wgUser->getBoolOption( 'watchdeletion' ) || $wgUser->isWatched( $this->title );
+		$checkWatch =
+			$this->userOptionsLookup->getBoolOption( $this->context->getUser(), 'watchdeletion' ) ||
+			$this->watchlistManager->isWatched( $this->context->getUser(), $this->title );
 
-		$wgOut->enableOOUI();
+		$this->context->getOutput()->enableOOUI();
 
-		$options = Xml::listDropDownOptions(
-			$wgOut->msg( 'filedelete-reason-dropdown' )->inContentLanguage()->text(),
-			[ 'other' => $wgOut->msg( 'filedelete-reason-otherlist' )->inContentLanguage()->text() ]
-		);
-		$options = Xml::listDropDownOptionsOoui( $options );
+		$fields = [];
 
 		$fields[] = new OOUI\LabelWidget( [ 'label' => new OOUI\HtmlSnippet(
 			$this->prepareMessage( 'filedelete-intro' ) ) ]
 		);
+
+		$suppressAllowed = $this->context->getAuthority()->isAllowed( 'suppressrevision' );
+		$dropDownReason = $this->context->msg( 'filedelete-reason-dropdown' )->inContentLanguage()->text();
+		// Add additional specific reasons for suppress
+		if ( $suppressAllowed ) {
+			$dropDownReason .= "\n" . $this->context->msg( 'filedelete-reason-dropdown-suppress' )
+				->inContentLanguage()->text();
+		}
+
+		$options = Xml::listDropDownOptions(
+			$dropDownReason,
+			[ 'other' => $this->context->msg( 'filedelete-reason-otherlist' )->inContentLanguage()->text() ]
+		);
+		$options = Xml::listDropDownOptionsOoui( $options );
 
 		$fields[] = new OOUI\FieldLayout(
 			new OOUI\DropdownInputWidget( [
@@ -272,7 +346,7 @@ class FileDeleteForm {
 				'options' => $options,
 			] ),
 			[
-				'label' => $wgOut->msg( 'filedelete-comment' )->text(),
+				'label' => $this->context->msg( 'filedelete-comment' )->text(),
 				'align' => 'top',
 			]
 		);
@@ -287,16 +361,16 @@ class FileDeleteForm {
 				'tabIndex' => 2,
 				'maxLength' => CommentStore::COMMENT_CHARACTER_LIMIT,
 				'infusable' => true,
-				'value' => $wgRequest->getText( 'wpReason' ),
+				'value' => $this->context->getRequest()->getText( 'wpReason' ),
 				'autofocus' => true,
 			] ),
 			[
-				'label' => $wgOut->msg( 'filedelete-otherreason' )->text(),
+				'label' => $this->context->msg( 'filedelete-otherreason' )->text(),
 				'align' => 'top',
 			]
 		);
 
-		if ( $wgUser->isAllowed( 'suppressrevision' ) ) {
+		if ( $suppressAllowed ) {
 			$fields[] = new OOUI\FieldLayout(
 				new OOUI\CheckboxInputWidget( [
 					'name' => 'wpSuppress',
@@ -305,14 +379,14 @@ class FileDeleteForm {
 					'selected' => false,
 				] ),
 				[
-					'label' => $wgOut->msg( 'revdelete-suppress' )->text(),
+					'label' => $this->context->msg( 'revdelete-suppress' )->text(),
 					'align' => 'inline',
 					'infusable' => true,
 				]
 			);
 		}
 
-		if ( $wgUser->isLoggedIn() ) {
+		if ( $this->context->getUser()->isRegistered() ) {
 			$fields[] = new OOUI\FieldLayout(
 				new OOUI\CheckboxInputWidget( [
 					'name' => 'wpWatch',
@@ -321,7 +395,7 @@ class FileDeleteForm {
 					'selected' => $checkWatch,
 				] ),
 				[
-					'label' => $wgOut->msg( 'watchthis' )->text(),
+					'label' => $this->context->msg( 'watchthis' )->text(),
 					'align' => 'inline',
 					'infusable' => true,
 				]
@@ -333,8 +407,8 @@ class FileDeleteForm {
 				'name' => 'mw-filedelete-submit',
 				'inputId' => 'mw-filedelete-submit',
 				'tabIndex' => 4,
-				'value' => $wgOut->msg( 'filedelete-submit' )->text(),
-				'label' => $wgOut->msg( 'filedelete-submit' )->text(),
+				'value' => $this->context->msg( 'filedelete-submit' )->text(),
+				'label' => $this->context->msg( 'filedelete-submit' )->text(),
 				'flags' => [ 'primary', 'destructive' ],
 				'type' => 'submit',
 			] ),
@@ -344,7 +418,7 @@ class FileDeleteForm {
 		);
 
 		$fieldset = new OOUI\FieldsetLayout( [
-			'label' => $wgOut->msg( 'filedelete-legend' )->text(),
+			'label' => $this->context->msg( 'filedelete-legend' )->text(),
 			'items' => $fields,
 		] );
 
@@ -356,11 +430,14 @@ class FileDeleteForm {
 		$form->appendContent(
 			$fieldset,
 			new OOUI\HtmlSnippet(
-				Html::hidden( 'wpEditToken', $wgUser->getEditToken( $this->oldimage ) )
+				Html::hidden(
+					'wpEditToken',
+					$this->context->getUser()->getEditToken( $this->oldimage )
+				)
 			)
 		);
 
-		$wgOut->addHTML(
+		$this->context->getOutput()->addHTML(
 			new OOUI\PanelLayout( [
 				'classes' => [ 'deletepage-wrapper' ],
 				'expanded' => false,
@@ -370,15 +447,24 @@ class FileDeleteForm {
 			] )
 		);
 
-		if ( $wgUser->isAllowed( 'editinterface' ) ) {
-			$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
-			$link = $linkRenderer->makeKnownLink(
-				$wgOut->msg( 'filedelete-reason-dropdown' )->inContentLanguage()->getTitle(),
-				wfMessage( 'filedelete-edit-reasonlist' )->text(),
+		if ( $this->context->getAuthority()->isAllowed( 'editinterface' ) ) {
+			$link = '';
+			if ( $suppressAllowed ) {
+				$link .= $this->linkRenderer->makeKnownLink(
+					$this->context->msg( 'filedelete-reason-dropdown-suppress' )->inContentLanguage()->getTitle(),
+					$this->context->msg( 'filedelete-edit-reasonlist-suppress' )->text(),
+					[],
+					[ 'action' => 'edit' ]
+				);
+				$link .= $this->context->msg( 'pipe-separator' )->escaped();
+			}
+			$link .= $this->linkRenderer->makeKnownLink(
+				$this->context->msg( 'filedelete-reason-dropdown' )->inContentLanguage()->getTitle(),
+				$this->context->msg( 'filedelete-edit-reasonlist' )->text(),
 				[],
 				[ 'action' => 'edit' ]
 			);
-			$wgOut->addHTML( '<p class="mw-filedelete-editreasons">' . $link . '</p>' );
+			$this->context->getOutput()->addHTML( '<p class="mw-filedelete-editreasons">' . $link . '</p>' );
 		}
 	}
 
@@ -386,10 +472,11 @@ class FileDeleteForm {
 	 * Show deletion log fragments pertaining to the current file
 	 */
 	private function showLogEntries() {
-		global $wgOut;
 		$deleteLogPage = new LogPage( 'delete' );
-		$wgOut->addHTML( '<h2>' . $deleteLogPage->getName()->escaped() . "</h2>\n" );
-		LogEventsList::showLogExtract( $wgOut, 'delete', $this->title );
+		$this->context->getOutput()->addHTML( '<h2>' . $deleteLogPage->getName()->escaped() . "</h2>\n" );
+
+		$out = $this->context->getOutput();
+		LogEventsList::showLogExtract( $out, 'delete', $this->title );
 	}
 
 	/**
@@ -400,19 +487,20 @@ class FileDeleteForm {
 	 * @param string $message Message base
 	 * @return string
 	 */
-	private function prepareMessage( $message ) {
-		global $wgLang;
+	private function prepareMessage( string $message ) {
 		if ( $this->oldimage ) {
+			$lang = $this->context->getLanguage();
 			# Message keys used:
 			# 'filedelete-intro-old', 'filedelete-nofile-old', 'filedelete-success-old'
-			return wfMessage(
+			return $this->context->msg(
 				"{$message}-old",
 				wfEscapeWikiText( $this->title->getText() ),
-				$wgLang->date( $this->getTimestamp(), true ),
-				$wgLang->time( $this->getTimestamp(), true ),
-				wfExpandUrl( $this->file->getArchiveUrl( $this->oldimage ), PROTO_CURRENT ) )->parseAsBlock();
+				$lang->date( $this->getTimestamp(), true ),
+				$lang->time( $this->getTimestamp(), true ),
+				wfExpandUrl( $this->file->getArchiveUrl( $this->oldimage ), PROTO_CURRENT )
+			)->parseAsBlock();
 		} else {
-			return wfMessage(
+			return $this->context->msg(
 				$message,
 				wfEscapeWikiText( $this->title->getText() )
 			)->parseAsBlock();
@@ -423,10 +511,9 @@ class FileDeleteForm {
 	 * Set headers, titles and other bits
 	 */
 	private function setHeaders() {
-		global $wgOut;
-		$wgOut->setPageTitle( wfMessage( 'filedelete', $this->title->getText() ) );
-		$wgOut->setRobotPolicy( 'noindex,nofollow' );
-		$wgOut->addBacklinkSubtitle( $this->title );
+		$this->context->getOutput()->setPageTitle( $this->context->msg( 'filedelete', $this->title->getText() ) );
+		$this->context->getOutput()->setRobotPolicy( 'noindex,nofollow' );
+		$this->context->getOutput()->addBacklinkSubtitle( $this->title );
 	}
 
 	/**
@@ -446,9 +533,9 @@ class FileDeleteForm {
 	 * value was provided, does it correspond to an
 	 * existing, local, old version of this file?
 	 *
-	 * @param File &$file
-	 * @param File &$oldfile
-	 * @param File $oldimage
+	 * @param LocalFile &$file
+	 * @param LocalFile &$oldfile
+	 * @param string $oldimage
 	 * @return bool
 	 */
 	public static function haveDeletableFile( &$file, &$oldfile, $oldimage ) {

@@ -30,17 +30,15 @@ class InitEditCount extends Maintenance {
 	public function __construct() {
 		parent::__construct();
 		$this->addOption( 'quick', 'Force the update to be done in a single query' );
-		$this->addOption( 'background', 'Force replication-friendly mode; may be inefficient but
-		avoids locking tables or lagging replica DBs with large updates;
-		calculates counts on a replica DB if possible.
-
-Background mode will be automatically used if multiple servers are listed
-in the load balancer, usually indicating a replication environment.' );
+		$this->addOption( 'background', 'Force replication-friendly mode; may be inefficient but avoids'
+		. 'locking tables or lagging replica DBs with large updates; calculates counts on a replica DB'
+		. 'if possible. Background mode will be automatically used if multiple servers are listed in the'
+		. 'load balancer, usually indicating a replication environment.' );
 		$this->addDescription( 'Batch-recalculate user_editcount fields from the revision table' );
 	}
 
 	public function execute() {
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 
 		// Autodetect mode...
 		if ( $this->hasOption( 'background' ) ) {
@@ -63,6 +61,7 @@ in the load balancer, usually indicating a replication environment.' );
 
 			$start = microtime( true );
 			$migrated = 0;
+			$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 			for ( $min = 0; $min <= $lastUser; $min += $chunkSize ) {
 				$max = $min + $chunkSize;
 
@@ -87,13 +86,13 @@ in the load balancer, usually indicating a replication environment.' );
 				$delta = microtime( true ) - $start;
 				$rate = ( $delta == 0.0 ) ? 0.0 : $migrated / $delta;
 				$this->output( sprintf( "%s %d (%0.1f%%) done in %0.1f secs (%0.3f accounts/sec).\n",
-					wfWikiID(),
+					WikiMap::getCurrentWikiDbDomain()->getId(),
 					$migrated,
 					min( $max, $lastUser ) / $lastUser * 100.0,
 					$delta,
 					$rate ) );
 
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 			}
 		} else {
 			$this->output( "Using single-query mode...\n" );

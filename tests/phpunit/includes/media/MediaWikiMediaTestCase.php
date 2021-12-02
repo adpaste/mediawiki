@@ -2,7 +2,7 @@
 /**
  * Specificly for testing Media handlers. Sets up a FileRepo backend
  */
-abstract class MediaWikiMediaTestCase extends MediaWikiTestCase {
+abstract class MediaWikiMediaTestCase extends MediaWikiIntegrationTestCase {
 
 	/** @var FileRepo */
 	protected $repo;
@@ -11,7 +11,7 @@ abstract class MediaWikiMediaTestCase extends MediaWikiTestCase {
 	/** @var string */
 	protected $filePath;
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->filePath = $this->getFilePath();
@@ -77,4 +77,23 @@ abstract class MediaWikiMediaTestCase extends MediaWikiTestCase {
 		return new UnregisteredLocalFile( false, $this->repo,
 			"mwstore://localtesting/data/$name", $type );
 	}
+
+	/**
+	 * Get a mock LocalFile with the specified metadata, specified as a
+	 * serialized string. The metadata-related methods will return this
+	 * metadata. The behaviour of the other methods is undefined.
+	 *
+	 * @since 1.37
+	 * @param string $metadata
+	 * @return LocalFile
+	 */
+	protected function getMockFileWithMetadata( $metadata ) {
+		return new class( $metadata ) extends LocalFile {
+			public function __construct( $metadata ) {
+				$this->loadMetadataFromString( $metadata );
+				$this->dataLoaded = true;
+			}
+		};
+	}
+
 }

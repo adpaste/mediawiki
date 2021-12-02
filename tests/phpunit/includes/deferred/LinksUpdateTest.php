@@ -1,5 +1,8 @@
 <?php
 
+use PHPUnit\Framework\MockObject\MockObject;
+use Wikimedia\TestingAccessWrapper;
+
 /**
  * @covers LinksUpdate
  * @group LinksUpdate
@@ -9,8 +12,8 @@
 class LinksUpdateTest extends MediaWikiLangTestCase {
 	protected static $testingPageId;
 
-	function __construct( $name = null, array $data = [], $dataName = '' ) {
-		parent::__construct( $name, $data, $dataName );
+	protected function setUp(): void {
+		parent::setUp();
 
 		$this->tablesUsed = array_merge( $this->tablesUsed,
 			[
@@ -26,11 +29,8 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 				'recentchanges',
 			]
 		);
-	}
 
-	protected function setUp() {
-		parent::setUp();
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->replace(
 			'interwiki',
 			[ 'iw_prefix' ],
@@ -54,11 +54,21 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 	}
 
 	protected function makeTitleAndParserOutput( $name, $id ) {
-		$t = Title::newFromText( $name );
-		$t->mArticleID = $id; # XXX: this is fugly
+		// Force the value returned by getArticleID, even is
+		// READ_LATEST is passed.
+
+		/** @var Title|MockObject $t */
+		$t = $this->getMockBuilder( Title::class )
+			->disableOriginalConstructor()
+			->onlyMethods( [ 'getArticleID' ] )
+			->getMock();
+		$t->method( 'getArticleID' )->willReturn( $id );
+
+		$tAccess = TestingAccessWrapper::newFromObject( $t );
+		$tAccess->secureAndSplit( $name );
 
 		$po = new ParserOutput();
-		$po->setTitleText( $t->getPrefixedText() );
+		$po->setTitleText( $name );
 
 		return [ $t, $po ];
 	}
@@ -190,22 +200,30 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 
 		$title = Title::newFromText( 'Testing' );
 		$wikiPage = new WikiPage( $title );
-		$wikiPage->doEditContent( new WikitextContent( '[[Category:Foo]]' ), 'added category' );
+		$wikiPage->doUserEditContent(
+			new WikitextContent( '[[Category:Foo]]' ),
+			$this->getTestSysop()->getUser(),
+			'added category'
+		);
 		$this->runAllRelatedJobs();
 
 		$this->assertRecentChangeByCategorization(
 			$title,
-			$wikiPage->getParserOutput( ParserOptions::newCanonical() ),
+			$wikiPage->getParserOutput( ParserOptions::newCanonical( 'canonical' ) ),
 			Title::newFromText( 'Category:Foo' ),
 			[ [ 'Foo', '[[:Testing]] added to category' ] ]
 		);
 
-		$wikiPage->doEditContent( new WikitextContent( '[[Category:Bar]]' ), 'replaced category' );
+		$wikiPage->doUserEditContent(
+			new WikitextContent( '[[Category:Bar]]' ),
+			$this->getTestSysop()->getUser(),
+			'replaced category'
+		);
 		$this->runAllRelatedJobs();
 
 		$this->assertRecentChangeByCategorization(
 			$title,
-			$wikiPage->getParserOutput( ParserOptions::newCanonical() ),
+			$wikiPage->getParserOutput( ParserOptions::newCanonical( 'canonical' ) ),
 			Title::newFromText( 'Category:Foo' ),
 			[
 				[ 'Foo', '[[:Testing]] added to category' ],
@@ -215,7 +233,7 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 
 		$this->assertRecentChangeByCategorization(
 			$title,
-			$wikiPage->getParserOutput( ParserOptions::newCanonical() ),
+			$wikiPage->getParserOutput( ParserOptions::newCanonical( 'canonical' ) ),
 			Title::newFromText( 'Category:Bar' ),
 			[
 				[ 'Bar', '[[:Testing]] added to category' ],
@@ -230,26 +248,38 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 		$templatePage = new WikiPage( $templateTitle );
 
 		$wikiPage = new WikiPage( Title::newFromText( 'Testing' ) );
-		$wikiPage->doEditContent( new WikitextContent( '{{TestingTemplate}}' ), 'added template' );
+		$wikiPage->doUserEditContent(
+			new WikitextContent( '{{TestingTemplate}}' ),
+			$this->getTestSysop()->getUser(),
+			'added template'
+		);
 		$this->runAllRelatedJobs();
 
 		$otherWikiPage = new WikiPage( Title::newFromText( 'Some_other_page' ) );
-		$otherWikiPage->doEditContent( new WikitextContent( '{{TestingTemplate}}' ), 'added template' );
+		$otherWikiPage->doUserEditContent(
+			new WikitextContent( '{{TestingTemplate}}' ),
+			$this->getTestSysop()->getUser(),
+			'added template'
+		);
 		$this->runAllRelatedJobs();
 
 		$this->assertRecentChangeByCategorization(
 			$templateTitle,
-			$templatePage->getParserOutput( ParserOptions::newCanonical() ),
+			$templatePage->getParserOutput( ParserOptions::newCanonical( 'canonical' ) ),
 			Title::newFromText( 'Baz' ),
 			[]
 		);
 
-		$templatePage->doEditContent( new WikitextContent( '[[Category:Baz]]' ), 'added category' );
+		$templatePage->doUserEditContent(
+			new WikitextContent( '[[Category:Baz]]' ),
+			$this->getTestSysop()->getUser(),
+			'added category'
+		);
 		$this->runAllRelatedJobs();
 
 		$this->assertRecentChangeByCategorization(
 			$templateTitle,
-			$templatePage->getParserOutput( ParserOptions::newCanonical() ),
+			$templatePage->getParserOutput( ParserOptions::newCanonical( 'canonical' ) ),
 			Title::newFromText( 'Baz' ),
 			[ [
 				'Baz',
@@ -345,12 +375,10 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 	 * @covers ParserOutput::setProperty
 	 */
 	public function testUpdate_page_props() {
-		global $wgPagePropsHaveSortkey;
-
 		/** @var ParserOutput $po */
 		list( $t, $po ) = $this->makeTitleAndParserOutput( "Testing", self::$testingPageId );
 
-		$fields = [ 'pp_propname', 'pp_value' ];
+		$fields = [ 'pp_propname', 'pp_value', 'pp_sortkey' ];
 		$expected = [];
 
 		$po->setProperty( "bool", true );
@@ -366,28 +394,18 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 		$expected[] = [ "string", "33 bar" ];
 
 		// compute expected sortkey values
-		if ( $wgPagePropsHaveSortkey ) {
-			$fields[] = 'pp_sortkey';
+		foreach ( $expected as &$row ) {
+			$value = $row[1];
 
-			foreach ( $expected as &$row ) {
-				$value = $row[1];
-
-				if ( is_int( $value ) || is_float( $value ) || is_bool( $value ) ) {
-					$row[] = floatval( $value );
-				} else {
-					$row[] = null;
-				}
+			if ( is_int( $value ) || is_float( $value ) || is_bool( $value ) ) {
+				$row[] = floatval( $value );
+			} else {
+				$row[] = null;
 			}
 		}
 
 		$this->assertLinksUpdate(
 			$t, $po, 'page_props', $fields, 'pp_page = ' . self::$testingPageId, $expected );
-	}
-
-	public function testUpdate_page_props_without_sortkey() {
-		$this->setMwGlobals( 'wgPagePropsHaveSortkey', false );
-
-		$this->testUpdate_page_props();
 	}
 
 	// @todo test recursive, too!
@@ -429,5 +447,19 @@ class LinksUpdateTest extends MediaWikiLangTestCase {
 			$job->run();
 			$queueGroup->ack( $job );
 		}
+	}
+
+	public function testIsRecursive() {
+		list( $title, $po ) = $this->makeTitleAndParserOutput( 'Test', 1 );
+		$linksUpdate = new LinksUpdate( $title, $po );
+		$this->assertTrue( $linksUpdate->isRecursive(), 'LinksUpdate is recursive by default' );
+
+		$linksUpdate = new LinksUpdate( $title, $po, true );
+		$this->assertTrue( $linksUpdate->isRecursive(),
+			'LinksUpdate is recursive when asked to be recursive' );
+
+		$linksUpdate = new LinksUpdate( $title, $po, false );
+		$this->assertFalse( $linksUpdate->isRecursive(),
+			'LinksUpdate is not recursive when asked to be not recursive' );
 	}
 }

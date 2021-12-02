@@ -20,6 +20,7 @@
  * @file
  */
 
+use MediaWiki\BadFileLookup;
 use MediaWiki\MediaWikiServices;
 
 /**
@@ -28,23 +29,60 @@ use MediaWiki\MediaWikiServices;
  * @ingroup API
  */
 class ApiQueryImageInfo extends ApiQueryBase {
-	const TRANSFORM_LIMIT = 50;
+	public const TRANSFORM_LIMIT = 50;
 	private static $transformCount = 0;
 
-	public function __construct( ApiQuery $query, $moduleName, $prefix = 'ii' ) {
-		// We allow a subclass to override the prefix, to create a related API
-		// module. Some other parts of MediaWiki construct this with a null
-		// $prefix, which used to be ignored when this only took two arguments
-		if ( is_null( $prefix ) ) {
+	/** @var RepoGroup */
+	private $repoGroup;
+
+	/** @var Language */
+	private $contentLanguage;
+
+	/** @var BadFileLookup */
+	private $badFileLookup;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param string|RepoGroup|null $prefixOrRepoGroup
+	 * @param RepoGroup|Language|null $repoGroupOrContentLanguage
+	 * @param Language|BadFileLookup|null $contentLanguageOrBadFileLookup
+	 * @param BadFileLookup|null $badFileLookupOrUnused
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		$prefixOrRepoGroup = null,
+		$repoGroupOrContentLanguage = null,
+		$contentLanguageOrBadFileLookup = null,
+		$badFileLookupOrUnused = null
+	) {
+		// We allow a subclass to override the prefix, to create a related API module.
+		// The ObjectFactory is injecting the services without the prefix.
+		if ( !is_string( $prefixOrRepoGroup ) ) {
 			$prefix = 'ii';
+			$repoGroup = $prefixOrRepoGroup;
+			$contentLanguage = $repoGroupOrContentLanguage;
+			$badFileLookup = $contentLanguageOrBadFileLookup;
+			// $badFileLookupOrUnused is null in this case
+		} else {
+			$prefix = $prefixOrRepoGroup;
+			$repoGroup = $repoGroupOrContentLanguage;
+			$contentLanguage = $contentLanguageOrBadFileLookup;
+			$badFileLookup = $badFileLookupOrUnused;
 		}
 		parent::__construct( $query, $moduleName, $prefix );
+		// This class is extended and therefor fallback to global state - T259960
+		$services = MediaWikiServices::getInstance();
+		$this->repoGroup = $repoGroup ?? $services->getRepoGroup();
+		$this->contentLanguage = $contentLanguage ?? $services->getContentLanguage();
+		$this->badFileLookup = $badFileLookup ?? $services->getBadFileLookup();
 	}
 
 	public function execute() {
 		$params = $this->extractRequestParams();
 
-		$prop = array_flip( $params['prop'] );
+		$prop = array_fill_keys( $params['prop'], true );
 
 		$scale = $this->getScale( $params );
 
@@ -53,7 +91,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			'language' => $params['extmetadatalanguage'],
 			'multilang' => $params['extmetadatamultilang'],
 			'extmetadatafilter' => $params['extmetadatafilter'],
-			'revdelUser' => $this->getUser(),
+			'revdelUser' => $this->getAuthority(),
 		];
 
 		if ( isset( $params['badfilecontexttitle'] ) ) {
@@ -63,7 +101,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 				$this->dieWithError( [ 'apierror-bad-badfilecontexttitle', $p ], 'invalid-title' );
 			}
 		} else {
-			$badFileContextTitle = false;
+			$badFileContextTitle = null;
 		}
 
 		$pageIds = $this->getPageSet()->getGoodAndMissingTitlesByNamespace();
@@ -72,7 +110,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			asort( $titles ); // Ensure the order is always the same
 
 			$fromTitle = null;
-			if ( !is_null( $params['continue'] ) ) {
+			if ( $params['continue'] !== null ) {
 				$cont = explode( '|', $params['continue'] );
 				$this->dieContinueUsageIf( count( $cont ) != 2 );
 				$fromTitle = strval( $cont[0] );
@@ -87,18 +125,18 @@ class ApiQueryImageInfo extends ApiQueryBase {
 				}
 			}
 
-			$user = $this->getUser();
-			$findTitles = array_map( function ( $title ) use ( $user ) {
+			$performer = $this->getAuthority();
+			$findTitles = array_map( static function ( $title ) use ( $performer ) {
 				return [
 					'title' => $title,
-					'private' => $user,
+					'private' => $performer,
 				];
 			}, $titles );
 
 			if ( $params['localonly'] ) {
-				$images = RepoGroup::singleton()->getLocalRepo()->findFiles( $findTitles );
+				$images = $this->repoGroup->getLocalRepo()->findFiles( $findTitles );
 			} else {
-				$images = RepoGroup::singleton()->findFiles( $findTitles );
+				$images = $this->repoGroup->findFiles( $findTitles );
 			}
 
 			$result = $this->getResult();
@@ -110,7 +148,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 				if ( !isset( $images[$title] ) ) {
 					if ( isset( $prop['uploadwarning'] ) || isset( $prop['badfile'] ) ) {
 						// uploadwarning and badfile need info about non-existing files
-						$images[$title] = wfLocalFile( $title );
+						$images[$title] = $this->repoGroup->getLocalRepo()->newFile( $title );
 						// Doesn't exist, so set an empty image repository
 						$info['imagerepository'] = '';
 					} else {
@@ -143,7 +181,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 					$info['imagerepository'] = $img->getRepoName();
 				}
 				if ( isset( $prop['badfile'] ) ) {
-					$info['badfile'] = (bool)wfIsBadImage( $title, $badFileContextTitle );
+					$info['badfile'] = (bool)$this->badFileLookup->isBadFile( $title, $badFileContextTitle );
 				}
 
 				$fit = $result->addValue( [ 'query', 'pages' ], (int)$pageId, $info );
@@ -171,8 +209,8 @@ class ApiQueryImageInfo extends ApiQueryBase {
 				// Check that the current version is within the start-end boundaries
 				$gotOne = false;
 				if (
-					( is_null( $start ) || $img->getTimestamp() <= $start ) &&
-					( is_null( $params['end'] ) || $img->getTimestamp() >= $params['end'] )
+					( $start === null || $img->getTimestamp() <= $start ) &&
+					( $params['end'] === null || $img->getTimestamp() >= $params['end'] )
 				) {
 					$gotOne = true;
 
@@ -361,13 +399,13 @@ class ApiQueryImageInfo extends ApiQueryBase {
 	 * @param array $prop Array of properties to get (in the keys)
 	 * @param ApiResult $result
 	 * @param array|null $thumbParams Containing 'width' and 'height' items, or null
-	 * @param array|bool|string $opts Options for data fetching.
+	 * @param array|false|string $opts Options for data fetching.
 	 *   This is an array consisting of the keys:
 	 *    'version': The metadata version for the metadata option
 	 *    'language': The language for extmetadata property
 	 *    'multilang': Return all translations in extmetadata property
-	 *    'revdelUser': User to use when checking whether to show revision-deleted fields.
-	 * @return array Result array
+	 *    'revdelUser': Authority to use when checking whether to show revision-deleted fields.
+	 * @return array
 	 */
 	public static function getInfo( $file, $prop, $result, $thumbParams = null, $opts = false ) {
 		$anyHidden = false;
@@ -385,20 +423,24 @@ class ApiQueryImageInfo extends ApiQueryBase {
 		$vals = [
 			ApiResult::META_TYPE => 'assoc',
 		];
+
+		// Some information will be unavailable if the file does not exist. T221812
+		$exists = $file->exists();
+
 		// Timestamp is shown even if the file is revdelete'd in interface
 		// so do same here.
-		if ( isset( $prop['timestamp'] ) ) {
+		if ( isset( $prop['timestamp'] ) && $exists ) {
 			$vals['timestamp'] = wfTimestamp( TS_ISO_8601, $file->getTimestamp() );
 		}
 
 		// Handle external callers who don't pass revdelUser
 		if ( isset( $opts['revdelUser'] ) && $opts['revdelUser'] ) {
 			$revdelUser = $opts['revdelUser'];
-			$canShowField = function ( $field ) use ( $file, $revdelUser ) {
+			$canShowField = static function ( $field ) use ( $file, $revdelUser ) {
 				return $file->userCan( $field, $revdelUser );
 			};
 		} else {
-			$canShowField = function ( $field ) use ( $file ) {
+			$canShowField = static function ( $field ) use ( $file ) {
 				return !$file->isDeleted( $field );
 			};
 		}
@@ -406,19 +448,21 @@ class ApiQueryImageInfo extends ApiQueryBase {
 		$user = isset( $prop['user'] );
 		$userid = isset( $prop['userid'] );
 
-		if ( $user || $userid ) {
+		if ( ( $user || $userid ) && $exists ) {
 			if ( $file->isDeleted( File::DELETED_USER ) ) {
 				$vals['userhidden'] = true;
 				$anyHidden = true;
 			}
 			if ( $canShowField( File::DELETED_USER ) ) {
+				// Already checked if the field can be show
+				$uploader = $file->getUploader( File::RAW );
 				if ( $user ) {
-					$vals['user'] = $file->getUser();
+					$vals['user'] = $uploader ? $uploader->getName() : '';
 				}
 				if ( $userid ) {
-					$vals['userid'] = $file->getUser( 'id' );
+					$vals['userid'] = $uploader ? $uploader->getId() : 0;
 				}
-				if ( !$file->getUser( 'id' ) ) {
+				if ( $uploader && !$uploader->isRegistered() ) {
 					$vals['anon'] = true;
 				}
 			}
@@ -426,7 +470,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 
 		// This is shown even if the file is revdelete'd in interface
 		// so do same here.
-		if ( isset( $prop['size'] ) || isset( $prop['dimensions'] ) ) {
+		if ( ( isset( $prop['size'] ) || isset( $prop['dimensions'] ) ) && $exists ) {
 			$vals['size'] = (int)$file->getSize();
 			$vals['width'] = (int)$file->getWidth();
 			$vals['height'] = (int)$file->getHeight();
@@ -447,7 +491,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 		$pcomment = isset( $prop['parsedcomment'] );
 		$comment = isset( $prop['comment'] );
 
-		if ( $pcomment || $comment ) {
+		if ( ( $pcomment || $comment ) && $exists ) {
 			if ( $file->isDeleted( File::DELETED_COMMENT ) ) {
 				$vals['commenthidden'] = true;
 				$anyHidden = true;
@@ -488,8 +532,12 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			$vals['suppressed'] = true;
 		}
 
-		if ( !$canShowField( File::DELETED_FILE ) ) {
-			// Early return, tidier than indenting all following things one level
+		// Early return, tidier than indenting all following things one level
+		if ( isset( $opts['revdelUser'] ) && $opts['revdelUser']
+			&& !$file->userCan( File::DELETED_FILE, $opts['revdelUser'] )
+		) {
+			return $vals;
+		} elseif ( $file->isDeleted( File::DELETED_FILE ) ) {
 			return $vals;
 		}
 
@@ -498,8 +546,8 @@ class ApiQueryImageInfo extends ApiQueryBase {
 		}
 
 		if ( $url ) {
-			if ( $file->exists() ) {
-				if ( !is_null( $thumbParams ) ) {
+			if ( $exists ) {
+				if ( $thumbParams !== null ) {
 					$mto = $file->transform( $thumbParams );
 					self::$transformCount++;
 					if ( $mto && !$mto->isError() ) {
@@ -520,13 +568,21 @@ class ApiQueryImageInfo extends ApiQueryBase {
 								$mto->getExtension(), $file->getMimeType(), $thumbParams );
 							$vals['thumbmime'] = $mime;
 						}
+						// Report srcset parameters
+						Linker::processResponsiveImages( $file, $mto, [
+							'width' => $vals['thumbwidth'],
+							'height' => $vals['thumbheight']
+						] + $thumbParams );
+						foreach ( $mto->responsiveUrls as $density => $url ) {
+							$vals['responsiveUrls'][$density] = wfExpandUrl( $url, PROTO_CURRENT );
+						}
 					} elseif ( $mto && $mto->isError() ) {
+						/** @var MediaTransformError $mto */
+						'@phan-var MediaTransformError $mto';
 						$vals['thumberror'] = $mto->toText();
 					}
 				}
 				$vals['url'] = wfExpandUrl( $file->getFullUrl(), PROTO_CURRENT );
-			} else {
-				$vals['filemissing'] = true;
 			}
 			$vals['descriptionurl'] = wfExpandUrl( $file->getDescriptionUrl(), PROTO_CURRENT );
 
@@ -536,53 +592,58 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			}
 		}
 
-		if ( $sha1 ) {
+		if ( !$exists ) {
+			$vals['filemissing'] = true;
+		}
+
+		if ( $sha1 && $exists ) {
 			$vals['sha1'] = Wikimedia\base_convert( $file->getSha1(), 36, 16, 40 );
 		}
 
-		if ( $meta ) {
-			Wikimedia\suppressWarnings();
-			$metadata = unserialize( $file->getMetadata() );
-			Wikimedia\restoreWarnings();
+		if ( $meta && $exists ) {
+			$metadata = $file->getMetadataArray();
 			if ( $metadata && $version !== 'latest' ) {
 				$metadata = $file->convertMetadataVersion( $metadata, $version );
 			}
 			$vals['metadata'] = $metadata ? static::processMetaData( $metadata, $result ) : null;
 		}
-		if ( $commonmeta ) {
+		if ( $commonmeta && $exists ) {
 			$metaArray = $file->getCommonMetaArray();
 			$vals['commonmetadata'] = $metaArray ? static::processMetaData( $metaArray, $result ) : [];
 		}
 
-		if ( $extmetadata ) {
+		if ( $extmetadata && $exists ) {
 			// Note, this should return an array where all the keys
 			// start with a letter, and all the values are strings.
 			// Thus there should be no issue with format=xml.
 			$format = new FormatMetadata;
 			$format->setSingleLanguage( !$opts['multilang'] );
+			// @phan-suppress-next-line PhanUndeclaredMethod
 			$format->getContext()->setLanguage( $opts['language'] );
 			$extmetaArray = $format->fetchExtendedMetadata( $file );
 			if ( $opts['extmetadatafilter'] ) {
 				$extmetaArray = array_intersect_key(
-					$extmetaArray, array_flip( $opts['extmetadatafilter'] )
+					$extmetaArray, array_fill_keys( $opts['extmetadatafilter'], true )
 				);
 			}
 			$vals['extmetadata'] = $extmetaArray;
 		}
 
-		if ( $mime ) {
+		if ( $mime && $exists ) {
 			$vals['mime'] = $file->getMimeType();
 		}
 
-		if ( $mediatype ) {
+		if ( $mediatype && $exists ) {
 			$vals['mediatype'] = $file->getMediaType();
 		}
 
 		if ( $archive && $file->isOld() ) {
+			/** @var OldLocalFile $file */
+			'@phan-var OldLocalFile $file';
 			$vals['archivename'] = $file->getArchiveName();
 		}
 
-		if ( $bitdepth ) {
+		if ( $bitdepth && $exists ) {
 			$vals['bitdepth'] = $file->getBitDepth();
 		}
 
@@ -596,12 +657,11 @@ class ApiQueryImageInfo extends ApiQueryBase {
 	 *
 	 * @return int Count
 	 */
-	static function getTransformCount() {
+	protected static function getTransformCount() {
 		return self::$transformCount;
 	}
 
 	/**
-	 *
 	 * @param array $metadata
 	 * @param ApiResult $result
 	 * @return array
@@ -637,7 +697,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 
 	/**
 	 * @param File $img
-	 * @param null|string $start
+	 * @param string|null $start
 	 * @return string
 	 */
 	protected function getContinueStr( $img, $start = null ) {
@@ -688,7 +748,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 			'extmetadatalanguage' => [
 				ApiBase::PARAM_TYPE => 'string',
 				ApiBase::PARAM_DFLT =>
-					MediaWikiServices::getInstance()->getContentLanguage()->getCode(),
+					$this->contentLanguage->getCode(),
 			],
 			'extmetadatamultilang' => [
 				ApiBase::PARAM_TYPE => 'boolean',
@@ -752,59 +812,7 @@ class ApiQueryImageInfo extends ApiQueryBase {
 				'uploadwarning' => 'apihelp-query+imageinfo-paramvalue-prop-uploadwarning',
 				'badfile' => 'apihelp-query+imageinfo-paramvalue-prop-badfile',
 			],
-			array_flip( $filter )
-		);
-	}
-
-	/**
-	 * Returns array key value pairs of properties and their descriptions
-	 *
-	 * @deprecated since 1.25
-	 * @param string $modulePrefix
-	 * @return array
-	 */
-	private static function getProperties( $modulePrefix = '' ) {
-		return [
-			'timestamp' => ' timestamp     - Adds timestamp for the uploaded version',
-			'user' => ' user          - Adds the user who uploaded the image version',
-			'userid' => ' userid        - Add the user ID that uploaded the image version',
-			'comment' => ' comment       - Comment on the version',
-			'parsedcomment' => ' parsedcomment - Parse the comment on the version',
-			'canonicaltitle' => ' canonicaltitle - Adds the canonical title of the image file',
-			'url' => ' url           - Gives URL to the image and the description page',
-			'size' => ' size          - Adds the size of the image in bytes, ' .
-				'its height and its width. Page count and duration are added if applicable',
-			'dimensions' => ' dimensions    - Alias for size', // B/C with Allimages
-			'sha1' => ' sha1          - Adds SHA-1 hash for the image',
-			'mime' => ' mime          - Adds MIME type of the image',
-			'thumbmime' => ' thumbmime     - Adds MIME type of the image thumbnail' .
-				' (requires url and param ' . $modulePrefix . 'urlwidth)',
-			'mediatype' => ' mediatype     - Adds the media type of the image',
-			'metadata' => ' metadata      - Lists Exif metadata for the version of the image',
-			'commonmetadata' => ' commonmetadata - Lists file format generic metadata ' .
-				'for the version of the image',
-			'extmetadata' => ' extmetadata   - Lists formatted metadata combined ' .
-				'from multiple sources. Results are HTML formatted.',
-			'archivename' => ' archivename   - Adds the file name of the archive ' .
-				'version for non-latest versions',
-			'bitdepth' => ' bitdepth      - Adds the bit depth of the version',
-			'uploadwarning' => ' uploadwarning - Used by the Special:Upload page to ' .
-				'get information about an existing file. Not intended for use outside MediaWiki core',
-		];
-	}
-
-	/**
-	 * Returns the descriptions for the properties provided by getPropertyNames()
-	 *
-	 * @deprecated since 1.25
-	 * @param array $filter List of properties to filter out
-	 * @param string $modulePrefix
-	 * @return array
-	 */
-	public static function getPropertyDescriptions( $filter = [], $modulePrefix = '' ) {
-		return array_merge(
-			[ 'What image information to get:' ],
-			array_values( array_diff_key( static::getProperties( $modulePrefix ), array_flip( $filter ) ) )
+			array_fill_keys( $filter, true )
 		);
 	}
 

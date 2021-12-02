@@ -3,11 +3,11 @@
 /**
  * @covers AutoLoader
  */
-class AutoLoaderTest extends MediaWikiTestCase {
+class AutoLoaderTest extends MediaWikiIntegrationTestCase {
 
 	private $oldPsr4;
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		// Fancy dance to trigger a rebuild of AutoLoader::$autoloadLocalClassesLower
@@ -30,9 +30,14 @@ class AutoLoaderTest extends MediaWikiTestCase {
 			__DIR__ . '/../data/autoloader/psr4';
 	}
 
-	protected function tearDown() {
+	protected function tearDown(): void {
 		AutoLoader::$psr4Namespaces = $this->oldPsr4;
 		parent::tearDown();
+	}
+
+	public function testFind() {
+		$path = __DIR__ . '/../data/autoloader/TestAutoloadedLocalClass.php';
+		$this->assertSame( $path, AutoLoader::find( TestAutoloadedLocalClass::class ) );
 	}
 
 	public function testCoreClass() {

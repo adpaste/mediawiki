@@ -23,6 +23,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Maintenance script to clean up empty categories in the category table.
  *
@@ -85,7 +87,8 @@ TEXT
 			return false;
 		}
 
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
+		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 		$throttle = intval( $throttle );
 
@@ -133,7 +136,7 @@ TEXT
 				}
 				$this->output( "--mode=$mode --begin=$name\n" );
 
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 				usleep( $throttle * 1000 );
 			}
 
@@ -186,7 +189,7 @@ TEXT
 
 				$this->output( "--mode=remove --begin=$name\n" );
 
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 				usleep( $throttle * 1000 );
 			}
 		}

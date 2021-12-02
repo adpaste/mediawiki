@@ -27,29 +27,43 @@
  *
  * @ingroup Cache
  */
-class WinCacheBagOStuff extends BagOStuff {
+class WinCacheBagOStuff extends MediumSpecificBagOStuff {
+	public function __construct( array $params = [] ) {
+		$params['segmentationSize'] = $params['segmentationSize'] ?? INF;
+		parent::__construct( $params );
+
+		if ( PHP_SAPI === 'cli' ) {
+			$this->attrMap[self::ATTR_DURABILITY] = ini_get( 'wincache.enablecli' )
+				? self::QOS_DURABILITY_SCRIPT
+				: self::QOS_DURABILITY_NONE;
+		} else {
+			$this->attrMap[self::ATTR_DURABILITY] = self::QOS_DURABILITY_SERVICE;
+		}
+	}
+
 	protected function doGet( $key, $flags = 0, &$casToken = null ) {
+		$getToken = ( $casToken === self::PASS_BY_REF );
 		$casToken = null;
 
 		$blob = wincache_ucache_get( $key );
-		if ( !is_string( $blob ) ) {
+		if ( !is_string( $blob ) && !is_int( $blob ) ) {
 			return false;
 		}
 
-		$value = unserialize( $blob );
-		if ( $value !== false ) {
+		$value = $this->unserialize( $blob );
+		if ( $getToken && $value !== false ) {
 			$casToken = (string)$blob; // don't bother hashing this
 		}
 
 		return $value;
 	}
 
-	protected function cas( $casToken, $key, $value, $exptime = 0, $flags = 0 ) {
+	protected function doCas( $casToken, $key, $value, $exptime = 0, $flags = 0 ) {
 		if ( !wincache_lock( $key ) ) { // optimize with FIFO lock
 			return false;
 		}
 
-		$curCasToken = null; // passed by reference
+		$curCasToken = self::PASS_BY_REF; // passed by reference
 		$this->doGet( $key, self::READ_LATEST, $curCasToken );
 		if ( $casToken === $curCasToken ) {
 			$success = $this->set( $key, $value, $exptime, $flags );
@@ -67,8 +81,9 @@ class WinCacheBagOStuff extends BagOStuff {
 		return $success;
 	}
 
-	public function set( $key, $value, $expire = 0, $flags = 0 ) {
-		$result = wincache_ucache_set( $key, serialize( $value ), $expire );
+	protected function doSet( $key, $value, $exptime = 0, $flags = 0 ) {
+		$ttl = $this->getExpirationAsTTL( $exptime );
+		$result = wincache_ucache_set( $key, $this->getSerialized( $value, $key ), $ttl );
 
 		// false positive, wincache_ucache_set returns an empty array
 		// in some circumstances.
@@ -76,8 +91,13 @@ class WinCacheBagOStuff extends BagOStuff {
 		return ( $result === [] || $result === true );
 	}
 
-	public function add( $key, $value, $exptime = 0, $flags = 0 ) {
-		$result = wincache_ucache_add( $key, serialize( $value ), $exptime );
+	protected function doAdd( $key, $value, $exptime = 0, $flags = 0 ) {
+		if ( wincache_ucache_exists( $key ) ) {
+			return false; // avoid warnings
+		}
+
+		$ttl = $this->getExpirationAsTTL( $exptime );
+		$result = wincache_ucache_add( $key, $this->getSerialized( $value, $key ), $ttl );
 
 		// false positive, wincache_ucache_add returns an empty array
 		// in some circumstances.
@@ -85,55 +105,41 @@ class WinCacheBagOStuff extends BagOStuff {
 		return ( $result === [] || $result === true );
 	}
 
-	public function delete( $key, $flags = 0 ) {
+	protected function doDelete( $key, $flags = 0 ) {
 		wincache_ucache_delete( $key );
 
 		return true;
 	}
 
-	/**
-	 * Construct a cache key.
-	 *
-	 * @since 1.27
-	 * @param string $keyspace
-	 * @param array $args
-	 * @return string
-	 */
-	public function makeKeyInternal( $keyspace, $args ) {
+	public function makeKeyInternal( $keyspace, $components ) {
 		// WinCache keys have a maximum length of 150 characters. From that,
 		// subtract the number of characters we need for the keyspace and for
 		// the separator character needed for each argument. To handle some
 		// custom prefixes used by thing like WANObjectCache, limit to 125.
 		// NOTE: Same as in memcached, except the max key length there is 255.
-		$charsLeft = 125 - strlen( $keyspace ) - count( $args );
+		$charsLeft = 125 - strlen( $keyspace ) - count( $components );
 
-		$args = array_map(
-			function ( $arg ) use ( &$charsLeft ) {
+		$components = array_map(
+			static function ( $component ) use ( &$charsLeft ) {
 				// 33 = 32 characters for the MD5 + 1 for the '#' prefix.
-				if ( $charsLeft > 33 && strlen( $arg ) > $charsLeft ) {
-					$arg = '#' . md5( $arg );
+				if ( $charsLeft > 33 && strlen( $component ) > $charsLeft ) {
+					$component = '#' . md5( $component );
 				}
 
-				$charsLeft -= strlen( $arg );
-				return $arg;
+				$charsLeft -= strlen( $component );
+				return $component;
 			},
-			$args
+			$components
 		);
 
 		if ( $charsLeft < 0 ) {
-			return $keyspace . ':BagOStuff-long-key:##' . md5( implode( ':', $args ) );
+			return $keyspace . ':BagOStuff-long-key:##' . md5( implode( ':', $components ) );
 		}
 
-		return $keyspace . ':' . implode( ':', $args );
+		return $keyspace . ':' . implode( ':', $components );
 	}
 
-	/**
-	 * Increase stored value of $key by $value while preserving its original TTL
-	 * @param string $key Key to increase
-	 * @param int $value Value to add to $key (Default 1)
-	 * @return int|bool New value or false on failure
-	 */
-	public function incr( $key, $value = 1 ) {
+	public function incr( $key, $value = 1, $flags = 0 ) {
 		if ( !wincache_lock( $key ) ) { // optimize with FIFO lock
 			return false;
 		}
@@ -150,5 +156,9 @@ class WinCacheBagOStuff extends BagOStuff {
 		wincache_unlock( $key );
 
 		return $n;
+	}
+
+	public function decr( $key, $value = 1, $flags = 0 ) {
+		return $this->incr( $key, -$value, $flags );
 	}
 }

@@ -1,8 +1,8 @@
-/* eslint-env node, es6 */
-var i, chars = [];
+'use strict';
 
-for ( i = 0; i < 65536; i++ ) {
-	chars.push( String.fromCharCode( i ).toUpperCase() );
+const chars = [];
+
+for ( let i = 0; i <= 0x10ffff; i++ ) {
+	chars.push( String.fromCodePoint( i ).toUpperCase() );
 }
-// eslint-disable-next-line no-console
 console.log( JSON.stringify( chars ) );

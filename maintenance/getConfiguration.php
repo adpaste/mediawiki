@@ -91,7 +91,8 @@ class GetConfiguration extends Maintenance {
 		if ( $this->regex ) {
 			$this->regex = '/' . $this->regex . '/';
 			if ( $this->hasOption( 'iregex' ) ) {
-				$this->regex .= 'i'; # case insensitive regex
+				# case insensitive regex
+				$this->regex .= 'i';
 			}
 		}
 
@@ -121,7 +122,6 @@ class GetConfiguration extends Maintenance {
 
 		# Filter out globals based on the regex
 		if ( $this->regex ) {
-			$res = [];
 			foreach ( $GLOBALS as $name => $value ) {
 				if ( preg_match( $this->regex, $name ) ) {
 					$res[$name] = $value;
@@ -165,7 +165,8 @@ class GetConfiguration extends Maintenance {
 	protected function formatVarDump( $res ) {
 		$ret = '';
 		foreach ( $res as $key => $value ) {
-			ob_start(); # intercept var_dump() output
+			# intercept var_dump() output
+			ob_start();
 			print "\${$key} = ";
 			var_dump( $value );
 			# grab var_dump() output and discard it from the output buffer

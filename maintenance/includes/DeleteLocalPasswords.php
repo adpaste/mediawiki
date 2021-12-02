@@ -50,7 +50,7 @@ class DeleteLocalPasswords extends Maintenance {
 
 	public function __construct() {
 		parent::__construct();
-		$this->mDescription = "Deletes local password for users.";
+		$this->addDescription( "Deletes local password for users." );
 		$this->setBatchSize( 1000 );
 
 		$this->addOption( 'user', 'If specified, only checks the given user', false, true );
@@ -86,7 +86,8 @@ ERROR
 
 		$user = $this->getOption( 'user', false );
 		if ( $user !== false ) {
-			$this->user = User::getCanonicalName( $user );
+			$userNameUtils = MediaWikiServices::getInstance()->getUserNameUtils();
+			$this->user = $userNameUtils->getCanonical( $user );
 			if ( $this->user === false ) {
 				$this->fatalError( "Invalid user name\n" );
 			}
@@ -104,12 +105,12 @@ ERROR
 	}
 
 	/**
-	 * Get the master DB handle for the current user batch. This is provided for the benefit
+	 * Get the primary DB handle for the current user batch. This is provided for the benefit
 	 * of authentication extensions which subclass this and work with wiki farms.
 	 * @return IMaintainableDatabase
 	 */
 	protected function getUserDB() {
-		return $this->getDB( DB_MASTER );
+		return $this->getDB( DB_PRIMARY );
 	}
 
 	protected function processUsers( array $userBatch, IDatabase $dbw ) {
@@ -158,14 +159,14 @@ ERROR
 	 * @return Generator
 	 */
 	protected function getUserBatches() {
-		if ( !is_null( $this->user ) ) {
+		if ( $this->user !== null ) {
 			$this->output( "\t ... querying '$this->user'\n" );
 			yield [ [ $this->user ] ];
 			return;
 		}
 
 		$lastUsername = '';
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		do {
 			$this->output( "\t ... querying from '$lastUsername'\n" );
 			$users = $dbw->selectFieldValues(

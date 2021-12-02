@@ -34,7 +34,24 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 	private $useIndex = null;
 	private $props = [];
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var NamespaceInfo */
+	private $namespaceInfo;
+
+	/** @var GenderCache */
+	private $genderCache;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param GenderCache $genderCache
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		NamespaceInfo $namespaceInfo,
+		GenderCache $genderCache
+	) {
 		switch ( $moduleName ) {
 			case 'alllinks':
 				$prefix = 'al';
@@ -75,6 +92,8 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 		}
 
 		parent::__construct( $query, $moduleName, $prefix );
+		$this->namespaceInfo = $namespaceInfo;
+		$this->genderCache = $genderCache;
 	}
 
 	public function execute() {
@@ -90,7 +109,7 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 * @return void
 	 */
 	private function run( $resultPageSet = null ) {
@@ -99,7 +118,7 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 
 		$pfx = $this->tablePrefix;
 		$fieldTitle = $this->fieldTitle;
-		$prop = array_flip( $params['prop'] );
+		$prop = array_fill_keys( $params['prop'], true );
 		$fld_ids = isset( $prop['ids'] );
 		$fld_title = isset( $prop['title'] );
 		if ( $this->hasNamespace ) {
@@ -129,7 +148,7 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 			$this->addWhereFld( $pfx . 'namespace', $namespace );
 		}
 
-		$continue = !is_null( $params['continue'] );
+		$continue = $params['continue'] !== null;
 		if ( $continue ) {
 			$continueArr = explode( '|', $params['continue'] );
 			$op = $params['dir'] == 'descending' ? '<' : '>';
@@ -183,6 +202,19 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 
 		$res = $this->select( __METHOD__ );
 
+		// Get gender information
+		if ( $res->numRows() && $resultPageSet === null ) {
+			if ( $this->namespaceInfo->hasGenderDistinction( $namespace ) ) {
+				$users = [];
+				foreach ( $res as $row ) {
+					$users[] = $row->pl_title;
+				}
+				if ( $users !== [] ) {
+					$this->genderCache->doQuery( $users, __METHOD__ );
+				}
+			}
+		}
+
 		$pageids = [];
 		$titles = [];
 		$count = 0;
@@ -199,7 +231,7 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 				break;
 			}
 
-			if ( is_null( $resultPageSet ) ) {
+			if ( $resultPageSet === null ) {
 				$vals = [
 					ApiResult::META_TYPE => 'assoc',
 				];
@@ -231,7 +263,7 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 			}
 		}
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$result->addIndexedTagName( [ 'query', $this->getModuleName() ], $this->indexTag );
 		} elseif ( $params['unique'] ) {
 			$resultPageSet->populateFromTitles( $titles );
@@ -291,7 +323,7 @@ class ApiQueryAllLinks extends ApiQueryGeneratorBase {
 
 		return [
 			"action=query&list={$name}&{$p}from=B&{$p}prop=ids|title"
-				=> "apihelp-$path-example-B",
+				=> "apihelp-$path-example-b",
 			"action=query&list={$name}&{$p}unique=&{$p}from=B"
 				=> "apihelp-$path-example-unique",
 			"action=query&generator={$name}&g{$p}unique=&g{$p}from=B"

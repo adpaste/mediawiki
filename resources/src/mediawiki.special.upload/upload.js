@@ -20,33 +20,6 @@
 		delay: 500, // ms
 		timeoutID: false,
 
-		keypress: function () {
-			if ( !ajaxUploadDestCheck ) {
-				return;
-			}
-
-			// Find file to upload
-			if ( !$( '#wpDestFile' ).length || !$( '#wpDestFile-warning' ).length ) {
-				return;
-			}
-
-			this.nameToCheck = $( '#wpDestFile' ).val();
-
-			// Clear timer
-			if ( this.timeoutID ) {
-				clearTimeout( this.timeoutID );
-			}
-			// Check response cache
-			if ( Object.prototype.hasOwnProperty.call( this.responseCache, this.nameToCheck ) ) {
-				this.setWarning( this.responseCache[ this.nameToCheck ] );
-				return;
-			}
-
-			this.timeoutID = setTimeout( function () {
-				uploadWarning.timeout();
-			}, this.delay );
-		},
-
 		checkNow: function ( fname ) {
 			if ( !ajaxUploadDestCheck ) {
 				return;
@@ -75,7 +48,7 @@
 				iiprop: 'uploadwarning',
 				errorformat: 'html',
 				errorlang: mw.config.get( 'wgUserLanguage' )
-			} ).done( function ( result ) {
+			} ).then( function ( result ) {
 				var
 					resultOut = '',
 					page = result.query.pages[ 0 ];
@@ -85,7 +58,8 @@
 					resultOut = page.invalidreason.html;
 				}
 				uploadWarning.processResult( resultOut, uploadWarning.nameToCheck );
-			} ).always( function () {
+				$spinnerDestCheck.remove();
+			} ).catch( function () {
 				$spinnerDestCheck.remove();
 			} );
 		},
@@ -191,16 +165,17 @@
 			);
 		}
 
-		// fillDestFile setup
-		mw.config.get( 'wgUploadSourceIds' ).forEach( function ( sourceId ) {
+		// fillDestFile setup. Note if the upload wiki does not allow uploads,
+		// e.g. Polish Wikipedia -  this code still runs amnd this will be undefined,
+		// so fallback to empty array.
+		mw.config.get( 'wgUploadSourceIds', [] ).forEach( function ( sourceId ) {
 			$( '#' + sourceId ).on( 'change', function () {
 				var path, slash, backslash, fname;
 				if ( !mw.config.get( 'wgUploadAutoFill' ) ) {
 					return;
 				}
 				// Remove any previously flagged errors
-				$( '#mw-upload-permitted' ).attr( 'class', '' );
-				$( '#mw-upload-prohibited' ).attr( 'class', '' );
+				$( '#mw-upload-permitted, #mw-upload-prohibited' ).removeClass();
 
 				path = $( this ).val();
 				// Find trailing part
@@ -243,8 +218,8 @@
 
 				// Replace spaces by underscores
 				fname = fname.replace( / /g, '_' );
-				// Capitalise first letter if needed
-				if ( mw.config.get( 'wgCapitalizeUploads' ) ) {
+				// Capitalise first letter if needed. Note fname may be empty string.
+				if ( fname && mw.config.get( 'wgCapitalizeUploads' ) ) {
 					fname = fname[ 0 ].toUpperCase() + fname.slice( 1 );
 				}
 
@@ -277,7 +252,7 @@
 
 		/**
 		 * Check if this is a recognizable image type...
-		 * Also excludes files over 10M to avoid going insane on memory usage.
+		 * Also excludes files over 10 MiB to avoid going insane on memory usage.
 		 *
 		 * TODO: Is there a way we can ask the browser what's supported in `<img>`s?
 		 *
@@ -306,6 +281,11 @@
 				s /= 1024;
 				sizeMsgs = sizeMsgs.slice( 1 );
 			}
+			// The following messages are used here:
+			// * size-bytes
+			// * size-kilobytes
+			// * size-megabytes
+			// * size-gigabytes
 			return mw.msg( sizeMsgs[ 0 ], Math.round( s ) );
 		}
 
@@ -600,12 +580,14 @@
 
 		allowCloseWindow = mw.confirmCloseWindow( {
 			test: function () {
-				return $( '#wpUploadFile' ).get( 0 ).files.length !== 0 ||
-					$uploadForm.data( 'origtext' ) !== $uploadForm.serialize();
+				var $wpUploadFile = $( '#wpUploadFile' );
+				// check for existence of #wpUploadFile in case a gadget removed it (T262844)
+				return (
+					$wpUploadFile.length && $wpUploadFile.get( 0 ).files.length !== 0
+				) || $uploadForm.data( 'origtext' ) !== $uploadForm.serialize();
 			},
 
-			message: mw.msg( 'editwarning-warning' ),
-			namespace: 'uploadwarning'
+			message: mw.msg( 'editwarning-warning' )
 		} );
 
 		$uploadForm.on( 'submit', function () {

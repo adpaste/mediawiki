@@ -2,14 +2,14 @@
 
 namespace MediaWiki\Tidy;
 
-use RemexHtml\HTMLData;
-use RemexHtml\Serializer\Serializer;
-use RemexHtml\Serializer\SerializerNode;
-use RemexHtml\Tokenizer\Attributes;
-use RemexHtml\Tokenizer\PlainAttributes;
-use RemexHtml\TreeBuilder\TreeBuilder;
-use RemexHtml\TreeBuilder\TreeHandler;
-use RemexHtml\TreeBuilder\Element;
+use Wikimedia\RemexHtml\HTMLData;
+use Wikimedia\RemexHtml\Serializer\Serializer;
+use Wikimedia\RemexHtml\Serializer\SerializerNode;
+use Wikimedia\RemexHtml\Tokenizer\Attributes;
+use Wikimedia\RemexHtml\Tokenizer\PlainAttributes;
+use Wikimedia\RemexHtml\TreeBuilder\Element;
+use Wikimedia\RemexHtml\TreeBuilder\TreeBuilder;
+use Wikimedia\RemexHtml\TreeBuilder\TreeHandler;
 
 /**
  * @internal
@@ -434,6 +434,8 @@ class RemexCompatMunger implements TreeHandler {
 	/**
 	 * Find the ancestor of $node which is a child of a p-wrapper, and
 	 * reparent that node so that it is placed after the end of the p-wrapper
+	 * @param SerializerNode $node
+	 * @param int $sourceStart
 	 */
 	private function disablePWrapper( SerializerNode $node, $sourceStart ) {
 		$nodeData = $node->snData;
@@ -477,14 +479,13 @@ class RemexCompatMunger implements TreeHandler {
 	}
 
 	public function doctype( $name, $public, $system, $quirks, $sourceStart, $sourceLength ) {
-		$this->serializer->doctype( $name, $public,  $system, $quirks,
+		$this->serializer->doctype( $name, $public, $system, $quirks,
 			$sourceStart, $sourceLength );
 	}
 
 	public function comment( $preposition, $refElement, $text, $sourceStart, $sourceLength ) {
-		list( $parent, $refNode ) = $this->getParentForInsert( $preposition, $refElement );
-		$this->serializer->comment( $preposition, $refNode, $text,
-			$sourceStart, $sourceLength );
+		list( , $refNode ) = $this->getParentForInsert( $preposition, $refElement );
+		$this->serializer->comment( $preposition, $refNode, $text, $sourceStart, $sourceLength );
 	}
 
 	public function error( $text, $pos ) {

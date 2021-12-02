@@ -17,11 +17,13 @@
  *
  * @file
  * @license GPL-2.0-or-later
- * @author Kunal Mehta <legoktm@member.fsf.org>
+ * @author Kunal Mehta <legoktm@debian.org>
  */
 
 /**
  * Marks HTML that shouldn't be escaped
+ *
+ * @newable
  *
  * @since 1.28
  */
@@ -33,6 +35,8 @@ class HtmlArmor {
 	private $value;
 
 	/**
+	 * @stable to call
+	 *
 	 * @param string|null $value
 	 */
 	public function __construct( $value ) {

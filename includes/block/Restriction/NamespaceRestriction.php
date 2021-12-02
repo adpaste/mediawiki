@@ -1,6 +1,6 @@
 <?php
 /**
- * A Block restriction object of type 'Namespace'.
+ * A block restriction object of type 'Namespace'.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,12 +27,12 @@ class NamespaceRestriction extends AbstractRestriction {
 	/**
 	 * @inheritDoc
 	 */
-	const TYPE = 'ns';
+	public const TYPE = 'ns';
 
 	/**
 	 * @inheritDoc
 	 */
-	const TYPE_ID = 2;
+	public const TYPE_ID = 2;
 
 	/**
 	 * @inheritDoc

@@ -20,9 +20,15 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Storage\NameTableAccessException;
+use MediaWiki\Storage\NameTableStore;
+use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserIdentityLookup;
+use MediaWiki\User\UserNameUtils;
+use Wikimedia\Rdbms\SelectQueryBuilder;
 
 /**
  * This query action adds a list of a specified user's contributions to the output.
@@ -31,25 +37,64 @@ use MediaWiki\Storage\NameTableAccessException;
  */
 class ApiQueryUserContribs extends ApiQueryBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var CommentStore */
+	private $commentStore;
+
+	/** @var UserIdentityLookup */
+	private $userIdentityLookup;
+
+	/** @var UserNameUtils */
+	private $userNameUtils;
+
+	/** @var RevisionStore */
+	private $revisionStore;
+
+	/** @var NameTableStore */
+	private $changeTagDefStore;
+
+	/** @var ActorMigration */
+	private $actorMigration;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param CommentStore $commentStore
+	 * @param UserIdentityLookup $userIdentityLookup
+	 * @param UserNameUtils $userNameUtils
+	 * @param RevisionStore $revisionStore
+	 * @param NameTableStore $changeTagDefStore
+	 * @param ActorMigration $actorMigration
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		CommentStore $commentStore,
+		UserIdentityLookup $userIdentityLookup,
+		UserNameUtils $userNameUtils,
+		RevisionStore $revisionStore,
+		NameTableStore $changeTagDefStore,
+		ActorMigration $actorMigration
+	) {
 		parent::__construct( $query, $moduleName, 'uc' );
+		$this->commentStore = $commentStore;
+		$this->userIdentityLookup = $userIdentityLookup;
+		$this->userNameUtils = $userNameUtils;
+		$this->revisionStore = $revisionStore;
+		$this->changeTagDefStore = $changeTagDefStore;
+		$this->actorMigration = $actorMigration;
 	}
 
-	private $params, $multiUserMode, $orderBy, $parentLens, $commentStore;
+	private $params, $multiUserMode, $orderBy, $parentLens;
 
 	private $fld_ids = false, $fld_title = false, $fld_timestamp = false,
 		$fld_comment = false, $fld_parsedcomment = false, $fld_flags = false,
 		$fld_patrolled = false, $fld_tags = false, $fld_size = false, $fld_sizediff = false;
 
 	public function execute() {
-		global $wgActorTableSchemaMigrationStage;
-
 		// Parse some parameters
 		$this->params = $this->extractRequestParams();
 
-		$this->commentStore = CommentStore::getStore();
-
-		$prop = array_flip( $this->params['prop'] );
+		$prop = array_fill_keys( $this->params['prop'], true );
 		$this->fld_ids = isset( $prop['ids'] );
 		$this->fld_title = isset( $prop['title'] );
 		$this->fld_comment = isset( $prop['comment'] );
@@ -66,7 +111,8 @@ class ApiQueryUserContribs extends ApiQueryBase {
 		// queries should use a regular replica DB since the lookup pattern is not all by user.
 		$dbSecondary = $this->getDB(); // any random replica DB
 
-		$sort = ( $this->params['dir'] == 'newer' ? '' : ' DESC' );
+		$sort = ( $this->params['dir'] == 'newer' ?
+			SelectQueryBuilder::SORT_ASC : SelectQueryBuilder::SORT_DESC );
 		$op = ( $this->params['dir'] == 'older' ? '<' : '>' );
 
 		// Create an Iterator that produces the UserIdentity objects we need, depending
@@ -82,50 +128,34 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			// a wiki with users "Test00000001" to "Test99999999"), use a
 			// generator with batched lookup and continuation.
 			$userIter = call_user_func( function () use ( $dbSecondary, $sort, $op, $fname ) {
-				global $wgActorTableSchemaMigrationStage;
-
 				$fromName = false;
-				if ( !is_null( $this->params['continue'] ) ) {
+				if ( $this->params['continue'] !== null ) {
 					$continue = explode( '|', $this->params['continue'] );
 					$this->dieContinueUsageIf( count( $continue ) != 4 );
 					$this->dieContinueUsageIf( $continue[0] !== 'name' );
 					$fromName = $continue[1];
 				}
-				$like = $dbSecondary->buildLike( $this->params['userprefix'], $dbSecondary->anyString() );
 
 				$limit = 501;
-
 				do {
 					$from = $fromName ? "$op= " . $dbSecondary->addQuotes( $fromName ) : false;
-
-					// For the new schema, pull from the actor table. For the
-					// old, pull from rev_user.
-					if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW ) {
-						$res = $dbSecondary->select(
-							'actor',
-							[ 'actor_id', 'user_id' => 'COALESCE(actor_user,0)', 'user_name' => 'actor_name' ],
-							array_merge( [ "actor_name$like" ], $from ? [ "actor_name $from" ] : [] ),
-							$fname,
-							[ 'ORDER BY' => [ "user_name $sort" ], 'LIMIT' => $limit ]
-						);
-					} else {
-						$res = $dbSecondary->select(
-							'revision',
-							[ 'actor_id' => 'NULL', 'user_id' => 'rev_user', 'user_name' => 'rev_user_text' ],
-							array_merge( [ "rev_user_text$like" ], $from ? [ "rev_user_text $from" ] : [] ),
-							$fname,
-							[ 'DISTINCT', 'ORDER BY' => [ "rev_user_text $sort" ], 'LIMIT' => $limit ]
-						);
-					}
+					$usersBatch = $this->userIdentityLookup
+						->newSelectQueryBuilder()
+						->caller( $fname )
+						->limit( $limit )
+						->whereUserNamePrefix( $this->params['userprefix'] )
+						->where( $from ? [ "actor_name $from" ] : [] )
+						->orderByName( $sort )
+						->fetchUserIdentities();
 
 					$count = 0;
 					$fromName = false;
-					foreach ( $res as $row ) {
+					foreach ( $usersBatch as $user ) {
 						if ( ++$count >= $limit ) {
-							$fromName = $row->user_name;
+							$fromName = $user->getName();
 							break;
 						}
-						yield User::newFromRow( $row );
+						yield $user;
 					}
 				} while ( $fromName !== false );
 			} );
@@ -150,7 +180,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$this->multiUserMode = count( $ids ) > 1;
 
 			$from = $fromId = false;
-			if ( $this->multiUserMode && !is_null( $this->params['continue'] ) ) {
+			if ( $this->multiUserMode && $this->params['continue'] !== null ) {
 				$continue = explode( '|', $this->params['continue'] );
 				$this->dieContinueUsageIf( count( $continue ) != 4 );
 				$this->dieContinueUsageIf( $continue[0] !== 'id' && $continue[0] !== 'actor' );
@@ -159,26 +189,13 @@ class ApiQueryUserContribs extends ApiQueryBase {
 				$from = "$op= $fromId";
 			}
 
-			// For the new schema, just select from the actor table. For the
-			// old, select from user.
-			if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW ) {
-				$res = $dbSecondary->select(
-					'actor',
-					[ 'actor_id', 'user_id' => 'actor_user', 'user_name' => 'actor_name' ],
-					array_merge( [ 'actor_user' => $ids ], $from ? [ "actor_id $from" ] : [] ),
-					__METHOD__,
-					[ 'ORDER BY' => "user_id $sort" ]
-				);
-			} else {
-				$res = $dbSecondary->select(
-					'user',
-					[ 'actor_id' => 'NULL', 'user_id' => 'user_id', 'user_name' => 'user_name' ],
-					array_merge( [ 'user_id' => $ids ], $from ? [ "user_id $from" ] : [] ),
-					__METHOD__,
-					[ 'ORDER BY' => "user_id $sort" ]
-				);
-			}
-			$userIter = UserArray::newFromResult( $res );
+			$userIter = $this->userIdentityLookup
+				->newSelectQueryBuilder()
+				->caller( __METHOD__ )
+				->whereUserIds( $ids )
+				->orderByUserId( $sort )
+				->where( $from ? [ "actor_id $from" ] : [] )
+				->fetchUserIdentities();
 			$batchSize = count( $ids );
 		} else {
 			$names = [];
@@ -196,10 +213,10 @@ class ApiQueryUserContribs extends ApiQueryBase {
 					);
 				}
 
-				if ( User::isIP( $u ) || ExternalUserNames::isExternal( $u ) ) {
+				if ( $this->userNameUtils->isIP( $u ) || ExternalUserNames::isExternal( $u ) ) {
 					$names[$u] = null;
 				} else {
-					$name = User::getCanonicalName( $u, 'valid' );
+					$name = $this->userNameUtils->getCanonical( $u );
 					if ( $name === false ) {
 						$encParamName = $this->encodeParamName( 'user' );
 						$this->dieWithError(
@@ -214,7 +231,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$this->multiUserMode = count( $names ) > 1;
 
 			$from = $fromName = false;
-			if ( $this->multiUserMode && !is_null( $this->params['continue'] ) ) {
+			if ( $this->multiUserMode && $this->params['continue'] !== null ) {
 				$continue = explode( '|', $this->params['continue'] );
 				$this->dieContinueUsageIf( count( $continue ) != 4 );
 				$this->dieContinueUsageIf( $continue[0] !== 'name' && $continue[0] !== 'actor' );
@@ -222,55 +239,19 @@ class ApiQueryUserContribs extends ApiQueryBase {
 				$from = "$op= " . $dbSecondary->addQuotes( $fromName );
 			}
 
-			// For the new schema, just select from the actor table. For the
-			// old, select from user then merge in any unknown users (IPs and imports).
-			if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW ) {
-				$res = $dbSecondary->select(
-					'actor',
-					[ 'actor_id', 'user_id' => 'actor_user', 'user_name' => 'actor_name' ],
-					array_merge( [ 'actor_name' => array_keys( $names ) ], $from ? [ "actor_id $from" ] : [] ),
-					__METHOD__,
-					[ 'ORDER BY' => "actor_name $sort" ]
-				);
-				$userIter = UserArray::newFromResult( $res );
-			} else {
-				$res = $dbSecondary->select(
-					'user',
-					[ 'actor_id' => 'NULL', 'user_id', 'user_name' ],
-					array_merge( [ 'user_name' => array_keys( $names ) ], $from ? [ "user_name $from" ] : [] ),
-					__METHOD__
-				);
-				foreach ( $res as $row ) {
-					$names[$row->user_name] = $row;
-				}
-				if ( $this->params['dir'] == 'newer' ) {
-					ksort( $names, SORT_STRING );
-				} else {
-					krsort( $names, SORT_STRING );
-				}
-				$neg = $op === '>' ? -1 : 1;
-				$userIter = call_user_func( function () use ( $names, $fromName, $neg ) {
-					foreach ( $names as $name => $row ) {
-						if ( $fromName === false || $neg * strcmp( $name, $fromName ) <= 0 ) {
-							$user = $row ? User::newFromRow( $row ) : User::newFromName( $name, false );
-							yield $user;
-						}
-					}
-				} );
-			}
+			$userIter = $this->userIdentityLookup
+				->newSelectQueryBuilder()
+				->caller( __METHOD__ )
+				->whereUserNames( array_keys( $names ) )
+				->where( $from ? [ "actor_id $from" ] : [] )
+				->orderByName( $sort )
+				->fetchUserIdentities();
 			$batchSize = count( $names );
 		}
 
-		// With the new schema, the DB query will order by actor so update $this->orderBy to match.
-		if ( $batchSize > 1 && ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW ) ) {
+		// The DB query will order by actor so update $this->orderBy to match.
+		if ( $batchSize > 1 ) {
 			$this->orderBy = 'actor';
-		}
-
-		// Use the 'contributions' replica, but only if we're querying by user ID (T216656).
-		if ( $this->orderBy === 'id' &&
-			!( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW )
-		) {
-			$this->selectNamedDB( 'contributions', DB_REPLICA, 'contributions' );
 		}
 
 		$count = 0;
@@ -287,6 +268,10 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$this->prepareQuery( $users, $limit - $count );
 			$res = $this->select( __METHOD__, [], $hookData );
 
+			if ( $this->fld_title ) {
+				$this->executeGenderCacheFromResultWrapper( $res, __METHOD__ );
+			}
+
 			if ( $this->fld_sizediff ) {
 				$revIds = [];
 				foreach ( $res as $row ) {
@@ -294,8 +279,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 						$revIds[] = $row->rev_parent_id;
 					}
 				}
-				$this->parentLens = MediaWikiServices::getInstance()->getRevisionStore()
-					->listRevisionSizes( $dbSecondary, $revIds );
+				$this->parentLens = $this->revisionStore->getRevisionSizes( $revIds );
 			}
 
 			foreach ( $res as $row ) {
@@ -321,7 +305,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 
 	/**
 	 * Prepares the query and returns the limit of rows requested
-	 * @param User[] $users
+	 * @param UserIdentity[] $users
 	 * @param int $limit
 	 */
 	private function prepareQuery( array $users, $limit ) {
@@ -330,33 +314,46 @@ class ApiQueryUserContribs extends ApiQueryBase {
 		$this->resetQueryParams();
 		$db = $this->getDB();
 
-		$revQuery = MediaWikiServices::getInstance()->getRevisionStore()->getQueryInfo( [ 'page' ] );
-		$this->addTables( $revQuery['tables'] );
-		$this->addJoinConds( $revQuery['joins'] );
-		$this->addFields( $revQuery['fields'] );
+		$revQuery = $this->revisionStore->getQueryInfo( [ 'page' ] );
+		$revWhere = $this->actorMigration->getWhere( $db, 'rev_user', $users );
 
-		if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW ) {
-			$revWhere = ActorMigration::newMigration()->getWhere( $db, 'rev_user', $users );
+		if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_TEMP ) {
 			$orderUserField = 'rev_actor';
 			$userField = $this->orderBy === 'actor' ? 'revactor_actor' : 'actor_name';
 			$tsField = 'revactor_timestamp';
 			$idField = 'revactor_rev';
-		} else {
-			// If we're dealing with user names (rather than IDs) in read-old mode,
-			// pass false for ActorMigration::getWhere()'s $useId parameter so
-			// $revWhere['conds'] isn't an OR.
-			$revWhere = ActorMigration::newMigration()
-				->getWhere( $db, 'rev_user', $users, $this->orderBy === 'id' );
-			$orderUserField = $this->orderBy === 'id' ? 'rev_user' : 'rev_user_text';
-			$userField = $revQuery['fields'][$orderUserField];
+
+			// T221511: MySQL/MariaDB (10.1.37) can sometimes irrationally decide that querying `actor`
+			// before `revision_actor_temp` and filesorting is somehow better than querying $limit+1 rows
+			// from `revision_actor_temp`. Tell it not to reorder the query (and also reorder it ourselves
+			// because as generated by RevisionStore it'll have `revision` first rather than
+			// `revision_actor_temp`). But not when uctag is used, as it seems as likely to be harmed as
+			// helped in that case, and not when there's only one User because in that case it fetches
+			// the one `actor` row as a constant and doesn't filesort.
+			if ( count( $users ) > 1 && !isset( $this->params['tag'] ) ) {
+				$revQuery['joins']['revision'] = $revQuery['joins']['temp_rev_user'];
+				unset( $revQuery['joins']['temp_rev_user'] );
+				$this->addOption( 'STRAIGHT_JOIN' );
+				// It isn't actually necesssary to reorder $revQuery['tables'] as Database does the right thing
+				// when join conditions are given for all joins, but Gergő is wary of relying on that so pull
+				// `revision_actor_temp` to the start.
+				$revQuery['tables'] =
+					[ 'temp_rev_user' => $revQuery['tables']['temp_rev_user'] ] + $revQuery['tables'];
+			}
+		} else /* SCHEMA_COMPAT_READ_NEW */ {
+			$orderUserField = 'rev_actor';
+			$userField = $this->orderBy === 'actor' ? 'rev_actor' : 'actor_name';
 			$tsField = 'rev_timestamp';
 			$idField = 'rev_id';
 		}
 
+		$this->addTables( $revQuery['tables'] );
+		$this->addJoinConds( $revQuery['joins'] );
+		$this->addFields( $revQuery['fields'] );
 		$this->addWhere( $revWhere['conds'] );
 
 		// Handle continue parameter
-		if ( !is_null( $this->params['continue'] ) ) {
+		if ( $this->params['continue'] !== null ) {
 			$continue = explode( '|', $this->params['continue'] );
 			if ( $this->multiUserMode ) {
 				$this->dieContinueUsageIf( count( $continue ) != 4 );
@@ -389,10 +386,9 @@ class ApiQueryUserContribs extends ApiQueryBase {
 
 		// Don't include any revisions where we're not supposed to be able to
 		// see the username.
-		$user = $this->getUser();
-		if ( !$user->isAllowed( 'deletedhistory' ) ) {
+		if ( !$this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
 			$bitmask = RevisionRecord::DELETED_USER;
-		} elseif ( !$user->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
+		} elseif ( !$this->getAuthority()->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
 			$bitmask = RevisionRecord::DELETED_USER | RevisionRecord::DELETED_RESTRICTED;
 		} else {
 			$bitmask = 0;
@@ -419,8 +415,8 @@ class ApiQueryUserContribs extends ApiQueryBase {
 		if ( $this->params['toponly'] ) { // deprecated/old param
 			$show[] = 'top';
 		}
-		if ( !is_null( $show ) ) {
-			$show = array_flip( $show );
+		if ( $show !== null ) {
+			$show = array_fill_keys( $show, true );
 
 			if ( ( isset( $show['minor'] ) && isset( $show['!minor'] ) )
 				|| ( isset( $show['patrolled'] ) && isset( $show['!patrolled'] ) )
@@ -460,6 +456,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 		if ( isset( $show['patrolled'] ) || isset( $show['!patrolled'] ) ||
 			isset( $show['autopatrolled'] ) || isset( $show['!autopatrolled'] ) || $this->fld_patrolled
 		) {
+			$user = $this->getUser();
 			if ( !$user->useRCPatrol() && !$user->useNPPatrol() ) {
 				$this->dieWithError( 'apierror-permissiondenied-patrolflag', 'permissiondenied' );
 			}
@@ -469,13 +466,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$this->addTables( 'recentchanges' );
 			$this->addJoinConds( [ 'recentchanges' => [
 				$isFilterset ? 'JOIN' : 'LEFT JOIN',
-				[
-					// This is a crazy hack. recentchanges has no index on rc_this_oldid, so instead of adding
-					// one T19237 did a join using rc_user_text and rc_timestamp instead. Now rc_user_text is
-					// probably unavailable, so just do rc_timestamp.
-					'rc_timestamp = ' . $tsField,
-					'rc_this_oldid = ' . $idField,
-				]
+				[ 'rc_this_oldid = ' . $idField ]
 			] ] );
 		}
 
@@ -490,9 +481,8 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$this->addJoinConds(
 				[ 'change_tag' => [ 'JOIN', [ $idField . ' = ct_rev_id' ] ] ]
 			);
-			$changeTagDefStore = MediaWikiServices::getInstance()->getChangeTagDefStore();
 			try {
-				$this->addWhereFld( 'ct_tag_id', $changeTagDefStore->getId( $this->params['tag'] ) );
+				$this->addWhereFld( 'ct_tag_id', $this->changeTagDefStore->getId( $this->params['tag'] ) );
 			} catch ( NameTableAccessException $exception ) {
 				// Return nothing.
 				$this->addWhere( '1=0' );
@@ -526,7 +516,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$vals['pageid'] = (int)$row->rev_page;
 			$vals['revid'] = (int)$row->rev_id;
 
-			if ( !is_null( $row->rev_parent_id ) ) {
+			if ( $row->rev_parent_id !== null ) {
 				$vals['parentid'] = (int)$row->rev_parent_id;
 			}
 		}
@@ -542,7 +532,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 		}
 
 		if ( $this->fld_flags ) {
-			$vals['new'] = $row->rev_parent_id == 0 && !is_null( $row->rev_parent_id );
+			$vals['new'] = $row->rev_parent_id == 0 && $row->rev_parent_id !== null;
 			$vals['minor'] = (bool)$row->rev_minor_edit;
 			$vals['top'] = $row->page_latest == $row->rev_id;
 		}
@@ -575,13 +565,13 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			$vals['autopatrolled'] = $row->rc_patrolled == RecentChange::PRC_AUTOPATROLLED;
 		}
 
-		if ( $this->fld_size && !is_null( $row->rev_len ) ) {
+		if ( $this->fld_size && $row->rev_len !== null ) {
 			$vals['size'] = (int)$row->rev_len;
 		}
 
 		if ( $this->fld_sizediff
-			&& !is_null( $row->rev_len )
-			&& !is_null( $row->rev_parent_id )
+			&& $row->rev_len !== null
+			&& $row->rev_parent_id !== null
 		) {
 			$parentLen = $this->parentLens[$row->rev_parent_id] ?? 0;
 			$vals['sizediff'] = (int)$row->rev_len - $parentLen;
@@ -645,6 +635,7 @@ class ApiQueryUserContribs extends ApiQueryBase {
 			],
 			'user' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'interwiki' ],
 				ApiBase::PARAM_ISMULTI => true
 			],
 			'userids' => [

@@ -25,6 +25,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Maintenance script that fixes any entriy for protocol-relative URLs
  * in the externallinks table.
@@ -47,8 +49,8 @@ class FixExtLinksProtocolRelative extends LoggedUpdateMaintenance {
 	}
 
 	protected function doDBUpdates() {
-		$db = $this->getDB( DB_MASTER );
-		if ( !$db->tableExists( 'externallinks' ) ) {
+		$db = $this->getDB( DB_PRIMARY );
+		if ( !$db->tableExists( 'externallinks', __METHOD__ ) ) {
 			$this->error( "externallinks table does not exist" );
 
 			return false;
@@ -59,11 +61,12 @@ class FixExtLinksProtocolRelative extends LoggedUpdateMaintenance {
 			__METHOD__
 		);
 		$count = 0;
+		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		foreach ( $res as $row ) {
 			$count++;
 			if ( $count % 100 == 0 ) {
 				$this->output( $count . "\n" );
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 			}
 			$db->insert( 'externallinks',
 				[

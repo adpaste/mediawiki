@@ -41,7 +41,7 @@ class ThumbnailImage extends MediaTransformOutput {
 	 * @param string|bool $path Filesystem path to the thumb
 	 * @param array $parameters Associative array of parameters
 	 */
-	function __construct( $file, $url, $path = false, $parameters = [] ) {
+	public function __construct( $file, $url, $path = false, $parameters = [] ) {
 		# Previous parameters:
 		#   $file, $url, $width, $height, $path = false, $page = false
 
@@ -109,10 +109,10 @@ class ThumbnailImage extends MediaTransformOutput {
 	 * @throws MWException
 	 * @return string
 	 */
-	function toHtml( $options = [] ) {
-		global $wgPriorityHints, $wgElementTiming;
+	public function toHtml( $options = [] ) {
+		global $wgPriorityHints, $wgPriorityHintsRatio, $wgElementTiming, $wgNativeImageLazyLoading;
 
-		if ( count( func_get_args() ) == 2 ) {
+		if ( func_num_args() == 2 ) {
 			throw new MWException( __METHOD__ . ' called in the old style' );
 		}
 
@@ -126,6 +126,10 @@ class ThumbnailImage extends MediaTransformOutput {
 			'decoding' => 'async',
 		];
 
+		if ( $options['loading'] ?? $wgNativeImageLazyLoading ) {
+			$attribs['loading'] = $options['loading'] ?? 'lazy';
+		}
+
 		$elementTimingName = 'thumbnail';
 
 		if ( $wgPriorityHints
@@ -133,8 +137,16 @@ class ThumbnailImage extends MediaTransformOutput {
 			&& $this->width * $this->height > 100 * 100 ) {
 			self::$firstNonIconImageRendered = true;
 
-			$attribs['importance'] = 'high';
-			$elementTimingName = 'thumbnail-high';
+			// Generate a random number between 0.01 and 1.0, included
+			$random = rand( 1, 100 ) / 100.0;
+
+			if ( $random <= $wgPriorityHintsRatio ) {
+				$attribs['importance'] = 'high';
+				$elementTimingName = 'thumbnail-high';
+			} else {
+				// This lets us track that the thumbnail *would* have gotten high priority but didn't.
+				$elementTimingName = 'thumbnail-top';
+			}
 		}
 
 		if ( $wgElementTiming ) {
@@ -199,7 +211,7 @@ class ThumbnailImage extends MediaTransformOutput {
 			$attribs['srcset'] = Html::srcSet( $responsiveUrls );
 		}
 
-		Hooks::run( 'ThumbnailBeforeProduceHTML', [ $this, &$attribs, &$linkAttribs ] );
+		Hooks::runner()->onThumbnailBeforeProduceHTML( $this, $attribs, $linkAttribs );
 
 		return $this->linkWrap( $linkAttribs, Xml::element( 'img', $attribs ) );
 	}

@@ -60,7 +60,7 @@ class MoveLogFormatter extends LogFormatter {
 	public function getActionLinks() {
 		if ( $this->entry->isDeleted( LogPage::DELETED_ACTION ) // Action is hidden
 			|| $this->entry->getSubtype() !== 'move'
-			|| !$this->context->getUser()->isAllowed( 'move' )
+			|| !$this->context->getAuthority()->isAllowed( 'move' )
 		) {
 			return '';
 		}

@@ -20,7 +20,6 @@
  * @file
  */
 use MediaWiki\MediaWikiServices;
-use Wikimedia\ScopedCallback;
 
 /**
  * Update object handling the cleanup of links tables after a page was deleted.
@@ -37,7 +36,7 @@ class LinksDeletionUpdate extends LinksUpdate implements EnqueueableDataUpdate {
 	 * @param string|null $timestamp TS_MW timestamp of deletion
 	 * @throws MWException
 	 */
-	function __construct( WikiPage $page, $pageId = null, $timestamp = null ) {
+	public function __construct( WikiPage $page, $pageId = null, $timestamp = null ) {
 		$this->page = $page;
 		if ( $pageId ) {
 			$this->mId = $pageId; // page ID at time of deletion
@@ -71,7 +70,7 @@ class LinksDeletionUpdate extends LinksUpdate implements EnqueueableDataUpdate {
 		// spurious row in the category table.
 		if ( $title->getNamespace() === NS_CATEGORY ) {
 			// T166757: do the update after the main job DB commit
-			DeferredUpdates::addCallableUpdate( function () use ( $title ) {
+			DeferredUpdates::addCallableUpdate( static function () use ( $title ) {
 				$cat = Category::newFromName( $title->getDBkey() );
 				$cat->refreshCountsIfSmall();
 			} );
@@ -113,9 +112,6 @@ class LinksDeletionUpdate extends LinksUpdate implements EnqueueableDataUpdate {
 				);
 			}
 		}
-
-		// Commit and release the lock (if set)
-		ScopedCallback::consume( $scopedLock );
 	}
 
 	public function getAsJobSpecification() {

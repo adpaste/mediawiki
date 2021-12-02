@@ -1,24 +1,42 @@
 <?php
 
+use MediaWiki\MediaWikiServices;
 use Wikimedia\Assert\ParameterTypeException;
 
 /**
  * @covers TextSlotDiffRenderer
  */
-class TextSlotDiffRendererTest extends MediaWikiTestCase {
+class TextSlotDiffRendererTest extends MediaWikiIntegrationTestCase {
+
+	public function testGetExtraCacheKeys() {
+		$slotDiffRenderer = $this->getTextSlotDiffRenderer();
+		$key = $slotDiffRenderer->getExtraCacheKeys();
+		$slotDiffRenderer->setEngine( TextSlotDiffRenderer::ENGINE_WIKIDIFF2_INLINE );
+		$inlineKey = $slotDiffRenderer->getExtraCacheKeys();
+		$this->assertSame( $key, [] );
+		$this->assertSame( $inlineKey, [ phpversion( 'wikidiff2' ), 'inline' ] );
+	}
 
 	/**
 	 * @dataProvider provideGetDiff
-	 * @param Content|null $oldContent
-	 * @param Content|null $newContent
+	 * @param array|null $oldContentArgs To pass to makeContent() (if not null)
+	 * @param array|null $newContentArgs
 	 * @param string|Exception $expectedResult
-	 * @throws Exception
 	 */
 	public function testGetDiff(
-		Content $oldContent = null, Content $newContent = null, $expectedResult
+		?array $oldContentArgs, ?array $newContentArgs, $expectedResult
 	) {
+		$this->mergeMwGlobalArrayValue( 'wgContentHandlers', [
+			'testing' => DummyContentHandlerForTesting::class,
+			'testing-nontext' => DummyNonTextContentHandler::class,
+		] );
+
+		$oldContent = $oldContentArgs ? self::makeContent( ...$oldContentArgs ) : null;
+		$newContent = $newContentArgs ? self::makeContent( ...$newContentArgs ) : null;
+
 		if ( $expectedResult instanceof Exception ) {
-			$this->setExpectedException( get_class( $expectedResult ), $expectedResult->getMessage() );
+			$this->expectException( get_class( $expectedResult ) );
+			$this->expectExceptionMessage( $expectedResult->getMessage() );
 		}
 
 		$slotDiffRenderer = $this->getTextSlotDiffRenderer();
@@ -30,31 +48,26 @@ class TextSlotDiffRendererTest extends MediaWikiTestCase {
 		$this->assertSame( $expectedResult, $plainDiff );
 	}
 
-	public function provideGetDiff() {
-		$this->mergeMwGlobalArrayValue( 'wgContentHandlers', [
-			'testing' => DummyContentHandlerForTesting::class,
-			'testing-nontext' => DummyNonTextContentHandler::class,
-		] );
-
+	public static function provideGetDiff() {
 		return [
 			'same text' => [
-				$this->makeContent( "aaa\nbbb\nccc" ),
-				$this->makeContent( "aaa\nbbb\nccc" ),
+				[ "aaa\nbbb\nccc" ],
+				[ "aaa\nbbb\nccc" ],
 				"",
 			],
 			'different text' => [
-				$this->makeContent( "aaa\nbbb\nccc" ),
-				$this->makeContent( "aaa\nxxx\nccc" ),
+				[ "aaa\nbbb\nccc" ],
+				[ "aaa\nxxx\nccc" ],
 				" aaa aaa\n-bbb+xxx\n ccc ccc",
 			],
 			'no right content' => [
-				$this->makeContent( "aaa\nbbb\nccc" ),
+				[ "aaa\nbbb\nccc" ],
 				null,
 				"-aaa+ \n-bbb \n-ccc ",
 			],
 			'no left content' => [
 				null,
-				$this->makeContent( "aaa\nbbb\nccc" ),
+				[ "aaa\nbbb\nccc" ],
 				"- +aaa\n +bbb\n +ccc",
 			],
 			'no content' => [
@@ -63,13 +76,13 @@ class TextSlotDiffRendererTest extends MediaWikiTestCase {
 				new InvalidArgumentException( '$oldContent and $newContent cannot both be null' ),
 			],
 			'non-text left content' => [
-				$this->makeContent( '', 'testing-nontext' ),
-				$this->makeContent( "aaa\nbbb\nccc" ),
+				[ '', 'testing-nontext' ],
+				[ "aaa\nbbb\nccc" ],
 				new ParameterTypeException( '$oldContent', 'TextContent|null' ),
 			],
 			'non-text right content' => [
-				$this->makeContent( "aaa\nbbb\nccc" ),
-				$this->makeContent( '', 'testing-nontext' ),
+				[ "aaa\nbbb\nccc" ],
+				[ '', 'testing-nontext' ],
 				new ParameterTypeException( '$newContent', 'TextContent|null' ),
 			],
 		];
@@ -83,15 +96,15 @@ class TextSlotDiffRendererTest extends MediaWikiTestCase {
 	private function getTextSlotDiffRenderer() {
 		$slotDiffRenderer = new TextSlotDiffRenderer();
 		$slotDiffRenderer->setStatsdDataFactory( new NullStatsdDataFactory() );
-		$slotDiffRenderer->setLanguage( Language::factory( 'en' ) );
-		$slotDiffRenderer->setWikiDiff2MovedParagraphDetectionCutoff( 0 );
+		$slotDiffRenderer->setLanguage(
+			MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' ) );
 		$slotDiffRenderer->setEngine( TextSlotDiffRenderer::ENGINE_PHP );
 		return $slotDiffRenderer;
 	}
 
 	/**
 	 * Convert a HTML diff to a human-readable format and hopefully make the test less fragile.
-	 * @param string diff
+	 * @param string $diff
 	 * @return string
 	 */
 	private function getPlainDiff( $diff ) {
@@ -99,6 +112,10 @@ class TextSlotDiffRendererTest extends MediaWikiTestCase {
 			html_entity_decode( '&nbsp;' ) => ' ',
 			html_entity_decode( '&minus;' ) => '-',
 		];
+		// Preserve markers when stripping tags
+		$diff = str_replace( '<td class="diff-marker"></td>', ' ', $diff );
+		$diff = preg_replace( '@<td colspan="2"( class="(?:diff-side-deleted|diff-side-added)")?></td>@', ' ', $diff );
+		$diff = preg_replace( '/data-marker="([^"]*)">/', '>$1', $diff );
 		return str_replace( array_keys( $replacements ), array_values( $replacements ),
 			trim( strip_tags( $diff ), "\n" ) );
 	}
@@ -108,7 +125,7 @@ class TextSlotDiffRendererTest extends MediaWikiTestCase {
 	 * @param string $model
 	 * @return null|TextContent
 	 */
-	private function makeContent( $str, $model = CONTENT_MODEL_TEXT ) {
+	private static function makeContent( $str, $model = CONTENT_MODEL_TEXT ) {
 		return ContentHandler::makeContent( $str, null, $model );
 	}
 

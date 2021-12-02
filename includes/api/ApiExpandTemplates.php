@@ -20,7 +20,7 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Revision\RevisionStore;
 
 /**
  * API module that functions as a shortcut to the wikitext preprocessor. Expands
@@ -30,6 +30,28 @@ use MediaWiki\MediaWikiServices;
  * @ingroup API
  */
 class ApiExpandTemplates extends ApiBase {
+	/** @var RevisionStore */
+	private $revisionStore;
+
+	/** @var Parser */
+	private $parser;
+
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param RevisionStore $revisionStore
+	 * @param Parser $parser
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		RevisionStore $revisionStore,
+		Parser $parser
+	) {
+		parent::__construct( $main, $action );
+		$this->revisionStore = $revisionStore;
+		$this->parser = $parser;
+	}
 
 	public function execute() {
 		// Cache may vary on the user because ParserOptions gets data from it
@@ -54,7 +76,7 @@ class ApiExpandTemplates extends ApiBase {
 			);
 			$prop = [];
 		} else {
-			$prop = array_flip( $params['prop'] );
+			$prop = array_fill_keys( $params['prop'], true );
 		}
 
 		$titleObj = Title::newFromText( $title );
@@ -65,7 +87,7 @@ class ApiExpandTemplates extends ApiBase {
 		// Get title and revision ID for parser
 		$revid = $params['revid'];
 		if ( $revid !== null ) {
-			$rev = MediaWikiServices::getInstance()->getRevisionStore()->getRevisionById( $revid );
+			$rev = $this->revisionStore->getRevisionById( $revid );
 			if ( !$rev ) {
 				$this->dieWithError( [ 'apierror-nosuchrevid', $revid ] );
 			}
@@ -76,17 +98,12 @@ class ApiExpandTemplates extends ApiBase {
 					$this->addWarning( [ 'apierror-revwrongpage', $rev->getId(),
 						wfEscapeWikiText( $pTitleObj->getPrefixedText() ) ] );
 				}
-			} else {
-				// Consider the title derived from the revid as having
-				// been provided.
-				$titleProvided = true;
 			}
 		}
 
 		$result = $this->getResult();
 
 		// Parse text
-		global $wgParser;
 		$options = ParserOptions::newFromContext( $this->getContext() );
 
 		if ( $params['includecomments'] ) {
@@ -95,17 +112,19 @@ class ApiExpandTemplates extends ApiBase {
 
 		$reset = null;
 		$suppressCache = false;
-		Hooks::run( 'ApiMakeParserOptions',
-			[ $options, $titleObj, $params, $this, &$reset, &$suppressCache ] );
+		$this->getHookRunner()->onApiMakeParserOptions(
+			$options, $titleObj, $params, $this, $reset, $suppressCache );
 
 		$retval = [];
 
 		if ( isset( $prop['parsetree'] ) || $params['generatexml'] ) {
-			$wgParser->startExternalParse( $titleObj, $options, Parser::OT_PREPROCESS );
-			$dom = $wgParser->preprocessToDom( $params['text'] );
+			$this->parser->startExternalParse( $titleObj, $options, Parser::OT_PREPROCESS );
+			$dom = $this->parser->preprocessToDom( $params['text'] );
 			if ( is_callable( [ $dom, 'saveXML' ] ) ) {
+				// @phan-suppress-next-line PhanUndeclaredMethod
 				$xml = $dom->saveXML();
 			} else {
+				// @phan-suppress-next-line PhanUndeclaredMethod
 				$xml = $dom->__toString();
 			}
 			if ( isset( $prop['parsetree'] ) ) {
@@ -121,14 +140,14 @@ class ApiExpandTemplates extends ApiBase {
 		// if they didn't want any output except (probably) the parse tree,
 		// then don't bother actually fully expanding it
 		if ( $prop || $params['prop'] === null ) {
-			$wgParser->startExternalParse( $titleObj, $options, Parser::OT_PREPROCESS );
-			$frame = $wgParser->getPreprocessor()->newFrame();
-			$wikitext = $wgParser->preprocess( $params['text'], $titleObj, $options, $revid, $frame );
+			$this->parser->startExternalParse( $titleObj, $options, Parser::OT_PREPROCESS );
+			$frame = $this->parser->getPreprocessor()->newFrame();
+			$wikitext = $this->parser->preprocess( $params['text'], $titleObj, $options, $revid, $frame );
 			if ( $params['prop'] === null ) {
 				// the old way
 				ApiResult::setContentValue( $retval, 'wikitext', $wikitext );
 			} else {
-				$p_output = $wgParser->getOutput();
+				$p_output = $this->parser->getOutput();
 				if ( isset( $prop['categories'] ) ) {
 					$categories = $p_output->getCategories();
 					if ( $categories ) {

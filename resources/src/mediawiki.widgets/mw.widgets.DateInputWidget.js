@@ -40,7 +40,7 @@
 	 *         )
 	 *       ]
 	 *     } );
-	 *     $( 'body' ).append( fieldset.$element );
+	 *     $( document.body ).append( fieldset.$element );
 	 *
 	 * The value is stored in 'YYYY-MM-DD' or 'YYYY-MM' format:
 	 *
@@ -48,7 +48,7 @@
 	 *     // Accessing values in a date input widget
 	 *     var dateInput = new mw.widgets.DateInputWidget();
 	 *     var $label = $( '<p>' );
-	 *     $( 'body' ).append( $label, dateInput.$element );
+	 *     $( document.body ).append( $label, dateInput.$element );
 	 *     dateInput.on( 'change', function () {
 	 *       // The value will always be a valid date or empty string, malformed input is ignored
 	 *       var date = dateInput.getValue();
@@ -110,7 +110,9 @@
 			// We have no way to display a translated placeholder for custom formats
 			placeholderDateFormat = '';
 		} else {
-			// Messages: mw-widgets-dateinput-placeholder-day, mw-widgets-dateinput-placeholder-month
+			// The following messages are used here:
+			// * mw-widgets-dateinput-placeholder-day
+			// * mw-widgets-dateinput-placeholder-month
 			placeholderDateFormat = mw.msg( 'mw-widgets-dateinput-placeholder-' + config.precision );
 		}
 
@@ -180,7 +182,9 @@
 
 		// Initialization
 		// Move 'tabindex' from this.$input (which is invisible) to the visible handle
-		this.setTabIndexedElement( this.$handle );
+		if ( !this.isDisabled() ) {
+			this.setTabIndexedElement( this.$handle );
+		}
 		this.$handle
 			.append( this.innerLabel.$element, this.$indicator )
 			.addClass( 'mw-widget-dateInputWidget-handle' );
@@ -518,7 +522,7 @@
 	 * @return {boolean} False to cancel the default event
 	 */
 	mw.widgets.DateInputWidget.prototype.onClick = function ( e ) {
-		if ( !this.isDisabled() && e.which === 1 ) {
+		if ( !this.isDisabled() && !this.isReadOnly() && e.which === 1 ) {
 			this.activate();
 		}
 		return false;
@@ -532,7 +536,7 @@
 	 * @return {boolean} False to cancel the default event
 	 */
 	mw.widgets.DateInputWidget.prototype.onKeyPress = function ( e ) {
-		if ( !this.isDisabled() &&
+		if ( !this.isDisabled() && !this.isReadOnly() &&
 			( e.which === OO.ui.Keys.SPACE || e.which === OO.ui.Keys.ENTER )
 		) {
 			this.activate();
@@ -546,7 +550,7 @@
 	 * @private
 	 */
 	mw.widgets.DateInputWidget.prototype.onFocus = function () {
-		if ( !this.closing ) {
+		if ( !this.isDisabled() && !this.isReadOnly() && !this.closing ) {
 			this.activate();
 		}
 	};
@@ -579,6 +583,7 @@
 		if (
 			!this.isDisabled() &&
 			e.which === 1 &&
+			// eslint-disable-next-line no-jquery/no-class-state
 			$( e.target ).hasClass( targetClass )
 		) {
 			this.deactivate( true );

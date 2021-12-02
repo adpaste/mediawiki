@@ -26,6 +26,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Maintenance script to reset the user_token for all users on the wiki.
  *
@@ -50,10 +52,10 @@ class ResetUserTokens extends Maintenance {
 	}
 
 	public function execute() {
-		$this->nullsOnly = $this->getOption( 'nulls' );
+		$nullsOnly = $this->getOption( 'nulls' );
 
 		if ( !$this->getOption( 'nowarn' ) ) {
-			if ( $this->nullsOnly ) {
+			if ( $nullsOnly ) {
 				$this->output( "The script is about to reset the user_token "
 					. "for USERS WITH NULL TOKENS in the database.\n" );
 			} else {
@@ -63,7 +65,7 @@ class ResetUserTokens extends Maintenance {
 			}
 			$this->output( "\n" );
 			$this->output( "Abort with control-c in the next five seconds "
-				. "(skip this countdown with --nowarn) ... " );
+				. "(skip this countdown with --nowarn) ..." );
 			$this->countDown( 5 );
 		}
 
@@ -71,7 +73,7 @@ class ResetUserTokens extends Maintenance {
 		$dbr = $this->getDB( DB_REPLICA );
 
 		$where = [];
-		if ( $this->nullsOnly ) {
+		if ( $nullsOnly ) {
 			// Have to build this by hand, because \ is escaped in helper functions
 			$where = [ 'user_token = \'' . str_repeat( '\0', 32 ) . '\'' ];
 		}
@@ -80,6 +82,7 @@ class ResetUserTokens extends Maintenance {
 
 		$min = 0;
 		$max = $this->getBatchSize();
+		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 		do {
 			$result = $dbr->select( 'user',
@@ -100,7 +103,7 @@ class ResetUserTokens extends Maintenance {
 			$min = $max;
 			$max = $min + $this->getBatchSize();
 
-			wfWaitForSlaves();
+			$lbFactory->waitForReplication();
 		} while ( $min <= $maxid );
 	}
 

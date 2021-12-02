@@ -1,6 +1,6 @@
-@import 'mediawiki.mixins';
-@import 'mediawiki.ui/variables';
-@import 'mw.rcfilters.variables';
+@import 'mediawiki.mixins.less';
+@import 'mediawiki.ui/variables.less';
+@import 'mw.rcfilters.variables.less';
 
 .mw-rcfilters-ui-menuSelectWidget {
 	z-index: auto;
@@ -16,7 +16,9 @@
 	}
 
 	&-body {
+		/* stylelint-disable-next-line plugin/no-unsupported-browser-features */
 		max-height: 70vh;
+		min-width: 100%;
 	}
 
 	&-footer {
@@ -26,10 +28,6 @@
 
 		& + & {
 			border-top: 0;
-		}
-
-		&-feedback {
-			text-align: right;
 		}
 	}
 }

@@ -1,6 +1,6 @@
 {
 	"prefix": "oo-ui-icon",
-	"intro": "@import '../../../../src/styles/common';",
+	"intro": "@import '../../../../src/styles/common.less';",
 	"images": {
 		"edit": {
 			"file": "../wikimediaui/images/icons/edit.svg"
@@ -17,10 +17,13 @@
 		"link": {
 			"file": "../wikimediaui/images/icons/link.svg"
 		},
+		"unLink": {
+			"file": "../wikimediaui/images/icons/unLink.svg"
+		},
 		"linkExternal": {
 			"file": {
 				"ltr": "../wikimediaui/images/icons/linkExternal-ltr.svg",
-				"rtl":  "../wikimediaui/images/icons/linkExternal-rtl.svg"
+				"rtl": "../wikimediaui/images/icons/linkExternal-rtl.svg"
 			}
 		},
 		"linkSecure": {

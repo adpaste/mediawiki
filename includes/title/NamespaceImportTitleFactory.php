@@ -24,16 +24,26 @@
  * local namespace.
  */
 class NamespaceImportTitleFactory implements ImportTitleFactory {
+	/** @var TitleFactory */
+	private $titleFactory;
+
 	/** @var int */
-	protected $ns;
+	private $ns;
 
 	/**
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param TitleFactory $titleFactory
 	 * @param int $ns The namespace to use for all pages
 	 */
-	public function __construct( $ns ) {
-		if ( !MWNamespace::exists( $ns ) ) {
+	public function __construct(
+		NamespaceInfo $namespaceInfo,
+		TitleFactory $titleFactory,
+		int $ns
+	) {
+		if ( !$namespaceInfo->exists( $ns ) ) {
 			throw new MWException( "Namespace $ns doesn't exist on this wiki" );
 		}
+		$this->titleFactory = $titleFactory;
 		$this->ns = $ns;
 	}
 
@@ -46,6 +56,6 @@ class NamespaceImportTitleFactory implements ImportTitleFactory {
 	 * @return Title|null
 	 */
 	public function createTitleFromForeignTitle( ForeignTitle $foreignTitle ) {
-		return Title::makeTitleSafe( $this->ns, $foreignTitle->getText() );
+		return $this->titleFactory->makeTitleSafe( $this->ns, $foreignTitle->getText() );
 	}
 }

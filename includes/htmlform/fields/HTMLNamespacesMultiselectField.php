@@ -1,5 +1,6 @@
 <?php
 
+use MediaWiki\MediaWikiServices;
 use MediaWiki\Widget\NamespacesMultiselectWidget;
 
 /**
@@ -11,6 +12,7 @@ use MediaWiki\Widget\NamespacesMultiselectWidget;
  * which itself duplicates HTMLUsersMultiselectField. These classes
  * should be refactored.
  *
+ * @stable to extend
  * @note This widget is not likely to remain functional in non-OOUI forms.
  */
 class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
@@ -19,7 +21,7 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 
 		$namespaces = explode( "\n", $value );
 		// Remove empty lines
-		$namespaces = array_values( array_filter( $namespaces, function ( $namespace ) {
+		$namespaces = array_values( array_filter( $namespaces, static function ( $namespace ) {
 			return trim( $namespace ) !== '';
 		} ) );
 		// This function is expected to return a string
@@ -27,11 +29,11 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 	}
 
 	public function validate( $value, $alldata ) {
-		if ( !$this->mParams['exists'] ) {
+		if ( !$this->mParams['exists'] || $value === '' ) {
 			return true;
 		}
 
-		if ( is_null( $value ) ) {
+		if ( $value === null ) {
 			return false;
 		}
 
@@ -39,11 +41,14 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 		$namespaces = explode( "\n", $value );
 
 		if ( isset( $this->mParams['max'] ) && ( count( $namespaces ) > $this->mParams['max'] ) ) {
-			return $this->msg( 'htmlform-int-toohigh', $this->mParams['max'] );
+			return $this->msg( 'htmlform-multiselect-toomany', $this->mParams['max'] );
 		}
 
 		foreach ( $namespaces as $namespace ) {
-			if ( $namespace < 0 ) {
+			if (
+				$namespace < 0 ||
+				!MediaWikiServices::getInstance()->getNamespaceInfo()->exists( $namespace )
+			) {
 				return $this->msg( 'htmlform-select-badoption' );
 			}
 
@@ -90,14 +95,14 @@ class HTMLNamespacesMultiselectField extends HTMLSelectNamespace {
 			$params['input'] = $this->mParams['input'];
 		}
 
-		if ( !is_null( $value ) ) {
+		if ( $value !== null ) {
 			// $value is a string, but the widget expects an array
 			$params['default'] = $value === '' ? [] : explode( "\n", $value );
 		}
 
 		// Make the field auto-infusable when it's used inside a legacy HTMLForm rather than OOUIHTMLForm
 		$params['infusable'] = true;
-		$params['classes'] = [ 'mw-htmlform-field-autoinfuse' ];
+		$params['classes'] = [ 'mw-htmlform-autoinfuse' ];
 		$widget = new NamespacesMultiselectWidget( $params );
 		$widget->setAttributes( [ 'data-mw-modules' => implode( ',', $this->getOOUIModules() ) ] );
 

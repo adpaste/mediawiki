@@ -27,45 +27,43 @@ use InvalidArgumentException;
 
 /**
  * Trivial LoadBalancer that always returns an injected connection handle.
- *
- * Note that, while this LoadBalancer does not open any connections itself,
- * it still closes the injected connection at times, including during destruction.
- * It is therefore unsuitable for use in tests unless you have a Database instance
- * separate from the main test database (which is expected to stay open).
  */
 class LoadBalancerSingle extends LoadBalancer {
 	/** @var IDatabase */
 	private $db;
 
 	/**
+	 * You probably want to use {@link newFromConnection} instead.
+	 *
 	 * @param array $params An associative array with one member:
 	 *   - connection: An IDatabase connection object
 	 */
 	public function __construct( array $params ) {
-		if ( !isset( $params['connection'] ) ) {
+		/** @var IDatabase $conn */
+		$conn = $params['connection'] ?? null;
+		if ( !$conn ) {
 			throw new InvalidArgumentException( "Missing 'connection' argument." );
 		}
 
-		$this->db = $params['connection'];
+		$this->db = $conn;
 
 		parent::__construct( [
-			'servers' => [
-				[
-					'type' => $this->db->getType(),
-					'host' => $this->db->getServer(),
-					'dbname' => $this->db->getDBname(),
-					'load' => 1,
-				]
-			],
+			'servers' => [ [
+				'type' => $conn->getType(),
+				'host' => $conn->getServer(),
+				'dbname' => $conn->getDBname(),
+				'load' => 1,
+			] ],
 			'trxProfiler' => $params['trxProfiler'] ?? null,
 			'srvCache' => $params['srvCache'] ?? null,
 			'wanCache' => $params['wanCache'] ?? null,
 			'localDomain' => $params['localDomain'] ?? $this->db->getDomainID(),
 			'readOnlyReason' => $params['readOnlyReason'] ?? false,
+			'clusterName' => $params['clusterName'] ?? null,
 		] );
 
 		if ( isset( $params['readOnlyReason'] ) ) {
-			$this->db->setLBInfo( 'readOnlyReason', $params['readOnlyReason'] );
+			$conn->setLBInfo( $conn::LB_READ_ONLY_REASON, $params['readOnlyReason'] );
 		}
 	}
 
@@ -83,8 +81,12 @@ class LoadBalancerSingle extends LoadBalancer {
 		) );
 	}
 
-	protected function reallyOpenConnection( array $server, DatabaseDomain $domain ) {
+	protected function reallyOpenConnection( $i, DatabaseDomain $domain, array $lbInfo = [] ) {
 		return $this->db;
+	}
+
+	public function __destruct() {
+		// do nothing since the connection was injected
 	}
 }
 

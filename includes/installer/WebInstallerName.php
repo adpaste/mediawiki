@@ -16,10 +16,11 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Deployment
+ * @ingroup Installer
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\User\UserNameUtils;
 
 class WebInstallerName extends WebInstallerPage {
 
@@ -50,10 +51,12 @@ class WebInstallerName extends WebInstallerPage {
 			wfMessage( 'config-ns-other-default' )->inContentLanguage()->text()
 		);
 
-		$pingbackInfo = ( new Pingback() )->getSystemInfo();
 		// Database isn't available in config yet, so take it
 		// from the installer
-		$pingbackInfo['database'] = $this->getVar( 'wgDBtype' );
+		$pingbackConf = new HashConfig( [
+			'DBtype' => $this->getVar( 'wgDBtype' ),
+		] );
+		$pingbackInfo = Pingback::getSystemInfo( $pingbackConf );
 
 		$this->addHTML(
 			$this->parent->getTextBox( [
@@ -115,7 +118,7 @@ class WebInstallerName extends WebInstallerPage {
 				'value' => true,
 			] ) .
 			$this->getFieldsetEnd() .
-			$this->parent->getInfoBox( wfMessage( 'config-almost-done' )->text() ) .
+			$this->parent->getInfoBox( wfMessage( 'config-almost-done' )->plain() ) .
 			// getRadioSet() builds a set of labeled radio buttons.
 			// For grep: The following messages are used as the item labels:
 			// config-optional-continue, config-optional-skip
@@ -201,7 +204,8 @@ class WebInstallerName extends WebInstallerPage {
 			$cname = $name;
 			$retVal = false;
 		} else {
-			$cname = User::getCanonicalName( $name, 'creatable' );
+			$userNameUtils = MediaWikiServices::getInstance()->getUserNameUtils();
+			$cname = $userNameUtils->getCanonical( $name, UserNameUtils::RIGOR_CREATABLE );
 			if ( $cname === false ) {
 				$this->parent->showError( 'config-admin-name-invalid', $name );
 				$retVal = false;

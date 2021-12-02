@@ -29,7 +29,7 @@
 require_once __DIR__ . '/includes/BackupDumper.php';
 
 class DumpBackup extends BackupDumper {
-	function __construct( $args = null ) {
+	public function __construct( $args = null ) {
 		parent::__construct();
 
 		$this->addDescription( <<<TEXT
@@ -43,7 +43,7 @@ WARNING: this is not a full database dump! It is merely for public export
          https://www.mediawiki.org/wiki/Backup
 TEXT
 		);
-		$this->stderr = fopen( "php://stderr", "wt" );
+
 		// Actions
 		$this->addOption( 'full', 'Dump all revisions of every page' );
 		$this->addOption( 'current', 'Dump only the latest revision of every page.' );
@@ -65,6 +65,7 @@ TEXT
 		$this->addOption( 'stub', 'Don\'t perform old_text lookups; for 2-pass dump' );
 		$this->addOption( 'uploads', 'Include upload records without files' );
 		$this->addOption( 'include-files', 'Include files within the XML stream' );
+		$this->addOption( 'namespaces', 'Limit to this comma-separated list of namespace numbers' );
 
 		if ( $args ) {
 			$this->loadWithArgv( $args );
@@ -72,7 +73,7 @@ TEXT
 		}
 	}
 
-	function execute() {
+	public function execute() {
 		$this->processOptions();
 
 		$textMode = $this->hasOption( 'stub' ) ? WikiExporter::STUB : WikiExporter::TEXT;
@@ -92,7 +93,7 @@ TEXT
 		}
 	}
 
-	function processOptions() {
+	protected function processOptions() {
 		parent::processOptions();
 
 		// Evaluate options specific to this class
@@ -105,7 +106,7 @@ TEXT
 				$this->fatalError( "Unable to open file {$filename}\n" );
 			}
 			$pages = array_map( 'trim', $pages );
-			$this->pages = array_filter( $pages, function ( $x ) {
+			$this->pages = array_filter( $pages, static function ( $x ) {
 				return $x !== '';
 			} );
 		}
@@ -131,6 +132,11 @@ TEXT
 		$this->dumpUploads = $this->hasOption( 'uploads' );
 		$this->dumpUploadFileContents = $this->hasOption( 'include-files' );
 		$this->orderRevs = $this->hasOption( 'orderrevs' );
+		if ( $this->hasOption( 'namespaces' ) ) {
+			$this->limitNamespaces = explode( ',', $this->getOption( 'namespaces' ) );
+		} else {
+			$this->limitNamespaces = null;
+		}
 	}
 }
 

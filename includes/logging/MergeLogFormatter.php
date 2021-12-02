@@ -47,7 +47,7 @@ class MergeLogFormatter extends LogFormatter {
 
 	public function getActionLinks() {
 		if ( $this->entry->isDeleted( LogPage::DELETED_ACTION ) // Action is hidden
-			|| !$this->context->getUser()->isAllowed( 'mergehistory' )
+			|| !$this->context->getAuthority()->isAllowed( 'mergehistory' )
 		) {
 			return '';
 		}

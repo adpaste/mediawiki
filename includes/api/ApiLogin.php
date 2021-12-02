@@ -21,9 +21,9 @@
  * @file
  */
 
-use MediaWiki\Auth\AuthManager;
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthenticationResponse;
+use MediaWiki\Auth\AuthManager;
 use MediaWiki\Logger\LoggerFactory;
 
 /**
@@ -33,8 +33,21 @@ use MediaWiki\Logger\LoggerFactory;
  */
 class ApiLogin extends ApiBase {
 
-	public function __construct( ApiMain $main, $action ) {
+	/** @var AuthManager */
+	private $authManager;
+
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param AuthManager $authManager
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		AuthManager $authManager
+	) {
 		parent::__construct( $main, $action, 'lg' );
+		$this->authManager = $authManager;
 	}
 
 	protected function getExtendedDescription() {
@@ -111,8 +124,11 @@ class ApiLogin extends ApiBase {
 
 		// Check login token
 		$token = $session->getToken( '', 'login' );
-		if ( $token->wasNew() || !$params['token'] ) {
+		if ( !$params['token'] ) {
 			$authRes = 'NeedToken';
+		} elseif ( $token->wasNew() ) {
+			$authRes = 'Failed';
+			$message = ApiMessage::create( 'authpage-cannot-login-continue', 'sessionlost' );
 		} elseif ( !$token->match( $params['token'] ) ) {
 			$authRes = 'WrongToken';
 		}
@@ -145,9 +161,11 @@ class ApiLogin extends ApiBase {
 
 		if ( $authRes === false ) {
 			// Simplified AuthManager login, for backwards compatibility
-			$manager = AuthManager::singleton();
 			$reqs = AuthenticationRequest::loadRequestsFromSubmission(
-				$manager->getAuthenticationRequests( AuthManager::ACTION_LOGIN, $this->getUser() ),
+				$this->authManager->getAuthenticationRequests(
+					AuthManager::ACTION_LOGIN,
+					$this->getUser()
+				),
 				[
 					'username' => $params['name'],
 					'password' => $params['password'],
@@ -155,7 +173,7 @@ class ApiLogin extends ApiBase {
 					'rememberMe' => true,
 				]
 			);
-			$res = AuthManager::singleton()->beginAuthentication( $reqs, 'null:' );
+			$res = $this->authManager->beginAuthentication( $reqs, 'null:' );
 			switch ( $res->status ) {
 				case AuthenticationResponse::PASS:
 					if ( $this->getConfig()->get( 'EnableBotPasswords' ) ) {
@@ -190,13 +208,11 @@ class ApiLogin extends ApiBase {
 			case 'Success':
 				$user = $session->getUser();
 
-				ApiQueryInfo::resetTokenCache();
-
 				// Deprecated hook
 				$injected_html = '';
-				Hooks::run( 'UserLoginComplete', [ &$user, &$injected_html, true ] );
+				$this->getHookRunner()->onUserLoginComplete( $user, $injected_html, true );
 
-				$result['lguserid'] = (int)$user->getId();
+				$result['lguserid'] = $user->getId();
 				$result['lgusername'] = $user->getName();
 				break;
 
@@ -267,8 +283,6 @@ class ApiLogin extends ApiBase {
 
 	protected function getExamplesMessages() {
 		return [
-			'action=login&lgname=user&lgpassword=password'
-				=> 'apihelp-login-example-gettoken',
 			'action=login&lgname=user&lgpassword=password&lgtoken=123ABC'
 				=> 'apihelp-login-example-login',
 		];
@@ -288,8 +302,8 @@ class ApiLogin extends ApiBase {
 			'status' => $response->status,
 		];
 		if ( $response->message ) {
-			$ret['message'] = $response->message->inLanguage( 'en' )->plain();
-		};
+			$ret['responseMessage'] = $response->message->inLanguage( 'en' )->plain();
+		}
 		$reqs = [
 			'neededRequests' => $response->neededRequests,
 			'createRequest' => $response->createRequest,

@@ -17,15 +17,16 @@
 			mw.loader.load( 'mediawiki.notification' );
 
 			// Use the class to determine whether to watch or unwatch
+			// eslint-disable-next-line no-jquery/no-class-state
 			if ( !$subjectLink.hasClass( 'mw-watched-item' ) ) {
 				$link.text( mw.msg( 'watching' ) );
 				promise = api.watch( title ).done( function () {
 					$subjectLink.addClass( 'mw-watched-item' );
 					$link.text( mw.msg( 'unwatch' ) );
 					mw.notify( mw.msg( 'addedwatchtext-short', title ) );
-				} ).fail( function () {
+				} ).fail( function ( code, data ) {
 					$link.text( mw.msg( 'watch' ) );
-					mw.notify( mw.msg( 'watcherrortext', title ), { type: 'error' } );
+					mw.notify( api.getErrorMessage( data ), { type: 'error' } );
 				} );
 			} else {
 				$link.text( mw.msg( 'unwatching' ) );
@@ -33,9 +34,9 @@
 					$subjectLink.removeClass( 'mw-watched-item' );
 					$link.text( mw.msg( 'watch' ) );
 					mw.notify( mw.msg( 'removedwatchtext-short', title ) );
-				} ).fail( function () {
+				} ).fail( function ( code, data ) {
 					$link.text( mw.msg( 'unwatch' ) );
-					mw.notify( mw.msg( 'watcherrortext', title ), { type: 'error' } );
+					mw.notify( api.getErrorMessage( data ), { type: 'error' } );
 				} );
 			}
 

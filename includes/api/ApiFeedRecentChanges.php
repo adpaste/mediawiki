@@ -19,6 +19,8 @@
  * @since 1.23
  */
 
+use MediaWiki\SpecialPage\SpecialPageFactory;
+
 /**
  * Recent changes feed.
  *
@@ -27,6 +29,23 @@
 class ApiFeedRecentChanges extends ApiBase {
 
 	private $params;
+
+	/** @var SpecialPageFactory */
+	private $specialPageFactory;
+
+	/**
+	 * @param ApiMain $mainModule
+	 * @param string $moduleName
+	 * @param SpecialPageFactory $specialPageFactory
+	 */
+	public function __construct(
+		ApiMain $mainModule,
+		string $moduleName,
+		SpecialPageFactory $specialPageFactory
+	) {
+		parent::__construct( $mainModule, $moduleName );
+		$this->specialPageFactory = $specialPageFactory;
+	}
 
 	/**
 	 * This module uses a custom feed wrapper printer.
@@ -62,11 +81,11 @@ class ApiFeedRecentChanges extends ApiBase {
 		}
 
 		$feedFormat = $this->params['feedformat'];
-		$specialClass = $this->params['target'] !== null
-			? SpecialRecentChangesLinked::class
-			: SpecialRecentChanges::class;
+		$specialPageName = $this->params['target'] !== null
+			? 'Recentchangeslinked'
+			: 'Recentchanges';
 
-		$formatter = $this->getFeedObject( $feedFormat, $specialClass );
+		$formatter = $this->getFeedObject( $feedFormat, $specialPageName );
 
 		// Parameters are passed via the request in the context… :(
 		$context = new DerivativeContext( $this );
@@ -77,7 +96,11 @@ class ApiFeedRecentChanges extends ApiBase {
 		) );
 
 		// The row-getting functionality should be factored out of ChangesListSpecialPage too…
-		$rc = new $specialClass();
+		$rc = $this->specialPageFactory->getPage( $specialPageName );
+		if ( $rc === null ) {
+			throw new RuntimeException( __METHOD__ . ' not able to instance special page ' . $specialPageName );
+		}
+		'@phan-var ChangesListSpecialPage $rc';
 		$rc->setContext( $context );
 		$rows = $rc->getRows();
 
@@ -90,18 +113,18 @@ class ApiFeedRecentChanges extends ApiBase {
 	 * Return a ChannelFeed object.
 	 *
 	 * @param string $feedFormat Feed's format (either 'rss' or 'atom')
-	 * @param string $specialClass Relevant special page name (either 'SpecialRecentChanges' or
-	 *     'SpecialRecentChangesLinked')
+	 * @param string $specialPageName Relevant special page name (either 'Recentchanges' or
+	 *     'Recentchangeslinked')
 	 * @return ChannelFeed
 	 */
-	public function getFeedObject( $feedFormat, $specialClass ) {
-		if ( $specialClass === SpecialRecentChangesLinked::class ) {
+	private function getFeedObject( $feedFormat, $specialPageName ) {
+		if ( $specialPageName === 'Recentchangeslinked' ) {
 			$title = Title::newFromText( $this->params['target'] );
 			if ( !$title ) {
 				$this->dieWithError( [ 'apierror-invalidtitle', wfEscapeWikiText( $this->params['target'] ) ] );
 			}
 
-			$feed = new ChangesFeed( $feedFormat, false );
+			$feed = new ChangesFeed( $feedFormat );
 			$feedObj = $feed->getFeedObject(
 				$this->msg( 'recentchangeslinked-title', $title->getPrefixedText() )
 					->inContentLanguage()->text(),
@@ -109,7 +132,7 @@ class ApiFeedRecentChanges extends ApiBase {
 				SpecialPage::getTitleFor( 'Recentchangeslinked' )->getFullURL()
 			);
 		} else {
-			$feed = new ChangesFeed( $feedFormat, 'rcfeed' );
+			$feed = new ChangesFeed( $feedFormat );
 			$feedObj = $feed->getFeedObject(
 				$this->msg( 'recentchanges' )->inContentLanguage()->text(),
 				$this->msg( 'recentchanges-feed-description' )->inContentLanguage()->text(),

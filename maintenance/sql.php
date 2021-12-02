@@ -25,9 +25,9 @@
 require_once __DIR__ . '/Maintenance.php';
 
 use MediaWiki\MediaWikiServices;
-use Wikimedia\Rdbms\ResultWrapper;
-use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\DBQueryError;
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * Maintenance script that sends SQL queries from the specified file to the database.
@@ -48,7 +48,7 @@ class MwSql extends Maintenance {
 		$this->addOption( 'wikidb',
 			'The database wiki ID to use if not the current one', false, true );
 		$this->addOption( 'replicadb',
-			'Replica DB server to use instead of the master DB (can be "any")', false, true );
+			'Replica DB server to use instead of the primary DB (can be "any")', false, true );
 	}
 
 	public function execute() {
@@ -64,10 +64,10 @@ class MwSql extends Maintenance {
 			$lb = $lbFactory->getMainLB( $wiki );
 		}
 		// Figure out which server to use
-		$replicaDB = $this->getOption( 'replicadb', $this->getOption( 'slave', '' ) );
+		$replicaDB = $this->getOption( 'replicadb', '' );
 		if ( $replicaDB === 'any' ) {
 			$index = DB_REPLICA;
-		} elseif ( $replicaDB != '' ) {
+		} elseif ( $replicaDB !== '' ) {
 			$index = null;
 			$serverCount = $lb->getServerCount();
 			for ( $i = 0; $i < $serverCount; ++$i ) {
@@ -76,20 +76,19 @@ class MwSql extends Maintenance {
 					break;
 				}
 			}
-			if ( $index === null ) {
+			if ( $index === null || $index === $lb->getWriterIndex() ) {
 				$this->fatalError( "No replica DB server configured with the name '$replicaDB'." );
 			}
 		} else {
-			$index = DB_MASTER;
+			$index = DB_PRIMARY;
 		}
 
-		/** @var IDatabase $db DB handle for the appropriate cluster/wiki */
-		$db = $lb->getConnection( $index, [], $wiki );
+		$db = $lb->getMaintenanceConnectionRef( $index, [], $wiki );
 		if ( $replicaDB != '' && $db->getLBInfo( 'master' ) !== null ) {
-			$this->fatalError( "The server selected ({$db->getServer()}) is not a replica DB." );
+			$this->fatalError( "Server {$db->getServerName()} is not a replica DB." );
 		}
 
-		if ( $index === DB_MASTER ) {
+		if ( $index === DB_PRIMARY ) {
 			$updater = DatabaseUpdater::newForDB( $db, true, $this );
 			$db->setSchemaVars( $updater->getSchemaVars() );
 		}
@@ -100,20 +99,19 @@ class MwSql extends Maintenance {
 				$this->fatalError( "Unable to open input file" );
 			}
 
-			$error = $db->sourceStream( $file, null, [ $this, 'sqlPrintResult' ] );
+			$error = $db->sourceStream( $file, null, [ $this, 'sqlPrintResult' ], __METHOD__ );
 			if ( $error !== true ) {
 				$this->fatalError( $error );
-			} else {
-				exit( 0 );
 			}
+			return;
 		}
 
 		if ( $this->hasOption( 'query' ) ) {
 			$query = $this->getOption( 'query' );
 			$res = $this->sqlDoQuery( $db, $query, /* dieOnError */ true );
-			wfWaitForSlaves();
-			if ( $this->hasOption( 'status' ) ) {
-				exit( $res ? 0 : 2 );
+			$lbFactory->waitForReplication();
+			if ( $this->hasOption( 'status' ) && !$res ) {
+				$this->fatalError( 'Failed.', 2 );
 			}
 			return;
 		}
@@ -154,13 +152,14 @@ class MwSql extends Maintenance {
 				readline_add_history( $wholeLine . ';' );
 				readline_write_history( $historyFile );
 			}
+			// @phan-suppress-next-line SecurityCheck-SQLInjection
 			$res = $this->sqlDoQuery( $db, $wholeLine, $doDie );
 			$prompt = $newPrompt;
 			$wholeLine = '';
 		}
-		wfWaitForSlaves();
-		if ( $this->hasOption( 'status' ) ) {
-			exit( $res ? 0 : 2 );
+		$lbFactory->waitForReplication();
+		if ( $this->hasOption( 'status' ) && !$res ) {
+			$this->fatalError( 'Failed.', 2 );
 		}
 	}
 
@@ -172,13 +171,13 @@ class MwSql extends Maintenance {
 	 */
 	protected function sqlDoQuery( IDatabase $db, $line, $dieOnError ) {
 		try {
-			$res = $db->query( $line );
+			$res = $db->query( $line, __METHOD__ );
 			return $this->sqlPrintResult( $res, $db );
 		} catch ( DBQueryError $e ) {
 			if ( $dieOnError ) {
-				$this->fatalError( $e );
+				$this->fatalError( (string)$e );
 			} else {
-				$this->error( $e );
+				$this->error( (string)$e );
 			}
 		}
 		return null;
@@ -186,7 +185,7 @@ class MwSql extends Maintenance {
 
 	/**
 	 * Print the results, callback for $db->sourceStream()
-	 * @param ResultWrapper|bool $res
+	 * @param IResultWrapper|bool $res
 	 * @param IDatabase $db
 	 * @return int|null Number of rows selected or updated, or null if the query was unsuccessful.
 	 */

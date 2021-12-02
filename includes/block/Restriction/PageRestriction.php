@@ -1,6 +1,6 @@
 <?php
 /**
- * A Block restriction object of type 'Page'.
+ * A block restriction object of type 'Page'.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,15 +27,15 @@ class PageRestriction extends AbstractRestriction {
 	/**
 	 * @inheritDoc
 	 */
-	const TYPE = 'page';
+	public const TYPE = 'page';
 
 	/**
 	 * @inheritDoc
 	 */
-	const TYPE_ID = 1;
+	public const TYPE_ID = 1;
 
 	/**
-	 * @var \Title|bool
+	 * @var \Title|false|null
 	 */
 	protected $title;
 
@@ -51,8 +51,6 @@ class PageRestriction extends AbstractRestriction {
 	}
 
 	/**
-	 * Set the title.
-	 *
 	 * @since 1.33
 	 * @param \Title $title
 	 * @return self
@@ -64,10 +62,8 @@ class PageRestriction extends AbstractRestriction {
 	}
 
 	/**
-	 * Get Title.
-	 *
 	 * @since 1.33
-	 * @return \Title|null
+	 * @return \Title|false
 	 */
 	public function getTitle() {
 		if ( $this->title === null ) {
@@ -80,14 +76,16 @@ class PageRestriction extends AbstractRestriction {
 			}
 		}
 
-		return $this->title ?? null;
+		return $this->title;
 	}
 
 	/**
 	 * @inheritDoc
 	 */
 	public static function newFromRow( \stdClass $row ) {
+		/** @var self $restriction */
 		$restriction = parent::newFromRow( $row );
+		'@phan-var self $restriction';
 
 		// If the page_namespace and the page_title were provided, add the title to
 		// the restriction.
@@ -98,6 +96,23 @@ class PageRestriction extends AbstractRestriction {
 			$title = \Title::newFromRow( $row );
 			$restriction->setTitle( $title );
 		}
+
+		return $restriction;
+	}
+
+	/**
+	 * @internal
+	 * @since 1.36
+	 * @param string|\Title $title
+	 * @return self
+	 */
+	public static function newFromTitle( $title ) {
+		if ( is_string( $title ) ) {
+			$title = \Title::newFromText( $title );
+		}
+
+		$restriction = new self( 0, $title->getArticleID() );
+		$restriction->setTitle( $title );
 
 		return $restriction;
 	}

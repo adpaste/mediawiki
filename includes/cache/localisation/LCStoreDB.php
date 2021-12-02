@@ -19,26 +19,29 @@
  */
 
 use Wikimedia\Rdbms\Database;
-use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\DBQueryError;
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\ScopedCallback;
 
 /**
  * LCStore implementation which uses the standard DB functions to store data.
  * This will work on any MediaWiki installation.
  */
 class LCStoreDB implements LCStore {
-	/** @var string */
-	private $currentLang;
-	/** @var bool */
-	private $writesDone = false;
-	/** @var IDatabase|null */
-	private $dbw;
-	/** @var array */
-	private $batch = [];
-	/** @var bool */
-	private $readOnly = false;
+	/** @var string Language code */
+	private $code;
 	/** @var array Server configuration map */
 	private $server;
+
+	/** @var array Rows buffered for insertion */
+	private $batch = [];
+
+	/** @var IDatabase|null */
+	private $dbw;
+	/** @var bool Whether a batch of writes were recently written */
+	private $writesDone = false;
+	/** @var bool Whether the DB is read-only or otherwise unavailable for writes */
+	private $readOnly = false;
 
 	public function __construct( $params ) {
 		$this->server = $params['server'] ?? [];
@@ -74,55 +77,51 @@ class LCStoreDB implements LCStore {
 		$dbw = $this->getWriteConnection();
 		$this->readOnly = $dbw->isReadOnly();
 
-		$this->currentLang = $code;
+		$this->code = $code;
 		$this->batch = [];
 	}
 
 	public function finishWrite() {
 		if ( $this->readOnly ) {
 			return;
-		} elseif ( is_null( $this->currentLang ) ) {
+		} elseif ( $this->code === null ) {
 			throw new MWException( __CLASS__ . ': must call startWrite() before finishWrite()' );
 		}
 
-		$trxProfiler = Profiler::instance()->getTransactionProfiler();
-		$oldSilenced = $trxProfiler->setSilenced( true );
+		$scope = Profiler::instance()->getTransactionProfiler()->silenceForScope();
+		$dbw = $this->getWriteConnection();
+		$dbw->startAtomic( __METHOD__ );
 		try {
-			$dbw = $this->getWriteConnection();
-			$dbw->startAtomic( __METHOD__ );
-			try {
-				$dbw->delete( 'l10n_cache', [ 'lc_lang' => $this->currentLang ], __METHOD__ );
-				foreach ( array_chunk( $this->batch, 500 ) as $rows ) {
-					$dbw->insert( 'l10n_cache', $rows, __METHOD__ );
-				}
-				$this->writesDone = true;
-			} catch ( DBQueryError $e ) {
-				if ( $dbw->wasReadOnlyError() ) {
-					$this->readOnly = true; // just avoid site down time
-				} else {
-					throw $e;
-				}
+			$dbw->delete( 'l10n_cache', [ 'lc_lang' => $this->code ], __METHOD__ );
+			foreach ( array_chunk( $this->batch, 500 ) as $rows ) {
+				$dbw->insert( 'l10n_cache', $rows, __METHOD__ );
 			}
-			$dbw->endAtomic( __METHOD__ );
-		} finally {
-			$trxProfiler->setSilenced( $oldSilenced );
+			$this->writesDone = true;
+		} catch ( DBQueryError $e ) {
+			if ( $dbw->wasReadOnlyError() ) {
+				$this->readOnly = true; // just avoid site down time
+			} else {
+				throw $e;
+			}
 		}
+		$dbw->endAtomic( __METHOD__ );
+		ScopedCallback::consume( $scope );
 
-		$this->currentLang = null;
+		$this->code = null;
 		$this->batch = [];
 	}
 
 	public function set( $key, $value ) {
 		if ( $this->readOnly ) {
 			return;
-		} elseif ( is_null( $this->currentLang ) ) {
+		} elseif ( $this->code === null ) {
 			throw new MWException( __CLASS__ . ': must call startWrite() before set()' );
 		}
 
 		$dbw = $this->getWriteConnection();
 
 		$this->batch[] = [
-			'lc_lang' => $this->currentLang,
+			'lc_lang' => $this->code,
 			'lc_key' => $key,
 			'lc_value' => $dbw->encodeBlob( serialize( $value ) )
 		];
@@ -139,7 +138,7 @@ class LCStoreDB implements LCStore {
 					throw new MWException( __CLASS__ . ': failed to obtain a DB connection' );
 				}
 			} else {
-				$this->dbw = wfGetDB( DB_MASTER );
+				$this->dbw = wfGetDB( DB_PRIMARY );
 			}
 		}
 

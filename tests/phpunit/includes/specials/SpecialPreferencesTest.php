@@ -6,13 +6,15 @@
  * Copyright © 2013, Wikimedia Foundation Inc.
  */
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * @group Preferences
  * @group Database
  *
  * @covers SpecialPreferences
  */
-class SpecialPreferencesTest extends MediaWikiTestCase {
+class SpecialPreferencesTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * Make sure a nickname which is longer than $wgMaxSigChars
@@ -24,28 +26,20 @@ class SpecialPreferencesTest extends MediaWikiTestCase {
 	public function testT43337() {
 		// Set a low limit
 		$this->setMwGlobals( 'wgMaxSigChars', 2 );
-
 		$user = $this->createMock( User::class );
-		$user->expects( $this->any() )
-			->method( 'isAnon' )
-			->will( $this->returnValue( false ) );
-
-		# Yeah foreach requires an array, not NULL =(
-		$user->expects( $this->any() )
-			->method( 'getEffectiveGroups' )
-			->will( $this->returnValue( [] ) );
+		$user->method( 'isAnon' )
+			->willReturn( false );
 
 		# The mocked user has a long nickname
-		$user->expects( $this->any() )
-			->method( 'getOption' )
+		$user->method( 'getOption' )
 			->will( $this->returnValueMap( [
 				[ 'nickname', null, false, 'superlongnickname' ],
 			]
 			) );
 
-		# Needs to return something
-		$user->method( 'getOptions' )
-			->willReturn( [] );
+		// isAnyAllowed used to return null from the mock,
+		// thus revoke it's permissions.
+		$this->overrideUserPermissions( $user, [] );
 
 		# Forge a request to call the special page
 		$context = new RequestContext();
@@ -53,8 +47,12 @@ class SpecialPreferencesTest extends MediaWikiTestCase {
 		$context->setUser( $user );
 		$context->setTitle( Title::newFromText( 'Test' ) );
 
+		$services = MediaWikiServices::getInstance();
 		# Do the call, should not spurt a fatal error.
-		$special = new SpecialPreferences();
+		$special = new SpecialPreferences(
+			$services->getPreferencesFactory(),
+			$services->getUserOptionsManager()
+		);
 		$special->setContext( $context );
 		$this->assertNull( $special->execute( [] ) );
 	}

@@ -25,25 +25,31 @@
  * @copyright © 2011, Antoine Musso
  */
 
-use Wikimedia\Rdbms\ResultWrapper;
+use MediaWiki\Cache\CacheKeyHelper;
+use MediaWiki\HookContainer\ProtectedHookAccessorTrait;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\PageIdentityValue;
+use MediaWiki\Page\PageReference;
 use Wikimedia\Rdbms\FakeResultWrapper;
 use Wikimedia\Rdbms\IDatabase;
-use MediaWiki\MediaWikiServices;
+use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * Class for fetching backlink lists, approximate backlink counts and
  * partitions. This is a shared cache.
  *
  * Instances of this class should typically be fetched with the method
- * $title->getBacklinkCache().
+ * ::getBacklinkCache() from the BacklinkCacheFactory service.
  *
  * Ideally you should only get your backlinks from here when you think
- * there is some advantage in caching them. Otherwise it's just a waste
+ * there is some advantage in caching them. Otherwise, it's just a waste
  * of memory.
  *
  * Introduced by r47317
  */
 class BacklinkCache {
+	use ProtectedHookAccessorTrait;
+
 	/** @var BacklinkCache */
 	protected static $instance;
 
@@ -67,13 +73,11 @@ class BacklinkCache {
 	 *
 	 * Initialized with BacklinkCache::getLinks()
 	 * Cleared with BacklinkCache::clear()
-	 * @var ResultWrapper[]
+	 * @var IResultWrapper[]
 	 */
 	protected $fullResultCache = [];
 
-	/**
-	 * @var WANObjectCache
-	 */
+	/** @var WANObjectCache */
 	protected $wanCache;
 
 	/**
@@ -86,20 +90,22 @@ class BacklinkCache {
 	protected $db;
 
 	/**
-	 * Local copy of a Title object
+	 * Local copy of a PageReference object
+	 * @var PageReference
 	 */
-	protected $title;
+	protected $page;
 
-	const CACHE_EXPIRY = 3600;
+	private const CACHE_EXPIRY = 3600;
 
 	/**
 	 * Create a new BacklinkCache
 	 *
-	 * @param Title $title : Title object to create a backlink cache for
+	 * @param WANObjectCache $wanCache
+	 * @param PageReference $page Page to create a backlink cache for
 	 */
-	public function __construct( Title $title ) {
-		$this->title = $title;
-		$this->wanCache = MediaWikiServices::getInstance()->getMainWANObjectCache();
+	public function __construct( WANObjectCache $wanCache, PageReference $page ) {
+		$this->page = $page;
+		$this->wanCache = $wanCache;
 	}
 
 	/**
@@ -107,25 +113,23 @@ class BacklinkCache {
 	 * Currently, only one cache instance can exist; callers that
 	 * need multiple backlink cache objects should keep them in scope.
 	 *
-	 * @param Title $title Title object to get a backlink cache for
+	 * @deprecated since 1.37 Use BacklinkCacheFactory::getBacklinkCache() instead
+	 *
+	 * @param PageReference $page Page to get a backlink cache for
 	 * @return BacklinkCache
 	 */
-	public static function get( Title $title ) {
-		if ( !self::$instance || !self::$instance->title->equals( $title ) ) {
-			self::$instance = new self( $title );
-		}
-		return self::$instance;
+	public static function get( PageReference $page ): self {
+		$backlinkCacheFactory = MediaWikiServices::getInstance()->getBacklinkCacheFactory();
+
+		return $backlinkCacheFactory->getBacklinkCache( $page );
 	}
 
 	/**
-	 * Serialization handler, diasallows to serialize the database to prevent
-	 * failures after this class is deserialized from cache with dead DB
-	 * connection.
-	 *
-	 * @return array
+	 * @since 1.37
+	 * @return PageReference
 	 */
-	function __sleep() {
-		return [ 'partitionCache', 'fullResultCache', 'title' ];
+	public function getPage(): PageReference {
+		return $this->page;
 	}
 
 	/**
@@ -135,7 +139,7 @@ class BacklinkCache {
 		$this->partitionCache = [];
 		$this->fullResultCache = [];
 		$this->wanCache->touchCheckKey( $this->makeCheckKey() );
-		unset( $this->db );
+		$this->db = null;
 	}
 
 	/**
@@ -153,7 +157,7 @@ class BacklinkCache {
 	 * @return IDatabase
 	 */
 	protected function getDB() {
-		if ( !isset( $this->db ) ) {
+		if ( $this->db === null ) {
 			$this->db = wfGetDB( DB_REPLICA );
 		}
 
@@ -162,6 +166,28 @@ class BacklinkCache {
 
 	/**
 	 * Get the backlinks for a given table. Cached in process memory only.
+	 * @param string $table
+	 * @param int|bool $startId
+	 * @param int|bool $endId
+	 * @param int|float $max Integer, or INF for no max
+	 * @return Iterator Iterator of PageIdentity objects
+	 * @since 1.37
+	 */
+	public function getLinkPages(
+		string $table, $startId = false, $endId = false, $max = INF
+	): Iterator {
+		return ( function () use ( $table, $startId, $endId, $max ): Iterator {
+			foreach ( $this->queryLinks( $table, $startId, $endId, $max ) as $row ) {
+				yield PageIdentityValue::localIdentity(
+					$row->page_id, $row->page_namespace, $row->page_title );
+			}
+		} )();
+	}
+
+	/**
+	 * Get the backlinks for a given table. Cached in process memory only.
+	 *
+	 * @deprecated in 1.37, use getLinkPages()
 	 * @param string $table
 	 * @param int|bool $startId
 	 * @param int|bool $endId
@@ -179,18 +205,17 @@ class BacklinkCache {
 	 * @param int|bool $endId
 	 * @param int $max
 	 * @param string $select 'all' or 'ids'
-	 * @return ResultWrapper
+	 * @return IResultWrapper
 	 */
 	protected function queryLinks( $table, $startId, $endId, $max, $select = 'all' ) {
-		$fromField = $this->getPrefix( $table ) . '_from';
-
 		if ( !$startId && !$endId && is_infinite( $max )
 			&& isset( $this->fullResultCache[$table] )
 		) {
-			wfDebug( __METHOD__ . ": got results from cache\n" );
+			wfDebug( __METHOD__ . ": got results from cache" );
 			$res = $this->fullResultCache[$table];
 		} else {
-			wfDebug( __METHOD__ . ": got results from DB\n" );
+			wfDebug( __METHOD__ . ": got results from DB" );
+			$fromField = $this->getPrefix( $table ) . '_from';
 			$conds = $this->getConditions( $table );
 			// Use the from field in the condition rather than the joined page_id,
 			// because databases are stupid and don't necessarily propagate indexes.
@@ -209,8 +234,8 @@ class BacklinkCache {
 				// Just select from the backlink table and ignore the page JOIN
 				$res = $this->getDB()->select(
 					$table,
-					[ $this->getPrefix( $table ) . '_from AS page_id' ],
-					array_filter( $conds, function ( $clause ) { // kind of janky
+					[ 'page_id' => $fromField ],
+					array_filter( $conds, static function ( $clause ) { // kind of janky
 						return !preg_match( '/(\b|=)page_id(\b|=)/', $clause );
 					} ),
 					__METHOD__,
@@ -231,7 +256,7 @@ class BacklinkCache {
 				// The full results fit within the limit, so cache them
 				$this->fullResultCache[$table] = $res;
 			} else {
-				wfDebug( __METHOD__ . ": results from DB were uncacheable\n" );
+				wfDebug( __METHOD__ . ": results from DB were uncacheable" );
 			}
 		}
 
@@ -257,7 +282,7 @@ class BacklinkCache {
 			return $prefixes[$table];
 		} else {
 			$prefix = null;
-			Hooks::run( 'BacklinkCacheGetPrefix', [ $table, &$prefix ] );
+			$this->getHookRunner()->onBacklinkCacheGetPrefix( $table, $prefix );
 			if ( $prefix ) {
 				return $prefix;
 			} else {
@@ -280,15 +305,15 @@ class BacklinkCache {
 			case 'pagelinks':
 			case 'templatelinks':
 				$conds = [
-					"{$prefix}_namespace" => $this->title->getNamespace(),
-					"{$prefix}_title" => $this->title->getDBkey(),
+					"{$prefix}_namespace" => $this->page->getNamespace(),
+					"{$prefix}_title" => $this->page->getDBkey(),
 					"page_id={$prefix}_from"
 				];
 				break;
 			case 'redirect':
 				$conds = [
-					"{$prefix}_namespace" => $this->title->getNamespace(),
-					"{$prefix}_title" => $this->title->getDBkey(),
+					"{$prefix}_namespace" => $this->page->getNamespace(),
+					"{$prefix}_title" => $this->page->getDBkey(),
 					$this->getDB()->makeList( [
 						"{$prefix}_interwiki" => '',
 						"{$prefix}_interwiki IS NULL",
@@ -299,13 +324,14 @@ class BacklinkCache {
 			case 'imagelinks':
 			case 'categorylinks':
 				$conds = [
-					"{$prefix}_to" => $this->title->getDBkey(),
+					"{$prefix}_to" => $this->page->getDBkey(),
 					"page_id={$prefix}_from"
 				];
 				break;
 			default:
 				$conds = null;
-				Hooks::run( 'BacklinkCacheGetConditions', [ $table, $this->title, &$conds ] );
+				$this->getHookRunner()->onBacklinkCacheGetConditions( $table,
+					Title::castFromPageReference( $this->page ), $conds );
 				if ( !$conds ) {
 					throw new MWException( "Invalid table \"$table\" in " . __CLASS__ );
 				}
@@ -346,7 +372,7 @@ class BacklinkCache {
 
 		$memcKey = $this->wanCache->makeKey(
 			'numbacklinks',
-			md5( $this->title->getPrefixedDBkey() ),
+			CacheKeyHelper::getKeyForPage( $this->page ),
 			$table
 		);
 
@@ -392,7 +418,7 @@ class BacklinkCache {
 	public function partition( $table, $batchSize ) {
 		// 1) try partition cache ...
 		if ( isset( $this->partitionCache[$table][$batchSize] ) ) {
-			wfDebug( __METHOD__ . ": got from partition cache\n" );
+			wfDebug( __METHOD__ . ": got from partition cache" );
 
 			return $this->partitionCache[$table][$batchSize]['batches'];
 		}
@@ -403,14 +429,14 @@ class BacklinkCache {
 		// 2) ... then try full result cache ...
 		if ( isset( $this->fullResultCache[$table] ) ) {
 			$cacheEntry = $this->partitionResult( $this->fullResultCache[$table], $batchSize );
-			wfDebug( __METHOD__ . ": got from full result cache\n" );
+			wfDebug( __METHOD__ . ": got from full result cache" );
 
 			return $cacheEntry['batches'];
 		}
 
 		$memcKey = $this->wanCache->makeKey(
 			'backlinks',
-			md5( $this->title->getPrefixedDBkey() ),
+			CacheKeyHelper::getKeyForPage( $this->page ),
 			$table,
 			$batchSize
 		);
@@ -426,7 +452,7 @@ class BacklinkCache {
 		);
 		if ( is_array( $memcValue ) && ( $curTTL > 0 ) ) {
 			$cacheEntry = $memcValue;
-			wfDebug( __METHOD__ . ": got from memcached $memcKey\n" );
+			wfDebug( __METHOD__ . ": got from memcached $memcKey" );
 
 			return $cacheEntry['batches'];
 		}
@@ -460,19 +486,19 @@ class BacklinkCache {
 		// Save backlink count to memcached
 		$memcKey = $this->wanCache->makeKey(
 			'numbacklinks',
-			md5( $this->title->getPrefixedDBkey() ),
+			CacheKeyHelper::getKeyForPage( $this->page ),
 			$table
 		);
 		$this->wanCache->set( $memcKey, $cacheEntry['numRows'], self::CACHE_EXPIRY );
 
-		wfDebug( __METHOD__ . ": got from database\n" );
+		wfDebug( __METHOD__ . ": got from database" );
 
 		return $cacheEntry['batches'];
 	}
 
 	/**
 	 * Partition a DB result with backlinks in it into batches
-	 * @param ResultWrapper $res Database result
+	 * @param IResultWrapper $res Database result
 	 * @param int $batchSize
 	 * @param bool $isComplete Whether $res includes all the backlinks
 	 * @throws MWException
@@ -514,12 +540,38 @@ class BacklinkCache {
 	}
 
 	/**
+	 * Get a PageIdentity iterator for cascade-protected template/file use backlinks
+	 *
+	 * @return Iterator Iterator of PageIdentity objects
+	 * @since 1.37
+	 */
+	public function getCascadeProtectedLinkPages(): Iterator {
+		return ( function (): Iterator {
+			foreach ( $this->getCascadeProtectedLinksInternal() as $row ) {
+				yield PageIdentityValue::localIdentity(
+					$row->page_id, $row->page_namespace, $row->page_title );
+			}
+		} )();
+	}
+
+	/**
 	 * Get a Title iterator for cascade-protected template/file use backlinks
 	 *
+	 * @deprecated since 1.37, use getCascadeProtectedLinkPages()
 	 * @return TitleArray
 	 * @since 1.25
 	 */
 	public function getCascadeProtectedLinks() {
+		return TitleArray::newFromResult(
+			new FakeResultWrapper( $this->getCascadeProtectedLinksInternal() ) );
+	}
+
+	/**
+	 * Get an array of cascade-protected template/file use backlinks
+	 *
+	 * @return stdClass[]
+	 */
+	private function getCascadeProtectedLinksInternal(): array {
 		$dbr = $this->getDB();
 
 		// @todo: use UNION without breaking tests that use temp tables
@@ -528,8 +580,8 @@ class BacklinkCache {
 			[ 'templatelinks', 'page_restrictions', 'page' ],
 			[ 'page_namespace', 'page_title', 'page_id' ],
 			[
-				'tl_namespace' => $this->title->getNamespace(),
-				'tl_title' => $this->title->getDBkey(),
+				'tl_namespace' => $this->page->getNamespace(),
+				'tl_title' => $this->page->getDBkey(),
 				'tl_from = pr_page',
 				'pr_cascade' => 1,
 				'page_id = tl_from'
@@ -537,12 +589,12 @@ class BacklinkCache {
 			__METHOD__,
 			[ 'DISTINCT' ]
 		);
-		if ( $this->title->getNamespace() == NS_FILE ) {
+		if ( $this->page->getNamespace() === NS_FILE ) {
 			$resSets[] = $dbr->select(
 				[ 'imagelinks', 'page_restrictions', 'page' ],
 				[ 'page_namespace', 'page_title', 'page_id' ],
 				[
-					'il_to' => $this->title->getDBkey(),
+					'il_to' => $this->page->getDBkey(),
 					'il_from = pr_page',
 					'pr_cascade' => 1,
 					'page_id = il_from'
@@ -556,12 +608,13 @@ class BacklinkCache {
 		$mergedRes = [];
 		foreach ( $resSets as $res ) {
 			foreach ( $res as $row ) {
+				// Index by page_id to remove duplicates
 				$mergedRes[$row->page_id] = $row;
 			}
 		}
 
-		return TitleArray::newFromResult(
-			new FakeResultWrapper( array_values( $mergedRes ) ) );
+		// Now that we've de-duplicated, throw away the keys
+		return array_values( $mergedRes );
 	}
 
 	/**
@@ -572,7 +625,7 @@ class BacklinkCache {
 	private function makeCheckKey() {
 		return $this->wanCache->makeKey(
 			'backlinks',
-			md5( $this->title->getPrefixedDBkey() )
+			CacheKeyHelper::getKeyForPage( $this->page )
 		);
 	}
 }

@@ -20,6 +20,9 @@
  * @file
  */
 
+use MediaWiki\Page\PageReference;
+use MediaWiki\Page\PageReferenceValue;
+
 /**
  * Job queue task description base code
  *
@@ -27,9 +30,8 @@
  * @code
  * $job = new JobSpecification(
  *		'null',
- *		array( 'lives' => 1, 'usleep' => 100, 'pi' => 3.141569 ),
- *		array( 'removeDuplicates' => 1 ),
- *		Title::makeTitle( NS_SPECIAL, 'nullity' )
+ *		[ 'lives' => 1, 'usleep' => 100, 'pi' => 3.141569 ],
+ *		[ 'removeDuplicates' => 1 ]
  * );
  * JobQueueGroup::singleton()->push( $job )
  * @endcode
@@ -44,8 +46,8 @@ class JobSpecification implements IJobSpecification {
 	/** @var array Array of job parameters or false if none */
 	protected $params;
 
-	/** @var Title */
-	protected $title;
+	/** @var PageReference */
+	protected $page;
 
 	/** @var array */
 	protected $opts;
@@ -53,18 +55,33 @@ class JobSpecification implements IJobSpecification {
 	/**
 	 * @param string $type
 	 * @param array $params Map of key/values
-	 * @param array $opts Map of key/values; includes 'removeDuplicates'
-	 * @param Title|null $title Optional descriptive title
+	 * @param array $opts Map of key/values
+	 *   'removeDuplicates' key - whether to remove duplicate jobs
+	 *   'removeDuplicatesIgnoreParams' key - array with parameters to ignore for deduplication
+	 * @param PageReference|null $page
 	 */
 	public function __construct(
-		$type, array $params, array $opts = [], Title $title = null
+		$type, array $params, array $opts = [], PageReference $page = null
 	) {
 		$this->validateParams( $params );
 		$this->validateParams( $opts );
 
 		$this->type = $type;
+		if ( $page ) {
+			// Make sure JobQueue classes can pull the title from parameters alone
+			if ( $page->getDBkey() !== '' ) {
+				$params += [
+					'namespace' => $page->getNamespace(),
+					'title' => $page->getDBkey()
+				];
+			}
+		} else {
+			// We aim to remove the page from job specification and all we need
+			// is namespace/dbkey, so use LOCAL no matter what.
+			$page = PageReferenceValue::localReference( NS_SPECIAL, 'Badtitle/' . __CLASS__ );
+		}
 		$this->params = $params;
-		$this->title = $title ?: Title::makeTitle( NS_SPECIAL, 'Blankpage' );
+		$this->page = $page;
 		$this->opts = $opts;
 	}
 
@@ -85,8 +102,13 @@ class JobSpecification implements IJobSpecification {
 		return $this->type;
 	}
 
+	/**
+	 * @deprecated since 1.37.
+	 * @return Title|null
+	 */
 	public function getTitle() {
-		return $this->title;
+		wfDeprecated( __METHOD__, '1.37' );
+		return Title::castFromPageReference( $this->page );
 	}
 
 	public function getParams() {
@@ -106,8 +128,6 @@ class JobSpecification implements IJobSpecification {
 	public function getDeduplicationInfo() {
 		$info = [
 			'type' => $this->getType(),
-			'namespace' => $this->getTitle()->getNamespace(),
-			'title' => $this->getTitle()->getDBkey(),
 			'params' => $this->getParams()
 		];
 		if ( is_array( $info['params'] ) ) {
@@ -116,6 +136,11 @@ class JobSpecification implements IJobSpecification {
 			unset( $info['params']['rootJobTimestamp'] );
 			// Likewise for jobs with different delay times
 			unset( $info['params']['jobReleaseTimestamp'] );
+			if ( isset( $this->opts['removeDuplicatesIgnoreParams'] ) ) {
+				foreach ( $this->opts['removeDuplicatesIgnoreParams'] as $field ) {
+					unset( $info['params'][$field] );
+				}
+			}
 		}
 
 		return $info;
@@ -147,8 +172,8 @@ class JobSpecification implements IJobSpecification {
 			'params' => $this->params,
 			'opts'   => $this->opts,
 			'title'  => [
-				'ns'  => $this->title->getNamespace(),
-				'key' => $this->title->getDBkey()
+				'ns'  => $this->page->getNamespace(),
+				'key' => $this->page->getDBkey()
 			]
 		];
 	}
@@ -159,8 +184,11 @@ class JobSpecification implements IJobSpecification {
 	 * @since 1.25
 	 */
 	public static function newFromArray( array $map ) {
-		$title = Title::makeTitle( $map['title']['ns'], $map['title']['key'] );
-
-		return new self( $map['type'], $map['params'], $map['opts'], $title );
+		return new self(
+			$map['type'],
+			$map['params'],
+			$map['opts'],
+			PageReferenceValue::localReference( $map['title']['ns'], $map['title']['key'] )
+		);
 	}
 }

@@ -21,8 +21,15 @@
  * @ingroup DifferenceEngine
  */
 
+use MediaWiki\Content\IContentHandlerFactory;
+use MediaWiki\HookContainer\HookRunner;
+use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\WikiPageFactory;
+use MediaWiki\Permissions\Authority;
+use MediaWiki\Permissions\PermissionStatus;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\RevisionStore;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Storage\NameTableAccessException;
 
@@ -58,7 +65,7 @@ class DifferenceEngine extends ContextSource {
 	 * fixes important bugs or such to force cached diff views to
 	 * clear.
 	 */
-	const DIFF_VERSION = '1.12';
+	private const DIFF_VERSION = '1.12';
 
 	/**
 	 * Revision ID for the old revision. 0 for the revision previous to $mNewid, false
@@ -84,10 +91,9 @@ class DifferenceEngine extends ContextSource {
 	 * doesn't (e.g. load failure); loadRevisionData() will return false in that
 	 * case. Also null until lazy-loaded. Ignored completely when isContentOverridden
 	 * is set.
-	 * Since 1.32 public access is deprecated.
-	 * @var Revision|null|false
+	 * @var RevisionRecord|null|false
 	 */
-	protected $mOldRev;
+	private $mOldRevisionRecord;
 
 	/**
 	 * New revision (right pane).
@@ -95,33 +101,32 @@ class DifferenceEngine extends ContextSource {
 	 * Null in case of load failure; diff methods will just return an error message in that case,
 	 * and loadRevisionData() will return false. Also null until lazy-loaded. Ignored completely
 	 * when isContentOverridden is set.
-	 * Since 1.32 public access is deprecated.
-	 * @var Revision|null
+	 * @var RevisionRecord|null
 	 */
-	protected $mNewRev;
+	private $mNewRevisionRecord;
 
 	/**
-	 * Title of $mOldRev or null if the old revision does not exist or does not belong to a page.
+	 * Title of old revision or null if the old revision does not exist or does not belong to a page.
 	 * Since 1.32 public access is deprecated and the property can be null.
 	 * @var Title|null
 	 */
 	protected $mOldPage;
 
 	/**
-	 * Title of $mNewRev or null if the new revision does not exist or does not belong to a page.
+	 * Title of new revision or null if the new revision does not exist or does not belong to a page.
 	 * Since 1.32 public access is deprecated and the property can be null.
 	 * @var Title|null
 	 */
 	protected $mNewPage;
 
 	/**
-	 * Change tags of $mOldRev or null if it does not exist / is not saved.
+	 * Change tags of old revision or null if it does not exist / is not saved.
 	 * @var string[]|null
 	 */
 	private $mOldTags;
 
 	/**
-	 * Change tags of $mNewRev or null if it does not exist / is not saved.
+	 * Change tags of new revision or null if it does not exist / is not saved.
 	 * @var string[]|null
 	 */
 	private $mNewTags;
@@ -169,6 +174,7 @@ class DifferenceEngine extends ContextSource {
 	 * Set this to true to add debug info to the HTML output.
 	 * Warning: this may cause RSS readers to spuriously mark articles as "new"
 	 * (T22601)
+	 * @var bool
 	 */
 	public $enableDebugComment = false;
 
@@ -197,7 +203,34 @@ class DifferenceEngine extends ContextSource {
 	 */
 	protected $isSlotDiffRenderer = false;
 
-	/**#@-*/
+	/**
+	 * A set of options that will be passed to the SlotDiffRenderer upon creation
+	 * @var array
+	 */
+	private $slotDiffOptions = [];
+
+	/**
+	 * @var LinkRenderer
+	 */
+	protected $linkRenderer;
+
+	/**
+	 * @var IContentHandlerFactory
+	 */
+	private $contentHandlerFactory;
+
+	/**
+	 * @var RevisionStore
+	 */
+	private $revisionStore;
+
+	/** @var HookRunner */
+	private $hookRunner;
+
+	/** @var WikiPageFactory */
+	private $wikiPageFactory;
+
+	/** #@- */
 
 	/**
 	 * @param IContextSource|null $context Context to use, anything else will be ignored
@@ -212,8 +245,6 @@ class DifferenceEngine extends ContextSource {
 	) {
 		$this->deprecatePublicProperty( 'mOldid', '1.32', __CLASS__ );
 		$this->deprecatePublicProperty( 'mNewid', '1.32', __CLASS__ );
-		$this->deprecatePublicProperty( 'mOldRev', '1.32', __CLASS__ );
-		$this->deprecatePublicProperty( 'mNewRev', '1.32', __CLASS__ );
 		$this->deprecatePublicProperty( 'mOldPage', '1.32', __CLASS__ );
 		$this->deprecatePublicProperty( 'mNewPage', '1.32', __CLASS__ );
 		$this->deprecatePublicProperty( 'mOldContent', '1.32', __CLASS__ );
@@ -226,12 +257,19 @@ class DifferenceEngine extends ContextSource {
 			$this->setContext( $context );
 		}
 
-		wfDebug( "DifferenceEngine old '$old' new '$new' rcid '$rcid'\n" );
+		wfDebug( "DifferenceEngine old '$old' new '$new' rcid '$rcid'" );
 
 		$this->mOldid = $old;
 		$this->mNewid = $new;
 		$this->mRefreshCache = $refreshCache;
 		$this->unhide = $unhide;
+
+		$services = MediaWikiServices::getInstance();
+		$this->linkRenderer = $services->getLinkRenderer();
+		$this->contentHandlerFactory = $services->getContentHandlerFactory();
+		$this->revisionStore = $services->getRevisionStore();
+		$this->hookRunner = new HookRunner( $services->getHookContainer() );
+		$this->wikiPageFactory = $services->getWikiPageFactory();
 	}
 
 	/**
@@ -250,9 +288,14 @@ class DifferenceEngine extends ContextSource {
 
 			$slotContents = $this->getSlotContents();
 			$this->slotDiffRenderers = array_map( function ( $contents ) {
-				/** @var $content Content */
+				/** @var Content $content */
 				$content = $contents['new'] ?: $contents['old'];
-				return $content->getContentHandler()->getSlotDiffRenderer( $this->getContext() );
+				$context = $this->getContext();
+
+				return $content->getContentHandler()->getSlotDiffRenderer(
+					$context,
+					$this->slotDiffOptions
+				);
 			}, $slotContents );
 		}
 		return $this->slotDiffRenderers;
@@ -285,9 +328,9 @@ class DifferenceEngine extends ContextSource {
 			return [];
 		}
 
-		$newSlots = $this->mNewRev->getRevisionRecord()->getSlots()->getSlots();
-		if ( $this->mOldRev ) {
-			$oldSlots = $this->mOldRev->getRevisionRecord()->getSlots()->getSlots();
+		$newSlots = $this->mNewRevisionRecord->getPrimarySlots()->getSlots();
+		if ( $this->mOldRevisionRecord ) {
+			$oldSlots = $this->mOldRevisionRecord->getPrimarySlots()->getSlots();
 		} else {
 			$oldSlots = [];
 		}
@@ -311,6 +354,7 @@ class DifferenceEngine extends ContextSource {
 		return $slots;
 	}
 
+	/** @inheritDoc */
 	public function getTitle() {
 		// T202454 avoid errors when there is no title
 		return parent::getTitle() ?: Title::makeTitle( NS_SPECIAL, 'BadTitle/DifferenceEngine' );
@@ -379,7 +423,7 @@ class DifferenceEngine extends ContextSource {
 	 * @return RevisionRecord|null
 	 */
 	public function getOldRevision() {
-		return $this->mOldRev ? $this->mOldRev->getRevisionRecord() : null;
+		return $this->mOldRevisionRecord ?: null;
 	}
 
 	/**
@@ -388,7 +432,7 @@ class DifferenceEngine extends ContextSource {
 	 * @return RevisionRecord|null
 	 */
 	public function getNewRevision() {
-		return $this->mNewRev ? $this->mNewRev->getRevisionRecord() : null;
+		return $this->mNewRevisionRecord;
 	}
 
 	/**
@@ -400,9 +444,10 @@ class DifferenceEngine extends ContextSource {
 	 * @return string|bool Link HTML or false
 	 */
 	public function deletedLink( $id ) {
-		if ( $this->getUser()->isAllowed( 'deletedhistory' ) ) {
+		if ( $this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
 			$dbr = wfGetDB( DB_REPLICA );
-			$arQuery = Revision::getArchiveQueryInfo();
+			$revStore = $this->revisionStore;
+			$arQuery = $revStore->getArchiveQueryInfo();
 			$row = $dbr->selectRow(
 				$arQuery['tables'],
 				array_merge( $arQuery['fields'], [ 'ar_namespace', 'ar_title' ] ),
@@ -412,12 +457,12 @@ class DifferenceEngine extends ContextSource {
 				$arQuery['joins']
 			);
 			if ( $row ) {
-				$rev = Revision::newFromArchiveRow( $row );
+				$revRecord = $revStore->newRevisionFromArchiveRow( $row );
 				$title = Title::makeTitleSafe( $row->ar_namespace, $row->ar_title );
 
 				return SpecialPage::getTitleFor( 'Undelete' )->getFullURL( [
 					'target' => $title->getPrefixedText(),
-					'timestamp' => $rev->getTimestamp()
+					'timestamp' => $revRecord->getTimestamp()
 				] );
 			}
 		}
@@ -445,13 +490,13 @@ class DifferenceEngine extends ContextSource {
 		$out = $this->getOutput();
 
 		$missing = [];
-		if ( $this->mOldRev === null ||
-			( $this->mOldRev && $this->mOldContent === null )
+		if ( $this->mOldRevisionRecord === null ||
+			( $this->mOldRevisionRecord && $this->mOldContent === null )
 		) {
 			$missing[] = $this->deletedIdMarker( $this->mOldid );
 		}
-		if ( $this->mNewRev === null ||
-			( $this->mNewRev && $this->mNewContent === null )
+		if ( $this->mNewRevisionRecord === null ||
+			( $this->mNewRevisionRecord && $this->mNewContent === null )
 		) {
 			$missing[] = $this->deletedIdMarker( $this->mNewid );
 		}
@@ -464,6 +509,100 @@ class DifferenceEngine extends ContextSource {
 		$out->addHTML( $msg );
 	}
 
+	/**
+	 * Checks whether one of the given Revisions was deleted
+	 *
+	 * @return bool
+	 */
+	public function hasDeletedRevision() {
+		$this->loadRevisionData();
+		return (
+				$this->mNewRevisionRecord &&
+				$this->mNewRevisionRecord->isDeleted( RevisionRecord::DELETED_TEXT )
+			) ||
+			(
+				$this->mOldRevisionRecord &&
+				$this->mOldRevisionRecord->isDeleted( RevisionRecord::DELETED_TEXT )
+			);
+	}
+
+	/**
+	 * Get the permission errors associated with the revisions for the current diff.
+	 *
+	 * @param Authority $performer
+	 * @return array[] Array of arrays of the arguments to wfMessage to explain permissions problems.
+	 */
+	public function getPermissionErrors( Authority $performer ) {
+		$this->loadRevisionData();
+		$permStatus = PermissionStatus::newEmpty();
+		if ( $this->mNewPage ) {
+			$performer->authorizeRead( 'read', $this->mNewPage, $permStatus );
+		}
+		if ( $this->mOldPage ) {
+			$performer->authorizeRead( 'read', $this->mOldPage, $permStatus );
+		}
+		return $permStatus->toLegacyErrorArray();
+	}
+
+	/**
+	 * Checks whether one of the given Revisions was suppressed
+	 *
+	 * @return bool
+	 */
+	public function hasSuppressedRevision() {
+		return $this->hasDeletedRevision() && (
+			( $this->mOldRevisionRecord &&
+				$this->mOldRevisionRecord->isDeleted( RevisionRecord::DELETED_RESTRICTED ) ) ||
+			( $this->mNewRevisionRecord &&
+				$this->mNewRevisionRecord->isDeleted( RevisionRecord::DELETED_RESTRICTED ) )
+		);
+	}
+
+	/**
+	 * Checks whether the current user has permission for accessing the revisions of the diff.
+	 * Note that this does not check whether the user has permission to view the page, it only
+	 * checks revdelete permissions.
+	 *
+	 * It is the caller's responsibility to call
+	 * $this->getUserPermissionErrors or similar checks.
+	 *
+	 * @param Authority $performer
+	 * @return bool
+	 */
+	public function isUserAllowedToSeeRevisions( Authority $performer ) {
+		$this->loadRevisionData();
+		// $this->mNewRev will only be falsy if a loading error occurred
+		// (in which case the user is allowed to see).
+		$allowed = !$this->mNewRevisionRecord || $this->mNewRevisionRecord->userCan(
+			RevisionRecord::DELETED_TEXT,
+			$performer
+		);
+		if ( $this->mOldRevisionRecord &&
+			!$this->mOldRevisionRecord->userCan(
+				RevisionRecord::DELETED_TEXT,
+				$performer
+			)
+		) {
+			$allowed = false;
+		}
+		return $allowed;
+	}
+
+	/**
+	 * Checks whether the diff should be hidden from the current user
+	 * This is based on whether the user is allowed to see it and has specifically asked to see it.
+	 *
+	 * @param Authority $performer
+	 * @return bool
+	 */
+	public function shouldBeHiddenFromUser( Authority $performer ) {
+		return $this->hasDeletedRevision() && ( !$this->unhide ||
+			!$this->isUserAllowedToSeeRevisions( $performer ) );
+	}
+
+	/**
+	 * @param bool $diffOnly
+	 */
 	public function showDiffPage( $diffOnly = false ) {
 		# Allow frames except in certain special cases
 		$out = $this->getOutput();
@@ -471,33 +610,28 @@ class DifferenceEngine extends ContextSource {
 		$out->setRobotPolicy( 'noindex,nofollow' );
 
 		// Allow extensions to add any extra output here
-		Hooks::run( 'DifferenceEngineShowDiffPage', [ $out ] );
+		$this->hookRunner->onDifferenceEngineShowDiffPage( $out );
 
 		if ( !$this->loadRevisionData() ) {
-			if ( Hooks::run( 'DifferenceEngineShowDiffPageMaybeShowMissingRevision', [ $this ] ) ) {
+			if ( $this->hookRunner->onDifferenceEngineShowDiffPageMaybeShowMissingRevision( $this ) ) {
 				$this->showMissingRevision();
 			}
 			return;
 		}
 
 		$user = $this->getUser();
-		$permErrors = [];
-		if ( $this->mNewPage ) {
-			$permErrors = $this->mNewPage->getUserPermissionsErrors( 'read', $user );
-		}
-		if ( $this->mOldPage ) {
-			$permErrors = wfMergeErrorArrays( $permErrors,
-				$this->mOldPage->getUserPermissionsErrors( 'read', $user ) );
-		}
+		$permErrors = $this->getPermissionErrors( $this->getAuthority() );
 		if ( count( $permErrors ) ) {
 			throw new PermissionsError( 'read', $permErrors );
 		}
 
 		$rollback = '';
 
-		$query = [];
+		$query = $this->slotDiffOptions;
 		# Carry over 'diffonly' param via navigation links
-		if ( $diffOnly != $user->getBoolOption( 'diffonly' ) ) {
+		if ( $diffOnly != MediaWikiServices::getInstance()
+			->getUserOptionsLookup()->getBoolOption( $user, 'diffonly' )
+		) {
 			$query['diffonly'] = $diffOnly;
 		}
 		# Cascade unhide param in links for easy deletion browsing
@@ -506,24 +640,25 @@ class DifferenceEngine extends ContextSource {
 		}
 
 		# Check if one of the revisions is deleted/suppressed
-		$deleted = $suppressed = false;
-		$allowed = $this->mNewRev->userCan( Revision::DELETED_TEXT, $user );
+		$deleted = $this->hasDeletedRevision();
+		$suppressed = $this->hasSuppressedRevision();
+		$allowed = $this->isUserAllowedToSeeRevisions( $this->getAuthority() );
 
 		$revisionTools = [];
 
-		# mOldRev is false if the difference engine is called with a "vague" query for
+		# mOldRevisionRecord is false if the difference engine is called with a "vague" query for
 		# a diff between a version V and its previous version V' AND the version V
 		# is the first version of that article. In that case, V' does not exist.
-		if ( $this->mOldRev === false ) {
+		if ( $this->mOldRevisionRecord === false ) {
 			if ( $this->mNewPage ) {
 				$out->setPageTitle( $this->msg( 'difference-title', $this->mNewPage->getPrefixedText() ) );
 			}
 			$samePage = true;
 			$oldHeader = '';
 			// Allow extensions to change the $oldHeader variable
-			Hooks::run( 'DifferenceEngineOldHeaderNoOldRev', [ &$oldHeader ] );
+			$this->hookRunner->onDifferenceEngineOldHeaderNoOldRev( $oldHeader );
 		} else {
-			Hooks::run( 'DiffViewHeader', [ $this, $this->mOldRev, $this->mNewRev ] );
+			$this->hookRunner->onDifferenceEngineViewHeader( $this );
 
 			if ( !$this->mOldPage || !$this->mNewPage ) {
 				// XXX say something to the user?
@@ -538,17 +673,25 @@ class DifferenceEngine extends ContextSource {
 				$samePage = false;
 			}
 
-			if ( $samePage && $this->mNewPage && $this->mNewPage->quickUserCan( 'edit', $user ) ) {
-				if ( $this->mNewRev->isCurrent() && $this->mNewPage->userCan( 'rollback', $user ) ) {
-					$rollbackLink = Linker::generateRollback( $this->mNewRev, $this->getContext() );
+			if ( $samePage && $this->mNewPage &&
+				$this->getAuthority()->probablyCan( 'edit', $this->mNewPage )
+			) {
+				if ( $this->mNewRevisionRecord->isCurrent() &&
+					$this->getAuthority()->probablyCan( 'rollback', $this->mNewPage )
+				) {
+					$rollbackLink = Linker::generateRollback(
+						$this->mNewRevisionRecord,
+						$this->getContext(),
+						[ 'noBrackets' ]
+					);
 					if ( $rollbackLink ) {
 						$out->preventClickjacking();
 						$rollback = "\u{00A0}\u{00A0}\u{00A0}" . $rollbackLink;
 					}
 				}
 
-				if ( !$this->mOldRev->isDeleted( Revision::DELETED_TEXT ) &&
-					!$this->mNewRev->isDeleted( Revision::DELETED_TEXT )
+				if ( $this->userCanEdit( $this->mOldRevisionRecord ) &&
+					$this->userCanEdit( $this->mNewRevisionRecord )
 				) {
 					$undoLink = Html::element( 'a', [
 							'href' => $this->mNewPage->getLocalURL( [
@@ -563,12 +706,13 @@ class DifferenceEngine extends ContextSource {
 					$revisionTools['mw-diff-undo'] = $undoLink;
 				}
 			}
-
 			# Make "previous revision link"
-			if ( $samePage && $this->mOldPage && $this->mOldRev->getPrevious() ) {
-				$prevlink = Linker::linkKnown(
+			$hasPrevious = $samePage && $this->mOldPage &&
+				$this->revisionStore->getPreviousRevision( $this->mOldRevisionRecord );
+			if ( $hasPrevious ) {
+				$prevlink = $this->linkRenderer->makeKnownLink(
 					$this->mOldPage,
-					$this->msg( 'previousdiff' )->escaped(),
+					$this->msg( 'previousdiff' )->text(),
 					[ 'id' => 'differences-prevlink' ],
 					[ 'diff' => 'prev', 'oldid' => $this->mOldid ] + $query
 				);
@@ -576,39 +720,29 @@ class DifferenceEngine extends ContextSource {
 				$prevlink = "\u{00A0}";
 			}
 
-			if ( $this->mOldRev->isMinor() ) {
+			if ( $this->mOldRevisionRecord->isMinor() ) {
 				$oldminor = ChangesList::flag( 'minor' );
 			} else {
 				$oldminor = '';
 			}
 
-			$ldel = $this->revisionDeleteLink( $this->mOldRev );
-			$oldRevisionHeader = $this->getRevisionHeader( $this->mOldRev, 'complete' );
+			$oldRevRecord = $this->mOldRevisionRecord;
+
+			$ldel = $this->revisionDeleteLink( $oldRevRecord );
+			$oldRevisionHeader = $this->getRevisionHeader( $oldRevRecord, 'complete' );
 			$oldChangeTags = ChangeTags::formatSummaryRow( $this->mOldTags, 'diff', $this->getContext() );
 
 			$oldHeader = '<div id="mw-diff-otitle1"><strong>' . $oldRevisionHeader . '</strong></div>' .
 				'<div id="mw-diff-otitle2">' .
-				Linker::revUserTools( $this->mOldRev, !$this->unhide ) . '</div>' .
+				Linker::revUserTools( $oldRevRecord, !$this->unhide ) . '</div>' .
 				'<div id="mw-diff-otitle3">' . $oldminor .
-				Linker::revComment( $this->mOldRev, !$diffOnly, !$this->unhide ) . $ldel . '</div>' .
+				Linker::revComment( $oldRevRecord, !$diffOnly, !$this->unhide ) . $ldel . '</div>' .
 				'<div id="mw-diff-otitle5">' . $oldChangeTags[0] . '</div>' .
 				'<div id="mw-diff-otitle4">' . $prevlink . '</div>';
 
 			// Allow extensions to change the $oldHeader variable
-			Hooks::run( 'DifferenceEngineOldHeader', [ $this, &$oldHeader, $prevlink, $oldminor,
-				$diffOnly, $ldel, $this->unhide ] );
-
-			if ( $this->mOldRev->isDeleted( Revision::DELETED_TEXT ) ) {
-				$deleted = true; // old revisions text is hidden
-				if ( $this->mOldRev->isDeleted( Revision::DELETED_RESTRICTED ) ) {
-					$suppressed = true; // also suppressed
-				}
-			}
-
-			# Check if this user can see the revisions
-			if ( !$this->mOldRev->userCan( Revision::DELETED_TEXT, $user ) ) {
-				$allowed = false;
-			}
+			$this->hookRunner->onDifferenceEngineOldHeader(
+				$this, $oldHeader, $prevlink, $oldminor, $diffOnly, $ldel, $this->unhide );
 		}
 
 		$out->addJsConfigVars( [
@@ -618,10 +752,10 @@ class DifferenceEngine extends ContextSource {
 
 		# Make "next revision link"
 		# Skip next link on the top revision
-		if ( $samePage && $this->mNewPage && !$this->mNewRev->isCurrent() ) {
-			$nextlink = Linker::linkKnown(
+		if ( $samePage && $this->mNewPage && !$this->mNewRevisionRecord->isCurrent() ) {
+			$nextlink = $this->linkRenderer->makeKnownLink(
 				$this->mNewPage,
-				$this->msg( 'nextdiff' )->escaped(),
+				$this->msg( 'nextdiff' )->text(),
 				[ 'id' => 'differences-nextlink' ],
 				[ 'diff' => 'next', 'oldid' => $this->mNewid ] + $query
 			);
@@ -629,18 +763,23 @@ class DifferenceEngine extends ContextSource {
 			$nextlink = "\u{00A0}";
 		}
 
-		if ( $this->mNewRev->isMinor() ) {
+		if ( $this->mNewRevisionRecord->isMinor() ) {
 			$newminor = ChangesList::flag( 'minor' );
 		} else {
 			$newminor = '';
 		}
 
 		# Handle RevisionDelete links...
-		$rdel = $this->revisionDeleteLink( $this->mNewRev );
+		$rdel = $this->revisionDeleteLink( $this->mNewRevisionRecord );
 
 		# Allow extensions to define their own revision tools
-		Hooks::run( 'DiffRevisionTools',
-			[ $this->mNewRev, &$revisionTools, $this->mOldRev, $user ] );
+		$this->hookRunner->onDiffTools(
+			$this->mNewRevisionRecord,
+			$revisionTools,
+			$this->mOldRevisionRecord ?: null,
+			$user
+		);
+
 		$formattedRevisionTools = [];
 		// Put each one in parentheses (poor man's button)
 		foreach ( $revisionTools as $key => $tool ) {
@@ -652,48 +791,51 @@ class DifferenceEngine extends ContextSource {
 			);
 			$formattedRevisionTools[] = $element;
 		}
-		$newRevisionHeader = $this->getRevisionHeader( $this->mNewRev, 'complete' ) .
+
+		$newRevRecord = $this->mNewRevisionRecord;
+
+		$newRevisionHeader = $this->getRevisionHeader( $newRevRecord, 'complete' ) .
 			' ' . implode( ' ', $formattedRevisionTools );
 		$newChangeTags = ChangeTags::formatSummaryRow( $this->mNewTags, 'diff', $this->getContext() );
 
 		$newHeader = '<div id="mw-diff-ntitle1"><strong>' . $newRevisionHeader . '</strong></div>' .
-			'<div id="mw-diff-ntitle2">' . Linker::revUserTools( $this->mNewRev, !$this->unhide ) .
+			'<div id="mw-diff-ntitle2">' . Linker::revUserTools( $newRevRecord, !$this->unhide ) .
 			" $rollback</div>" .
 			'<div id="mw-diff-ntitle3">' . $newminor .
-			Linker::revComment( $this->mNewRev, !$diffOnly, !$this->unhide ) . $rdel . '</div>' .
+			Linker::revComment( $newRevRecord, !$diffOnly, !$this->unhide ) . $rdel . '</div>' .
 			'<div id="mw-diff-ntitle5">' . $newChangeTags[0] . '</div>' .
 			'<div id="mw-diff-ntitle4">' . $nextlink . $this->markPatrolledLink() . '</div>';
 
 		// Allow extensions to change the $newHeader variable
-		Hooks::run( 'DifferenceEngineNewHeader', [ $this, &$newHeader, $formattedRevisionTools,
-			$nextlink, $rollback, $newminor, $diffOnly, $rdel, $this->unhide ] );
-
-		if ( $this->mNewRev->isDeleted( Revision::DELETED_TEXT ) ) {
-			$deleted = true; // new revisions text is hidden
-			if ( $this->mNewRev->isDeleted( Revision::DELETED_RESTRICTED ) ) {
-				$suppressed = true; // also suppressed
-			}
-		}
+		$this->hookRunner->onDifferenceEngineNewHeader( $this, $newHeader,
+			$formattedRevisionTools, $nextlink, $rollback, $newminor, $diffOnly,
+			$rdel, $this->unhide );
 
 		# If the diff cannot be shown due to a deleted revision, then output
 		# the diff header and links to unhide (if available)...
-		if ( $deleted && ( !$this->unhide || !$allowed ) ) {
+		if ( $this->shouldBeHiddenFromUser( $this->getAuthority() ) ) {
 			$this->showDiffStyle();
 			$multi = $this->getMultiNotice();
 			$out->addHTML( $this->addHeader( '', $oldHeader, $newHeader, $multi ) );
 			if ( !$allowed ) {
 				$msg = $suppressed ? 'rev-suppressed-no-diff' : 'rev-deleted-no-diff';
 				# Give explanation for why revision is not visible
-				$out->wrapWikiMsg( "<div id='mw-$msg' class='mw-warning plainlinks'>\n$1\n</div>\n",
-					[ $msg ] );
+				$out->addHtml(
+					Html::warningBox(
+						$this->msg( $msg )->parse(),
+						'plainlinks'
+					)
+				);
 			} else {
 				# Give explanation and add a link to view the diff...
 				$query = $this->getRequest()->appendQueryValue( 'unhide', '1' );
 				$link = $this->getTitle()->getFullURL( $query );
 				$msg = $suppressed ? 'rev-suppressed-unhide-diff' : 'rev-deleted-unhide-diff';
-				$out->wrapWikiMsg(
-					"<div id='mw-$msg' class='mw-warning plainlinks'>\n$1\n</div>\n",
-					[ $msg, $link ]
+				$out->addHtml(
+					Html::warningBox(
+						$this->msg( $msg, $link )->parse(),
+						'plainlinks'
+					)
 				);
 			}
 		# Otherwise, output a regular diff...
@@ -702,9 +844,10 @@ class DifferenceEngine extends ContextSource {
 			$notice = '';
 			if ( $deleted ) {
 				$msg = $suppressed ? 'rev-suppressed-diff-view' : 'rev-deleted-diff-view';
-				$notice = "<div id='mw-$msg' class='mw-warning plainlinks'>\n" .
-					$this->msg( $msg )->parse() .
-					"</div>\n";
+				$notice = Html::warningBox(
+					$this->msg( $msg )->parse(),
+					'plainlinks'
+				);
 			}
 			$this->showDiff( $oldHeader, $newHeader, $notice );
 			if ( !$diffOnly ) {
@@ -717,8 +860,9 @@ class DifferenceEngine extends ContextSource {
 	 * Build a link to mark a change as patrolled.
 	 *
 	 * Returns empty string if there's either no revision to patrol or the user is not allowed to.
+	 *
 	 * Side effect: When the patrol link is build, this method will call
-	 * OutputPage::preventClickjacking() and load mediawiki.page.patrol.ajax.
+	 * OutputPage::preventClickjacking() and load a JS module.
 	 *
 	 * @return string HTML or empty string
 	 */
@@ -730,9 +874,9 @@ class DifferenceEngine extends ContextSource {
 				$this->mMarkPatrolledLink = '';
 			} else {
 				$this->mMarkPatrolledLink = ' <span class="patrollink" data-mw="interface">[' .
-					Linker::linkKnown(
+					$this->linkRenderer->makeKnownLink(
 						$this->mNewPage,
-						$this->msg( 'markaspatrolleddiff' )->escaped(),
+						$this->msg( 'markaspatrolleddiff' )->text(),
 						[],
 						[
 							'action' => 'markpatrolled',
@@ -740,8 +884,8 @@ class DifferenceEngine extends ContextSource {
 						]
 					) . ']</span>';
 				// Allow extensions to change the markpatrolled link
-				Hooks::run( 'DifferenceEngineMarkPatrolledLink', [ $this,
-					&$this->mMarkPatrolledLink, $linkInfo['rcid'] ] );
+				$this->hookRunner->onDifferenceEngineMarkPatrolledLink( $this,
+					$this->mMarkPatrolledLink, $linkInfo['rcid'] );
 			}
 		}
 		return $this->mMarkPatrolledLink;
@@ -749,7 +893,7 @@ class DifferenceEngine extends ContextSource {
 
 	/**
 	 * Returns an array of meta data needed to build a "mark as patrolled" link and
-	 * adds the mediawiki.page.patrol.ajax to the output.
+	 * adds a JS module to the output.
 	 *
 	 * @return array|false An array of meta data for a patrol link (rcid only)
 	 *  or false if no link is needed
@@ -762,23 +906,22 @@ class DifferenceEngine extends ContextSource {
 		if (
 			// Is patrolling enabled and the user allowed to?
 			$config->get( 'UseRCPatrol' ) &&
-			$this->mNewPage && $this->mNewPage->quickUserCan( 'patrol', $user ) &&
+			$this->mNewPage &&
+			$this->getAuthority()->probablyCan( 'patrol', $this->mNewPage ) &&
 			// Only do this if the revision isn't more than 6 hours older
 			// than the Max RC age (6h because the RC might not be cleaned out regularly)
-			RecentChange::isInRCLifespan( $this->mNewRev->getTimestamp(), 21600 )
+			RecentChange::isInRCLifespan( $this->mNewRevisionRecord->getTimestamp(), 21600 )
 		) {
 			// Look for an unpatrolled change corresponding to this diff
-			$db = wfGetDB( DB_REPLICA );
 			$change = RecentChange::newFromConds(
 				[
-					'rc_timestamp' => $db->timestamp( $this->mNewRev->getTimestamp() ),
 					'rc_this_oldid' => $this->mNewid,
 					'rc_patrolled' => RecentChange::PRC_UNPATROLLED
 				],
 				__METHOD__
 			);
 
-			if ( $change && !$change->getPerformer()->equals( $user ) ) {
+			if ( $change && !$change->getPerformerIdentity()->equals( $user ) ) {
 				$rcid = $change->getAttribute( 'rc_id' );
 			} else {
 				// None found or the page has been created by the current user.
@@ -790,13 +933,13 @@ class DifferenceEngine extends ContextSource {
 			// For example the rcid might be set to zero due to the user
 			// being the same as the performer of the change but an extension
 			// might still want to show it under certain conditions
-			Hooks::run( 'DifferenceEngineMarkPatrolledRCID', [ &$rcid, $this, $change, $user ] );
+			$this->hookRunner->onDifferenceEngineMarkPatrolledRCID( $rcid, $this, $change, $user );
 
 			// Build the link
 			if ( $rcid ) {
 				$this->getOutput()->preventClickjacking();
-				if ( $user->isAllowed( 'writeapi' ) ) {
-					$this->getOutput()->addModules( 'mediawiki.page.patrol.ajax' );
+				if ( $this->getAuthority()->isAllowed( 'writeapi' ) ) {
+					$this->getOutput()->addModules( 'mediawiki.misc-authed-curate' );
 				}
 
 				return [
@@ -810,12 +953,16 @@ class DifferenceEngine extends ContextSource {
 	}
 
 	/**
-	 * @param Revision $rev
+	 * @param RevisionRecord $revRecord
 	 *
 	 * @return string
 	 */
-	protected function revisionDeleteLink( $rev ) {
-		$link = Linker::getRevDeleteLink( $this->getUser(), $rev, $rev->getTitle() );
+	private function revisionDeleteLink( RevisionRecord $revRecord ) {
+		$link = Linker::getRevDeleteLink(
+			$this->getAuthority(),
+			$revRecord,
+			$revRecord->getPageAsLinkTarget()
+		);
 		if ( $link !== '' ) {
 			$link = "\u{00A0}\u{00A0}\u{00A0}" . $link . ' ';
 		}
@@ -830,9 +977,9 @@ class DifferenceEngine extends ContextSource {
 	 */
 	public function renderNewRevision() {
 		if ( $this->isContentOverridden ) {
-			// The code below only works with a Revision object. We could construct a fake revision
-			// (here or in setContent), but since this does not seem needed at the moment,
-			// we'll just fail for now.
+			// The code below only works with a RevisionRecord object. We could construct a
+			// fake RevisionRecord (here or in setContent), but since this does not seem
+			// needed at the moment, we'll just fail for now.
 			throw new LogicException(
 				__METHOD__
 				. ' is not supported after calling setContent(). Use setRevisions() instead.'
@@ -840,12 +987,12 @@ class DifferenceEngine extends ContextSource {
 		}
 
 		$out = $this->getOutput();
-		$revHeader = $this->getRevisionHeader( $this->mNewRev );
+		$revHeader = $this->getRevisionHeader( $this->mNewRevisionRecord );
 		# Add "current version as of X" title
 		$out->addHTML( "<hr class='diff-hr' id='mw-oldid' />
 		<h2 class='diff-currentversion-title'>{$revHeader}</h2>\n" );
 		# Page content may be handled by a hooked call instead...
-		if ( Hooks::run( 'ArticleContentOnDiff', [ $this, $out ] ) ) {
+		if ( $this->hookRunner->onArticleContentOnDiff( $this, $out ) ) {
 			$this->loadNewText();
 			if ( !$this->mNewPage ) {
 				// New revision is unsaved; bail out.
@@ -855,16 +1002,11 @@ class DifferenceEngine extends ContextSource {
 			}
 
 			$out->setRevisionId( $this->mNewid );
-			$out->setRevisionTimestamp( $this->mNewRev->getTimestamp() );
+			$out->setRevisionTimestamp( $this->mNewRevisionRecord->getTimestamp() );
 			$out->setArticleFlag( true );
 
-			if ( !Hooks::run( 'ArticleRevisionViewCustom',
-				[ $this->mNewRev->getRevisionRecord(), $this->mNewPage, $this->mOldid, $out ] )
-			) {
-				// Handled by extension
-				// NOTE: sync with hooks called in Article::view()
-			} elseif ( !Hooks::run( 'ArticleContentViewCustom',
-				[ $this->mNewContent, $this->mNewPage, $out ], '1.32' )
+			if ( !$this->hookRunner->onArticleRevisionViewCustom(
+				$this->mNewRevisionRecord, $this->mNewPage, $this->mOldid, $out )
 			) {
 				// Handled by extension
 				// NOTE: sync with hooks called in Article::view()
@@ -877,20 +1019,23 @@ class DifferenceEngine extends ContextSource {
 					$wikiPage = $this->getWikiPage();
 				} else {
 					// Otherwise we need to create our own WikiPage object
-					$wikiPage = WikiPage::factory( $this->mNewPage );
+					$wikiPage = $this->wikiPageFactory->newFromTitle( $this->mNewPage );
 				}
 
-				$parserOutput = $this->getParserOutput( $wikiPage, $this->mNewRev );
+				$parserOutput = $this->getParserOutput( $wikiPage, $this->mNewRevisionRecord );
 
 				# WikiPage::getParserOutput() should not return false, but just in case
 				if ( $parserOutput ) {
 					// Allow extensions to change parser output here
-					if ( Hooks::run( 'DifferenceEngineRenderRevisionAddParserOutput',
-						[ $this, $out, $parserOutput, $wikiPage ] )
+					if ( $this->hookRunner->onDifferenceEngineRenderRevisionAddParserOutput(
+						$this, $out, $parserOutput, $wikiPage )
 					) {
 						$out->addParserOutput( $parserOutput, [
-							'enableSectionEditLinks' => $this->mNewRev->isCurrent()
-								&& $this->mNewRev->getTitle()->quickUserCan( 'edit', $this->getUser() ),
+							'enableSectionEditLinks' => $this->mNewRevisionRecord->isCurrent()
+								&& $this->getAuthority()->probablyCan(
+									'edit',
+									$this->mNewRevisionRecord->getPage()
+								)
 						] );
 					}
 				}
@@ -898,7 +1043,7 @@ class DifferenceEngine extends ContextSource {
 		}
 
 		// Allow extensions to optionally not show the final patrolled link
-		if ( Hooks::run( 'DifferenceEngineRenderRevisionShowFinalPatrolLink' ) ) {
+		if ( $this->hookRunner->onDifferenceEngineRenderRevisionShowFinalPatrolLink() ) {
 			# Add redundant patrol link on bottom...
 			$out->addHTML( $this->markPatrolledLink() );
 		}
@@ -906,20 +1051,20 @@ class DifferenceEngine extends ContextSource {
 
 	/**
 	 * @param WikiPage $page
-	 * @param Revision $rev
+	 * @param RevisionRecord $revRecord
 	 *
-	 * @return ParserOutput|bool False if the revision was not found
+	 * @return ParserOutput|false False if the revision was not found
 	 */
-	protected function getParserOutput( WikiPage $page, Revision $rev ) {
-		if ( !$rev->getId() ) {
+	protected function getParserOutput( WikiPage $page, RevisionRecord $revRecord ) {
+		if ( !$revRecord->getId() ) {
 			// WikiPage::getParserOutput wants a revision ID. Passing 0 will incorrectly show
 			// the current revision, so fail instead. If need be, WikiPage::getParserOutput
-			// could be made to accept a Revision or RevisionRecord instead of the id.
+			// could be made to accept a RevisionRecord instead of the id.
 			return false;
 		}
 
 		$parserOptions = $page->makeParserOptions( $this->getContext() );
-		$parserOutput = $page->getParserOutput( $parserOptions, $rev->getId() );
+		$parserOutput = $page->getParserOutput( $parserOptions, $revRecord->getId() );
 
 		return $parserOutput;
 	}
@@ -928,15 +1073,15 @@ class DifferenceEngine extends ContextSource {
 	 * Get the diff text, send it to the OutputPage object
 	 * Returns false if the diff could not be generated, otherwise returns true
 	 *
-	 * @param string|bool $otitle Header for old text or false
-	 * @param string|bool $ntitle Header for new text or false
+	 * @param string|false $otitle Header for old text or false
+	 * @param string|false $ntitle Header for new text or false
 	 * @param string $notice HTML between diff header and body
 	 *
 	 * @return bool
 	 */
 	public function showDiff( $otitle, $ntitle, $notice = '' ) {
 		// Allow extensions to affect the output here
-		Hooks::run( 'DifferenceEngineShowDiff', [ $this ] );
+		$this->hookRunner->onDifferenceEngineShowDiff( $this );
 
 		$diff = $this->getDiff( $otitle, $ntitle, $notice );
 		if ( $diff === false ) {
@@ -956,6 +1101,7 @@ class DifferenceEngine extends ContextSource {
 	 */
 	public function showDiffStyle() {
 		if ( !$this->isSlotDiffRenderer ) {
+			$this->getOutput()->addModules( 'mediawiki.diff' );
 			$this->getOutput()->addModuleStyles( [
 				'mediawiki.interface.helpers.styles',
 				'mediawiki.diff.styles'
@@ -969,8 +1115,8 @@ class DifferenceEngine extends ContextSource {
 	/**
 	 * Get complete diff table, including header
 	 *
-	 * @param string|bool $otitle Header for old text or false
-	 * @param string|bool $ntitle Header for new text or false
+	 * @param string|false $otitle Header for old text or false
+	 * @param string|false $ntitle Header for new text or false
 	 * @param string $notice HTML between diff header and body
 	 *
 	 * @return mixed
@@ -995,7 +1141,7 @@ class DifferenceEngine extends ContextSource {
 	/**
 	 * Get the diff table body, without header
 	 *
-	 * @return mixed (string/false)
+	 * @return string|false
 	 */
 	public function getDiffBody() {
 		$this->mCacheHit = true;
@@ -1003,20 +1149,28 @@ class DifferenceEngine extends ContextSource {
 		if ( !$this->isContentOverridden ) {
 			if ( !$this->loadRevisionData() ) {
 				return false;
-			} elseif ( $this->mOldRev &&
-				!$this->mOldRev->userCan( Revision::DELETED_TEXT, $this->getUser() )
+			} elseif ( $this->mOldRevisionRecord &&
+				!$this->mOldRevisionRecord->userCan(
+					RevisionRecord::DELETED_TEXT,
+					$this->getAuthority()
+				)
 			) {
 				return false;
-			} elseif ( $this->mNewRev &&
-				!$this->mNewRev->userCan( Revision::DELETED_TEXT, $this->getUser() )
-			) {
+			} elseif ( $this->mNewRevisionRecord &&
+				!$this->mNewRevisionRecord->userCan(
+					RevisionRecord::DELETED_TEXT,
+					$this->getAuthority()
+				) ) {
 				return false;
 			}
 			// Short-circuit
-			if ( $this->mOldRev === false || ( $this->mOldRev && $this->mNewRev &&
-				$this->mOldRev->getId() && $this->mOldRev->getId() == $this->mNewRev->getId() )
-			) {
-				if ( Hooks::run( 'DifferenceEngineShowEmptyOldContent', [ $this ] ) ) {
+			if ( $this->mOldRevisionRecord === false || (
+				$this->mOldRevisionRecord &&
+				$this->mNewRevisionRecord &&
+				$this->mOldRevisionRecord->getId() &&
+				$this->mOldRevisionRecord->getId() == $this->mNewRevisionRecord->getId()
+			) ) {
+				if ( $this->hookRunner->onDifferenceEngineShowEmptyOldContent( $this ) ) {
 					return '';
 				}
 			}
@@ -1024,7 +1178,9 @@ class DifferenceEngine extends ContextSource {
 
 		// Cacheable?
 		$key = false;
-		$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
+		$services = MediaWikiServices::getInstance();
+		$cache = $services->getMainWANObjectCache();
+		$stats = $services->getStatsdDataFactory();
 		if ( $this->mOldid && $this->mNewid ) {
 			// Check if subclass is still using the old way
 			// for backwards-compatibility
@@ -1037,7 +1193,7 @@ class DifferenceEngine extends ContextSource {
 			if ( !$this->mRefreshCache ) {
 				$difftext = $cache->get( $key );
 				if ( is_string( $difftext ) ) {
-					wfIncrStats( 'diff_cache.hit' );
+					$stats->updateCount( 'diff_cache.hit', 1 );
 					$difftext = $this->localiseDiff( $difftext );
 					$difftext .= "\n<!-- diff cache key $key -->\n";
 
@@ -1067,22 +1223,17 @@ class DifferenceEngine extends ContextSource {
 			$difftext .= $slotDiff;
 		}
 
-		// Avoid PHP 7.1 warning from passing $this by reference
-		$diffEngine = $this;
-
 		// Save to cache for 7 days
-		if ( !Hooks::run( 'AbortDiffCache', [ &$diffEngine ] ) ) {
-			wfIncrStats( 'diff_cache.uncacheable' );
-		} elseif ( $key !== false && $difftext !== false ) {
-			wfIncrStats( 'diff_cache.miss' );
+		if ( !$this->hookRunner->onAbortDiffCache( $this ) ) {
+			$stats->updateCount( 'diff_cache.uncacheable', 1 );
+		} elseif ( $key !== false ) {
+			$stats->updateCount( 'diff_cache.miss', 1 );
 			$cache->set( $key, $difftext, 7 * 86400 );
 		} else {
-			wfIncrStats( 'diff_cache.uncacheable' );
+			$stats->updateCount( 'diff_cache.uncacheable', 1 );
 		}
 		// localise line numbers and title attribute text
-		if ( $difftext !== false ) {
-			$difftext = $this->localiseDiff( $difftext );
-		}
+		$difftext = $this->localiseDiff( $difftext );
 
 		return $difftext;
 	}
@@ -1124,7 +1275,7 @@ class DifferenceEngine extends ContextSource {
 	 */
 	protected function getSlotHeader( $headerText ) {
 		// The old revision is missing on oldid=<first>&diff=prev; only 2 columns in that case.
-		$columnCount = $this->mOldRev ? 4 : 2;
+		$columnCount = $this->mOldRevisionRecord ? 4 : 2;
 		$userLang = $this->getLanguage()->getHtmlCode();
 		return Html::rawElement( 'tr', [ 'class' => 'mw-diff-slot-header', 'lang' => $userLang ],
 			Html::element( 'th', [ 'colspan' => $columnCount ], $headerText ) );
@@ -1153,7 +1304,7 @@ class DifferenceEngine extends ContextSource {
 	 *
 	 * @since 1.31
 	 *
-	 * @return array
+	 * @return string[]
 	 * @throws MWException
 	 */
 	protected function getDiffBodyCacheKeyParams() {
@@ -1164,7 +1315,7 @@ class DifferenceEngine extends ContextSource {
 		$engine = $this->getEngine();
 		$params = [
 			'diff',
-			$engine,
+			$engine === 'php' ? false : $engine, // Back compat
 			self::DIFF_VERSION,
 			"old-{$this->mOldid}",
 			"rev-{$this->mNewid}"
@@ -1172,7 +1323,6 @@ class DifferenceEngine extends ContextSource {
 
 		if ( $engine === 'wikidiff2' ) {
 			$params[] = phpversion( 'wikidiff2' );
-			$params[] = $this->getConfig()->get( 'WikiDiff2MovedParagraphDetectionCutoff' );
 		}
 
 		if ( !$this->isSlotDiffRenderer ) {
@@ -1187,7 +1337,7 @@ class DifferenceEngine extends ContextSource {
 	/**
 	 * Implements DifferenceEngineSlotDiffRenderer::getExtraCacheKeys(). Only used when
 	 * DifferenceEngine is wrapped in DifferenceEngineSlotDiffRenderer.
-	 * @return array
+	 * @return string[]
 	 * @internal for use by DifferenceEngineSlotDiffRenderer only
 	 * @deprecated
 	 */
@@ -1219,6 +1369,13 @@ class DifferenceEngine extends ContextSource {
 		}
 
 		return $params;
+	}
+
+	/**
+	 * @param array $options for the difference engine - accepts keys 'diff-type'
+	 */
+	public function setSlotDiffOptions( $options ) {
+		$this->slotDiffOptions = $options;
 	}
 
 	/**
@@ -1263,7 +1420,8 @@ class DifferenceEngine extends ContextSource {
 	 * @deprecated since 1.32, use a TextSlotDiffRenderer instead.
 	 */
 	public function generateTextDiffBody( $otext, $ntext ) {
-		$slotDiffRenderer = ContentHandler::getForModelID( CONTENT_MODEL_TEXT )
+		$slotDiffRenderer = $this->contentHandlerFactory
+			->getContentHandler( CONTENT_MODEL_TEXT )
 			->getSlotDiffRenderer( $this->getContext() );
 		if ( !( $slotDiffRenderer instanceof TextSlotDiffRenderer ) ) {
 			// Someone used the GetSlotDiffRenderer hook to replace the renderer.
@@ -1275,35 +1433,59 @@ class DifferenceEngine extends ContextSource {
 	}
 
 	/**
-	 * Process $wgExternalDiffEngine and get a sane, usable engine
+	 * Process DiffEngine config and get a sane, usable engine
 	 *
-	 * @return bool|string 'wikidiff2', path to an executable, or false
+	 * @return string 'wikidiff2', 'php', or path to an executable
 	 * @internal For use by this class and TextSlotDiffRenderer only.
 	 */
 	public static function getEngine() {
-		global $wgExternalDiffEngine;
-		// We use the global here instead of Config because we write to the value,
-		// and Config is not mutable.
-		if ( $wgExternalDiffEngine == 'wikidiff' || $wgExternalDiffEngine == 'wikidiff3' ) {
-			wfDeprecated( "\$wgExternalDiffEngine = '{$wgExternalDiffEngine}'", '1.27' );
-			$wgExternalDiffEngine = false;
-		} elseif ( $wgExternalDiffEngine == 'wikidiff2' ) {
-			wfDeprecated( "\$wgExternalDiffEngine = '{$wgExternalDiffEngine}'", '1.32' );
-			$wgExternalDiffEngine = false;
-		} elseif ( !is_string( $wgExternalDiffEngine ) && $wgExternalDiffEngine !== false ) {
-			// And prevent people from shooting themselves in the foot...
-			wfWarn( '$wgExternalDiffEngine is set to a non-string value, forcing it to false' );
-			$wgExternalDiffEngine = false;
+		$diffEngine = MediaWikiServices::getInstance()->getMainConfig()
+			->get( 'DiffEngine' );
+		$externalDiffEngine = MediaWikiServices::getInstance()->getMainConfig()
+			->get( 'ExternalDiffEngine' );
+
+		if ( $diffEngine === null ) {
+			$engines = [ 'external', 'wikidiff2', 'php' ];
+		} else {
+			$engines = [ $diffEngine ];
 		}
 
-		if ( is_string( $wgExternalDiffEngine ) && is_executable( $wgExternalDiffEngine ) ) {
-			return $wgExternalDiffEngine;
-		} elseif ( $wgExternalDiffEngine === false && function_exists( 'wikidiff2_do_diff' ) ) {
-			return 'wikidiff2';
-		} else {
-			// Native PHP
-			return false;
+		$failureReason = null;
+		foreach ( $engines as $engine ) {
+			switch ( $engine ) {
+				case 'external':
+					if ( is_string( $externalDiffEngine ) ) {
+						if ( is_executable( $externalDiffEngine ) ) {
+							return $externalDiffEngine;
+						}
+						$failureReason = 'ExternalDiffEngine config points to a non-executable';
+						if ( $diffEngine === null ) {
+							wfDebug( "$failureReason, ignoring" );
+						}
+					} else {
+						$failureReason = 'ExternalDiffEngine config is set to a non-string value';
+						if ( $diffEngine === null && $externalDiffEngine ) {
+							wfWarn( "$failureReason, ignoring" );
+						}
+					}
+					break;
+
+				case 'wikidiff2':
+					if ( function_exists( 'wikidiff2_do_diff' ) ) {
+						return 'wikidiff2';
+					}
+					$failureReason = 'wikidiff2 is not available';
+					break;
+
+				case 'php':
+					// Always available.
+					return 'php';
+
+				default:
+					throw new DomainException( 'Invalid value for $wgDiffEngine: ' . $engine );
+			}
 		}
+		throw new UnexpectedValueException( "Cannot use diff engine '$engine': $failureReason" );
 	}
 
 	/**
@@ -1319,7 +1501,8 @@ class DifferenceEngine extends ContextSource {
 	 * @deprecated since 1.32, use a TextSlotDiffRenderer instead.
 	 */
 	protected function textDiff( $otext, $ntext ) {
-		$slotDiffRenderer = ContentHandler::getForModelID( CONTENT_MODEL_TEXT )
+		$slotDiffRenderer = $this->contentHandlerFactory
+			->getContentHandler( CONTENT_MODEL_TEXT )
 			->getSlotDiffRenderer( $this->getContext() );
 		if ( !( $slotDiffRenderer instanceof TextSlotDiffRenderer ) ) {
 			// Someone used the GetSlotDiffRenderer hook to replace the renderer.
@@ -1353,11 +1536,14 @@ class DifferenceEngine extends ContextSource {
 			" -->\n";
 	}
 
+	/**
+	 * @return string
+	 */
 	private function getDebugString() {
 		$engine = self::getEngine();
 		if ( $engine === 'wikidiff2' ) {
 			return $this->debug( 'wikidiff2' );
-		} elseif ( $engine === false ) {
+		} elseif ( $engine === 'php' ) {
 			return $this->debug( 'native PHP' );
 		} else {
 			return $this->debug( "external $engine" );
@@ -1385,7 +1571,7 @@ class DifferenceEngine extends ContextSource {
 	 *
 	 * @param string $text
 	 *
-	 * @return mixed
+	 * @return string
 	 */
 	public function localiseLineNumbers( $text ) {
 		return preg_replace_callback(
@@ -1395,6 +1581,10 @@ class DifferenceEngine extends ContextSource {
 		);
 	}
 
+	/**
+	 * @param array $matches
+	 * @return string
+	 */
 	public function localiseLineNumbersCb( $matches ) {
 		if ( $matches[1] === '1' && $this->mReducedLineNumbers ) {
 			return '';
@@ -1436,31 +1626,53 @@ class DifferenceEngine extends ContextSource {
 	public function getMultiNotice() {
 		// The notice only make sense if we are diffing two saved revisions of the same page.
 		if (
-			!$this->mOldRev || !$this->mNewRev
+			!$this->mOldRevisionRecord || !$this->mNewRevisionRecord
 			|| !$this->mOldPage || !$this->mNewPage
 			|| !$this->mOldPage->equals( $this->mNewPage )
+			|| $this->mOldRevisionRecord->getId() === null
+			|| $this->mNewRevisionRecord->getId() === null
+			// (T237709) Deleted revs might have different page IDs
+			|| $this->mNewPage->getArticleID() !== $this->mOldRevisionRecord->getPageId()
+			|| $this->mNewPage->getArticleID() !== $this->mNewRevisionRecord->getPageId()
 		) {
 			return '';
 		}
 
-		if ( $this->mOldRev->getTimestamp() > $this->mNewRev->getTimestamp() ) {
-			$oldRev = $this->mNewRev; // flip
-			$newRev = $this->mOldRev; // flip
+		if ( $this->mOldRevisionRecord->getTimestamp() > $this->mNewRevisionRecord->getTimestamp() ) {
+			$oldRevRecord = $this->mNewRevisionRecord; // flip
+			$newRevRecord = $this->mOldRevisionRecord; // flip
 		} else { // normal case
-			$oldRev = $this->mOldRev;
-			$newRev = $this->mNewRev;
+			$oldRevRecord = $this->mOldRevisionRecord;
+			$newRevRecord = $this->mNewRevisionRecord;
 		}
 
 		// Sanity: don't show the notice if too many rows must be scanned
 		// @todo show some special message for that case
-		$nEdits = $this->mNewPage->countRevisionsBetween( $oldRev, $newRev, 1000 );
+		$nEdits = $this->revisionStore->countRevisionsBetween(
+			$this->mNewPage->getArticleID(),
+			$oldRevRecord,
+			$newRevRecord,
+			1000
+		);
 		if ( $nEdits > 0 && $nEdits <= 1000 ) {
 			$limit = 100; // use diff-multi-manyusers if too many users
-			$users = $this->mNewPage->getAuthorsBetween( $oldRev, $newRev, $limit );
-			$numUsers = count( $users );
+			try {
+				$users = $this->revisionStore->getAuthorsBetween(
+					$this->mNewPage->getArticleID(),
+					$oldRevRecord,
+					$newRevRecord,
+					null,
+					$limit
+				);
+				$numUsers = count( $users );
 
-			if ( $numUsers == 1 && $users[0] == $newRev->getUserText( Revision::RAW ) ) {
-				$numUsers = 0; // special case to say "by the same user" instead of "by one other user"
+				$newRevUser = $newRevRecord->getUser( RevisionRecord::RAW );
+				$newRevUserText = $newRevUser ? $newRevUser->getName() : '';
+				if ( $numUsers == 1 && $users[0]->getName() == $newRevUserText ) {
+					$numUsers = 0; // special case to say "by the same user" instead of "by one other user"
+				}
+			} catch ( InvalidArgumentException $e ) {
+				$numUsers = 0;
 			}
 
 			return self::intermediateEditsMsg( $nEdits, $numUsers, $limit );
@@ -1492,15 +1704,27 @@ class DifferenceEngine extends ContextSource {
 	}
 
 	/**
+	 * @param RevisionRecord $revRecord
+	 * @return bool whether the user can see and edit the revision.
+	 */
+	private function userCanEdit( RevisionRecord $revRecord ) {
+		if ( !$revRecord->userCan( RevisionRecord::DELETED_TEXT, $this->getAuthority() ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/**
 	 * Get a header for a specified revision.
 	 *
-	 * @param Revision $rev
+	 * @param RevisionRecord $rev
 	 * @param string $complete 'complete' to get the header wrapped depending
 	 *        the visibility of the revision and a link to edit the page.
 	 *
 	 * @return string HTML fragment
 	 */
-	public function getRevisionHeader( Revision $rev, $complete = '' ) {
+	public function getRevisionHeader( RevisionRecord $rev, $complete = '' ) {
 		$lang = $this->getLanguage();
 		$user = $this->getUser();
 		$revtimestamp = $rev->getTimestamp();
@@ -1513,36 +1737,36 @@ class DifferenceEngine extends ContextSource {
 			$timestamp,
 			$dateofrev,
 			$timeofrev
-		)->escaped();
+		);
 
 		if ( $complete !== 'complete' ) {
-			return $header;
+			return $header->escaped();
 		}
 
-		$title = $rev->getTitle();
+		$title = $rev->getPageAsLinkTarget();
 
-		$header = Linker::linkKnown( $title, $header, [],
+		$header = $this->linkRenderer->makeKnownLink( $title, $header->text(), [],
 			[ 'oldid' => $rev->getId() ] );
 
-		if ( $rev->userCan( Revision::DELETED_TEXT, $user ) ) {
+		if ( $this->userCanEdit( $rev ) ) {
 			$editQuery = [ 'action' => 'edit' ];
 			if ( !$rev->isCurrent() ) {
 				$editQuery['oldid'] = $rev->getId();
 			}
 
-			$key = $title->quickUserCan( 'edit', $user ) ? 'editold' : 'viewsourceold';
-			$msg = $this->msg( $key )->escaped();
+			$key = $this->getAuthority()->probablyCan( 'edit', $rev->getPage() ) ? 'editold' : 'viewsourceold';
+			$msg = $this->msg( $key )->text();
 			$editLink = $this->msg( 'parentheses' )->rawParams(
-				Linker::linkKnown( $title, $msg, [], $editQuery ) )->escaped();
+				$this->linkRenderer->makeKnownLink( $title, $msg, [], $editQuery ) )->escaped();
 			$header .= ' ' . Html::rawElement(
 				'span',
 				[ 'class' => 'mw-diff-edit' ],
 				$editLink
 			);
-			if ( $rev->isDeleted( Revision::DELETED_TEXT ) ) {
+			if ( $rev->isDeleted( RevisionRecord::DELETED_TEXT ) ) {
 				$header = Html::rawElement(
 					'span',
-					[ 'class' => 'history-deleted' ],
+					[ 'class' => Linker::getRevisionDeletedClass( $rev ) ],
 					$header
 				);
 			}
@@ -1569,7 +1793,11 @@ class DifferenceEngine extends ContextSource {
 		// shared.css sets diff in interface language/dir, but the actual content
 		// is often in a different language, mostly the page content language/dir
 		$header = Html::openElement( 'table', [
-			'class' => [ 'diff', 'diff-contentalign-' . $this->getDiffLang()->alignStart() ],
+			'class' => [
+				'diff',
+				'diff-contentalign-' . $this->getDiffLang()->alignStart(),
+				'diff-editfont-' . $this->getUser()->getOption( 'editfont' )
+			],
 			'data-mw' => 'interface',
 		] );
 		$userLang = htmlspecialchars( $this->getLanguage()->getHtmlCode() );
@@ -1594,10 +1822,13 @@ class DifferenceEngine extends ContextSource {
 				$multiColspan = 2;
 			}
 			if ( $otitle || $ntitle ) {
+				// FIXME Hardcoding values from TableDiffFormatter.
+				$deletedClass = 'diff-side-deleted';
+				$addedClass = 'diff-side-added';
 				$header .= "
 				<tr class=\"diff-title\" lang=\"{$userLang}\">
-				<td colspan=\"$colspan\" class=\"diff-otitle\">{$otitle}</td>
-				<td colspan=\"$colspan\" class=\"diff-ntitle\">{$ntitle}</td>
+				<td colspan=\"$colspan\" class=\"diff-otitle {$deletedClass}\">{$otitle}</td>
+				<td colspan=\"$colspan\" class=\"diff-ntitle {$addedClass}\">{$ntitle}</td>
 				</tr>";
 			}
 		}
@@ -1637,25 +1868,25 @@ class DifferenceEngine extends ContextSource {
 	 * @param RevisionRecord $newRevision
 	 */
 	public function setRevisions(
-		RevisionRecord $oldRevision = null, RevisionRecord $newRevision
+		?RevisionRecord $oldRevision, RevisionRecord $newRevision
 	) {
 		if ( $oldRevision ) {
-			$this->mOldRev = new Revision( $oldRevision );
+			$this->mOldRevisionRecord = $oldRevision;
 			$this->mOldid = $oldRevision->getId();
 			$this->mOldPage = Title::newFromLinkTarget( $oldRevision->getPageAsLinkTarget() );
 			// This method is meant for edit diffs and such so there is no reason to provide a
 			// revision that's not readable to the user, but check it just in case.
 			$this->mOldContent = $oldRevision->getContent( SlotRecord::MAIN,
-				RevisionRecord::FOR_THIS_USER, $this->getUser() );
+				RevisionRecord::FOR_THIS_USER, $this->getAuthority() );
 		} else {
 			$this->mOldPage = null;
-			$this->mOldRev = $this->mOldid = false;
+			$this->mOldRevisionRecord = $this->mOldid = false;
 		}
-		$this->mNewRev = new Revision( $newRevision );
+		$this->mNewRevisionRecord = $newRevision;
 		$this->mNewid = $newRevision->getId();
 		$this->mNewPage = Title::newFromLinkTarget( $newRevision->getPageAsLinkTarget() );
 		$this->mNewContent = $newRevision->getContent( SlotRecord::MAIN,
-			RevisionRecord::FOR_THIS_USER, $this->getUser() );
+			RevisionRecord::FOR_THIS_USER, $this->getAuthority() );
 
 		$this->mRevisionsIdsLoaded = $this->mRevisionsLoaded = true;
 		$this->mTextLoaded = $oldRevision ? 2 : 1;
@@ -1683,16 +1914,31 @@ class DifferenceEngine extends ContextSource {
 	 * @return array List of two revision ids, older first, later second.
 	 *     Zero signifies invalid argument passed.
 	 *     false signifies that there is no previous/next revision ($old is the oldest/newest one).
+	 * @phan-return (int|false)[]
 	 */
 	public function mapDiffPrevNext( $old, $new ) {
 		if ( $new === 'prev' ) {
 			// Show diff between revision $old and the previous one. Get previous one from DB.
 			$newid = intval( $old );
-			$oldid = $this->getTitle()->getPreviousRevisionID( $newid );
+			$oldid = false;
+			$newRev = $this->revisionStore->getRevisionById( $newid );
+			if ( $newRev ) {
+				$oldRev = $this->revisionStore->getPreviousRevision( $newRev );
+				if ( $oldRev ) {
+					$oldid = $oldRev->getId();
+				}
+			}
 		} elseif ( $new === 'next' ) {
 			// Show diff between revision $old and the next one. Get next one from DB.
 			$oldid = intval( $old );
-			$newid = $this->getTitle()->getNextRevisionID( $oldid );
+			$newid = false;
+			$oldRev = $this->revisionStore->getRevisionById( $oldid );
+			if ( $oldRev ) {
+				$newRev = $this->revisionStore->getNextRevision( $oldRev );
+				if ( $newRev ) {
+					$newid = $newRev->getId();
+				}
+			}
 		} else {
 			$oldid = intval( $old );
 			$newid = intval( $new );
@@ -1701,9 +1947,6 @@ class DifferenceEngine extends ContextSource {
 		return [ $oldid, $newid ];
 	}
 
-	/**
-	 * Load revision IDs
-	 */
 	private function loadRevisionIds() {
 		if ( $this->mRevisionsIdsLoaded ) {
 			return;
@@ -1721,10 +1964,8 @@ class DifferenceEngine extends ContextSource {
 			$this->mNewid = 0;
 		}
 
-		Hooks::run(
-			'NewDifferenceEngine',
-			[ $this->getTitle(), &$this->mOldid, &$this->mNewid, $old, $new ]
-		);
+		$this->hookRunner->onNewDifferenceEngine(
+			$this->getTitle(), $this->mOldid, $this->mNewid, $old, $new );
 	}
 
 	/**
@@ -1733,16 +1974,17 @@ class DifferenceEngine extends ContextSource {
 	 * by the request context); if oldid is 0, then compare the revision in newid to the
 	 * immediately previous one.
 	 *
-	 * If oldid is false, leave the corresponding revision object set
-	 * to false. This can happen with 'diff=prev' pointing to a non-existent revision,
-	 * and is also used directly by the API.
+	 * If oldid is false, leave the corresponding RevisionRecord object set to false. This can
+	 * happen with 'diff=prev' pointing to a non-existent revision, and is also used directly
+	 * by the API.
 	 *
-	 * @return bool Whether both revisions were loaded successfully. Setting mOldRev
+	 * @return bool Whether both revisions were loaded successfully. Setting mOldRevisionRecord
 	 *   to false counts as successful loading.
 	 */
 	public function loadRevisionData() {
 		if ( $this->mRevisionsLoaded ) {
-			return $this->isContentOverridden || $this->mNewRev && !is_null( $this->mOldRev );
+			return $this->isContentOverridden ||
+			( $this->mOldRevisionRecord !== null && $this->mNewRevisionRecord !== null );
 		}
 
 		// Whether it succeeds or fails, we don't want to try again
@@ -1750,51 +1992,51 @@ class DifferenceEngine extends ContextSource {
 
 		$this->loadRevisionIds();
 
-		// Load the new revision object
+		// Load the new RevisionRecord object
 		if ( $this->mNewid ) {
-			$this->mNewRev = Revision::newFromId( $this->mNewid );
+			$this->mNewRevisionRecord = $this->revisionStore->getRevisionById( $this->mNewid );
 		} else {
-			$this->mNewRev = Revision::newFromTitle(
-				$this->getTitle(),
-				false,
-				Revision::READ_NORMAL
-			);
+			$this->mNewRevisionRecord = $this->revisionStore->getRevisionByTitle( $this->getTitle() );
 		}
 
-		if ( !$this->mNewRev instanceof Revision ) {
+		if ( !$this->mNewRevisionRecord instanceof RevisionRecord ) {
 			return false;
 		}
 
 		// Update the new revision ID in case it was 0 (makes life easier doing UI stuff)
-		$this->mNewid = $this->mNewRev->getId();
+		$this->mNewid = $this->mNewRevisionRecord->getId();
 		if ( $this->mNewid ) {
-			$this->mNewPage = $this->mNewRev->getTitle();
+			$this->mNewPage = Title::newFromLinkTarget(
+				$this->mNewRevisionRecord->getPageAsLinkTarget()
+			);
 		} else {
 			$this->mNewPage = null;
 		}
 
-		// Load the old revision object
-		$this->mOldRev = false;
+		// Load the old RevisionRecord object
+		$this->mOldRevisionRecord = false;
 		if ( $this->mOldid ) {
-			$this->mOldRev = Revision::newFromId( $this->mOldid );
+			$this->mOldRevisionRecord = $this->revisionStore->getRevisionById( $this->mOldid );
 		} elseif ( $this->mOldid === 0 ) {
-			$rev = $this->mNewRev->getPrevious();
-			if ( $rev ) {
-				$this->mOldid = $rev->getId();
-				$this->mOldRev = $rev;
+			$revRecord = $this->revisionStore->getPreviousRevision( $this->mNewRevisionRecord );
+			if ( $revRecord ) {
+				$this->mOldid = $revRecord->getId();
+				$this->mOldRevisionRecord = $revRecord;
 			} else {
 				// No previous revision; mark to show as first-version only.
 				$this->mOldid = false;
-				$this->mOldRev = false;
+				$this->mOldRevisionRecord = false;
 			}
-		} /* elseif ( $this->mOldid === false ) leave mOldRev false; */
+		} /* elseif ( $this->mOldid === false ) leave mOldRevisionRecord false; */
 
-		if ( is_null( $this->mOldRev ) ) {
+		if ( $this->mOldRevisionRecord === null ) {
 			return false;
 		}
 
-		if ( $this->mOldRev && $this->mOldRev->getId() ) {
-			$this->mOldPage = $this->mOldRev->getTitle();
+		if ( $this->mOldRevisionRecord && $this->mOldRevisionRecord->getId() ) {
+			$this->mOldPage = Title::newFromLinkTarget(
+				$this->mOldRevisionRecord->getPageAsLinkTarget()
+			);
 		} else {
 			$this->mOldPage = null;
 		}
@@ -1851,7 +2093,8 @@ class DifferenceEngine extends ContextSource {
 	 */
 	public function loadText() {
 		if ( $this->mTextLoaded == 2 ) {
-			return $this->loadRevisionData() && ( $this->mOldRev === false || $this->mOldContent )
+			return $this->loadRevisionData() &&
+				( $this->mOldRevisionRecord === false || $this->mOldContent )
 				&& $this->mNewContent;
 		}
 
@@ -1862,15 +2105,23 @@ class DifferenceEngine extends ContextSource {
 			return false;
 		}
 
-		if ( $this->mOldRev ) {
-			$this->mOldContent = $this->mOldRev->getContent( Revision::FOR_THIS_USER, $this->getUser() );
+		if ( $this->mOldRevisionRecord ) {
+			$this->mOldContent = $this->mOldRevisionRecord->getContent(
+				SlotRecord::MAIN,
+				RevisionRecord::FOR_THIS_USER,
+				$this->getAuthority()
+			);
 			if ( $this->mOldContent === null ) {
 				return false;
 			}
 		}
 
-		$this->mNewContent = $this->mNewRev->getContent( Revision::FOR_THIS_USER, $this->getUser() );
-		Hooks::run( 'DifferenceEngineLoadTextAfterNewContentIsLoaded', [ $this ] );
+		$this->mNewContent = $this->mNewRevisionRecord->getContent(
+			SlotRecord::MAIN,
+			RevisionRecord::FOR_THIS_USER,
+			$this->getAuthority()
+		);
+		$this->hookRunner->onDifferenceEngineLoadTextAfterNewContentIsLoaded( $this );
 		if ( $this->mNewContent === null ) {
 			return false;
 		}
@@ -1894,9 +2145,13 @@ class DifferenceEngine extends ContextSource {
 			return false;
 		}
 
-		$this->mNewContent = $this->mNewRev->getContent( Revision::FOR_THIS_USER, $this->getUser() );
+		$this->mNewContent = $this->mNewRevisionRecord->getContent(
+			SlotRecord::MAIN,
+			RevisionRecord::FOR_THIS_USER,
+			$this->getAuthority()
+		);
 
-		Hooks::run( 'DifferenceEngineAfterLoadNewText', [ $this ] );
+		$this->hookRunner->onDifferenceEngineAfterLoadNewText( $this );
 
 		return true;
 	}

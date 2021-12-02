@@ -26,6 +26,7 @@
  * @since 1.27
  */
 class SpecialApiSandbox extends SpecialPage {
+
 	public function __construct() {
 		parent::__construct( 'ApiSandbox' );
 	}
@@ -35,9 +36,13 @@ class SpecialApiSandbox extends SpecialPage {
 		$out = $this->getOutput();
 		$this->addHelpLink( 'Help:ApiSandbox' );
 
-		$out->addJsConfigVars( 'apihighlimits', $this->getUser()->isAllowed( 'apihighlimits' ) );
+		$out->addJsConfigVars(
+			'apihighlimits',
+			$this->getAuthority()->isAllowed( 'apihighlimits' )
+		);
 		$out->addModuleStyles( [
 			'mediawiki.special',
+			'mediawiki.hlist',
 		] );
 		$out->addModules( [
 			'mediawiki.special.apisandbox',

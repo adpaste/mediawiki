@@ -22,10 +22,12 @@
  * @ingroup Maintenance ExternalStorage
  */
 
+use MediaWiki\MediaWikiServices;
+
 if ( !defined( 'MEDIAWIKI' ) ) {
 	$optionsWithArgs = [ 'm' ];
 
-	require_once __DIR__ . '/../commandLine.inc';
+	require_once __DIR__ . '/../CommandLineInc.php';
 
 	resolveStubs();
 }
@@ -41,9 +43,10 @@ function resolveStubs() {
 	$maxID = $dbr->selectField( 'text', 'MAX(old_id)', '', $fname );
 	$blockSize = 10000;
 	$numBlocks = intval( $maxID / $blockSize ) + 1;
+	$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 
 	for ( $b = 0; $b < $numBlocks; $b++ ) {
-		wfWaitForSlaves();
+		$lbFactory->waitForReplication();
 
 		printf( "%5.2f%%\n", $b / $numBlocks * 100 );
 		$start = intval( $maxID / $numBlocks ) * $b + 1;
@@ -74,7 +77,7 @@ function resolveStub( $id, $stubText, $flags ) {
 	$flags = explode( ',', $flags );
 
 	$dbr = wfGetDB( DB_REPLICA );
-	$dbw = wfGetDB( DB_MASTER );
+	$dbw = wfGetDB( DB_PRIMARY );
 
 	if ( strtolower( get_class( $stub ) ) !== 'historyblobstub' ) {
 		print "Error found object of class " . get_class( $stub ) . ", expecting historyblobstub\n";
@@ -87,7 +90,7 @@ function resolveStub( $id, $stubText, $flags ) {
 		'text',
 		[ 'old_text' ],
 		[
-			'old_id' => $stub->mOldId,
+			'old_id' => $stub->getLocation(),
 			'old_flags' . $dbr->buildLike( $dbr->anyString(), 'external', $dbr->anyString() )
 		],
 		$fname
@@ -110,7 +113,7 @@ function resolveStub( $id, $stubText, $flags ) {
 	$dbw->update( 'text',
 		[ /* SET */
 			'old_flags' => $newFlags,
-			'old_text' => $externalRow->old_text . '/' . $stub->mHash
+			'old_text' => $externalRow->old_text . '/' . $stub->getHash()
 		],
 		[ /* WHERE */
 			'old_id' => $id

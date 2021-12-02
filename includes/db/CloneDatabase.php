@@ -21,6 +21,7 @@
  * @ingroup Database
  */
 use MediaWiki\MediaWikiServices;
+use Wikimedia\Rdbms\ILoadBalancer;
 use Wikimedia\Rdbms\IMaintainableDatabase;
 
 class CloneDatabase {
@@ -70,9 +71,6 @@ class CloneDatabase {
 		$this->useTemporaryTables = $u;
 	}
 
-	/**
-	 * Clone the table structure
-	 */
 	public function cloneTableStructure() {
 		global $wgSharedTables, $wgSharedDB;
 		foreach ( $this->tablesToClone as $tbl ) {
@@ -93,23 +91,21 @@ class CloneDatabase {
 
 			// Postgres: Temp tables are automatically deleted upon end of session
 			//           Same Temp table name hides existing table for current session
-			if ( $this->dropCurrentTables
-				&& !in_array( $this->db->getType(), [ 'oracle' ] )
-			) {
+			if ( $this->dropCurrentTables ) {
 				if ( $oldTableName === $newTableName ) {
 					// Last ditch check to avoid data loss
 					throw new LogicException( "Not dropping new table, as '$newTableName'"
 						. " is name of both the old and the new table." );
 				}
 				$this->db->dropTable( $tbl, __METHOD__ );
-				wfDebug( __METHOD__ . " dropping {$newTableName}\n" );
+				wfDebug( __METHOD__ . " dropping {$newTableName}" );
 				// Dropping the oldTable because the prefix was changed
 			}
 
 			# Create new table
-			wfDebug( __METHOD__ . " duplicating $oldTableName to $newTableName\n" );
+			wfDebug( __METHOD__ . " duplicating $oldTableName to $newTableName" );
 			$this->db->duplicateTableStructure(
-				$oldTableName, $newTableName, $this->useTemporaryTables );
+				$oldTableName, $newTableName, $this->useTemporaryTables, __METHOD__ );
 		}
 	}
 
@@ -121,7 +117,7 @@ class CloneDatabase {
 		if ( $dropTables ) {
 			$this->db->tablePrefix( $this->newTablePrefix );
 			foreach ( $this->tablesToClone as $tbl ) {
-				$this->db->dropTable( $tbl );
+				$this->db->dropTable( $tbl, __METHOD__ );
 			}
 		}
 		$this->db->tablePrefix( $this->oldTablePrefix );
@@ -134,10 +130,19 @@ class CloneDatabase {
 	 * @return void
 	 */
 	public static function changePrefix( $prefix ) {
-		global $wgDBprefix;
+		global $wgDBprefix, $wgDBname;
 
 		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		$lbFactory->setLocalDomainPrefix( $prefix );
+
+		$aliases = [
+			$wgDBname => $lbFactory->getLocalDomainID()
+		];
+		$lbFactory->setDomainAliases( $aliases );
+		$lbFactory->forEachLB( static function ( ILoadBalancer $lb ) use ( $aliases ) {
+			$lb->setDomainAliases( $aliases );
+		} );
+
 		$wgDBprefix = $prefix;
 	}
 }

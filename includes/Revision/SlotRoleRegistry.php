@@ -24,7 +24,7 @@ namespace MediaWiki\Revision;
 
 use InvalidArgumentException;
 use LogicException;
-use MediaWiki\Linker\LinkTarget;
+use MediaWiki\Page\PageIdentity;
 use MediaWiki\Storage\NameTableStore;
 use Wikimedia\Assert\Assert;
 
@@ -82,6 +82,8 @@ class SlotRoleRegistry {
 	 *        Signature: function ( string $role ): SlotRoleHandler
 	 */
 	public function defineRole( $role, callable $instantiator ) {
+		$role = strtolower( $role );
+
 		if ( $this->isDefinedRole( $role ) ) {
 			throw new LogicException( "Role $role is already defined" );
 		}
@@ -102,12 +104,16 @@ class SlotRoleRegistry {
 	 *        for more information.
 	 * @param string $model A content model name, see ContentHandler
 	 * @param array $layout See SlotRoleHandler getOutputLayoutHints
+	 * @param bool $derived see SlotRoleHandler constructor
+	 * @since 1.36 optional $derived parameter added
 	 */
-	public function defineRoleWithModel( $role, $model, $layout = [] ) {
+	public function defineRoleWithModel( $role, $model, $layout = [], bool $derived = false ) {
+		$role = strtolower( $role );
+
 		$this->defineRole(
 			$role,
-			function ( $role ) use ( $model, $layout ) {
-				return new SlotRoleHandler( $role, $model, $layout );
+			static function ( $role ) use ( $model, $layout, $derived ) {
+				return new SlotRoleHandler( $role, $model, $layout, $derived );
 			}
 		);
 	}
@@ -122,6 +128,8 @@ class SlotRoleRegistry {
 	 *         FallbackSlotRoleHandler if the slot is "known" but not "defined".
 	 */
 	public function getRoleHandler( $role ) {
+		$role = strtolower( $role );
+
 		if ( !isset( $this->handlers[$role] ) ) {
 			if ( !$this->isDefinedRole( $role ) ) {
 				if ( $this->isKnownRole( $role ) ) {
@@ -156,11 +164,11 @@ class SlotRoleRegistry {
 	 *
 	 * All implementations of this method are required to return at least all "required" roles.
 	 *
-	 * @param LinkTarget $title
+	 * @param PageIdentity $page
 	 *
 	 * @return string[]
 	 */
-	public function getAllowedRoles( LinkTarget $title ) {
+	public function getAllowedRoles( PageIdentity $page ) {
 		// TODO: allow this to be overwritten per namespace (or page type)
 		// TODO: decide how to control which slots are offered for editing per default (T209927)
 		return $this->getDefinedRoles();
@@ -174,11 +182,11 @@ class SlotRoleRegistry {
 	 * All required roles are implicitly considered "allowed", so any roles
 	 * returned by this method will also be returned by getAllowedRoles().
 	 *
-	 * @param LinkTarget $title
+	 * @param PageIdentity $page
 	 *
 	 * @return string[]
 	 */
-	public function getRequiredRoles( LinkTarget $title ) {
+	public function getRequiredRoles( PageIdentity $page ) {
 		// TODO: allow this to be overwritten per namespace (or page type)
 		return [ 'main' ];
 	}
@@ -217,6 +225,7 @@ class SlotRoleRegistry {
 	 * @return bool
 	 */
 	public function isDefinedRole( $role ) {
+		$role = strtolower( $role );
 		return in_array( $role, $this->getDefinedRoles(), true );
 	}
 
@@ -228,6 +237,7 @@ class SlotRoleRegistry {
 	 * @return bool
 	 */
 	public function isKnownRole( $role ) {
+		$role = strtolower( $role );
 		return in_array( $role, $this->getKnownRoles(), true );
 	}
 

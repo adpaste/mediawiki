@@ -22,22 +22,25 @@
 
 namespace MediaWiki\Block;
 
+use MediaWiki\Block\Restriction\ActionRestriction;
 use MediaWiki\Block\Restriction\NamespaceRestriction;
 use MediaWiki\Block\Restriction\PageRestriction;
 use MediaWiki\Block\Restriction\Restriction;
 use MWException;
-use Wikimedia\Rdbms\IResultWrapper;
+use stdClass;
 use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IResultWrapper;
 
 class BlockRestrictionStore {
 
 	/**
 	 * Map of all of the restriction types.
 	 */
-	private $types = [
+	private const TYPES_MAP = [
 		PageRestriction::TYPE_ID => PageRestriction::class,
 		NamespaceRestriction::TYPE_ID => NamespaceRestriction::class,
+		ActionRestriction::TYPE_ID => ActionRestriction::class,
 	];
 
 	/**
@@ -45,8 +48,8 @@ class BlockRestrictionStore {
 	 */
 	private $loadBalancer;
 
-	/*
-	 * @param LoadBalancer $loadBalancer load balancer for acquiring database connections
+	/**
+	 * @param ILoadBalancer $loadBalancer load balancer for acquiring database connections
 	 */
 	public function __construct( ILoadBalancer $loadBalancer ) {
 		$this->loadBalancer = $loadBalancer;
@@ -65,7 +68,7 @@ class BlockRestrictionStore {
 			return [];
 		}
 
-		$db = $db ?: $this->loadBalancer->getConnection( DB_REPLICA );
+		$db = $db ?: $this->loadBalancer->getConnectionRef( DB_REPLICA );
 
 		$result = $db->select(
 			[ 'ipblocks_restrictions', 'page' ],
@@ -103,7 +106,7 @@ class BlockRestrictionStore {
 			return false;
 		}
 
-		$dbw = $this->loadBalancer->getConnection( DB_MASTER );
+		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
 
 		$dbw->insert(
 			'ipblocks_restrictions',
@@ -124,7 +127,7 @@ class BlockRestrictionStore {
 	 * @return bool
 	 */
 	public function update( array $restrictions ) {
-		$dbw = $this->loadBalancer->getConnection( DB_MASTER );
+		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
 
 		$dbw->startAtomic( __METHOD__ );
 
@@ -196,7 +199,7 @@ class BlockRestrictionStore {
 
 		$parentBlockId = (int)$parentBlockId;
 
-		$db = $this->loadBalancer->getConnection( DB_MASTER );
+		$db = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
 
 		$db->startAtomic( __METHOD__ );
 
@@ -224,12 +227,12 @@ class BlockRestrictionStore {
 	 * Delete the restrictions.
 	 *
 	 * @since 1.33
-	 * @param Restriction[]|null $restrictions
+	 * @param Restriction[] $restrictions
 	 * @throws MWException
 	 * @return bool
 	 */
 	public function delete( array $restrictions ) {
-		$dbw = $this->loadBalancer->getConnection( DB_MASTER );
+		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
 		$result = true;
 		foreach ( $restrictions as $restriction ) {
 			if ( !$restriction instanceof Restriction ) {
@@ -251,7 +254,7 @@ class BlockRestrictionStore {
 	}
 
 	/**
-	 * Delete the restrictions by Block ID.
+	 * Delete the restrictions by block ID.
 	 *
 	 * @since 1.33
 	 * @param int|array $blockId
@@ -259,7 +262,7 @@ class BlockRestrictionStore {
 	 * @return bool
 	 */
 	public function deleteByBlockId( $blockId ) {
-		$dbw = $this->loadBalancer->getConnection( DB_MASTER );
+		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
 		return $dbw->delete(
 			'ipblocks_restrictions',
 			[ 'ir_ipb_id' => $blockId ],
@@ -268,7 +271,7 @@ class BlockRestrictionStore {
 	}
 
 	/**
-	 * Delete the restrictions by Parent Block ID.
+	 * Delete the restrictions by parent block ID.
 	 *
 	 * @since 1.33
 	 * @param int|array $parentBlockId
@@ -276,7 +279,7 @@ class BlockRestrictionStore {
 	 * @return bool
 	 */
 	public function deleteByParentBlockId( $parentBlockId ) {
-		$dbw = $this->loadBalancer->getConnection( DB_MASTER );
+		$dbw = $this->loadBalancer->getConnectionRef( DB_PRIMARY );
 		return $dbw->deleteJoin(
 			'ipblocks_restrictions',
 			'ipblocks',
@@ -298,7 +301,7 @@ class BlockRestrictionStore {
 	 * @return bool
 	 */
 	public function equals( array $a, array $b ) {
-		$filter = function ( $restriction ) {
+		$filter = static function ( $restriction ) {
 			return $restriction instanceof Restriction;
 		};
 
@@ -321,7 +324,7 @@ class BlockRestrictionStore {
 			return true;
 		}
 
-		$hasher = function ( $r ) {
+		$hasher = static function ( $r ) {
 			return $r->getHash();
 		};
 
@@ -370,7 +373,7 @@ class BlockRestrictionStore {
 	 * @return array
 	 */
 	private function restrictionsToRemove( array $existing, array $new ) {
-		return array_filter( $existing, function ( $e ) use ( $new ) {
+		return array_filter( $existing, static function ( $e ) use ( $new ) {
 			foreach ( $new as $restriction ) {
 				if ( !$restriction instanceof Restriction ) {
 					continue;
@@ -435,12 +438,12 @@ class BlockRestrictionStore {
 	/**
 	 * Convert a result row from the database into a restriction object.
 	 *
-	 * @param \stdClass $row
+	 * @param stdClass $row
 	 * @return Restriction|null
 	 */
-	private function rowToRestriction( \stdClass $row ) {
-		if ( array_key_exists( (int)$row->ir_type, $this->types ) ) {
-			$class = $this->types[ (int)$row->ir_type ];
+	private function rowToRestriction( stdClass $row ) {
+		if ( array_key_exists( (int)$row->ir_type, self::TYPES_MAP ) ) {
+			$class = self::TYPES_MAP[ (int)$row->ir_type ];
 			return call_user_func( [ $class, 'newFromRow' ], $row );
 		}
 

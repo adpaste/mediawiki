@@ -19,7 +19,7 @@ class JavaScriptContentTest extends TextContentTest {
 				'MediaWiki:Test.js',
 				null,
 				"hello <world>\n",
-				"<pre class=\"mw-code mw-js\" dir=\"ltr\">\nhello &lt;world&gt;\n\n</pre>"
+				"<pre class=\"mw-code mw-js\" dir=\"ltr\">\nhello &lt;world>\n\n</pre>"
 			],
 			[
 				'MediaWiki:Test.js',
@@ -112,19 +112,6 @@ class JavaScriptContentTest extends TextContentTest {
 			],
 			[ " Foo \n ",
 				" Foo",
-			],
-		];
-	}
-
-	public static function dataPreloadTransform() {
-		return [
-			[
-				'hello this is ~~~',
-				'hello this is ~~~',
-			],
-			[
-				'hello \'\'this\'\' is <noinclude>foo</noinclude><includeonly>bar</includeonly>',
-				'hello \'\'this\'\' is <noinclude>foo</noinclude><includeonly>bar</includeonly>',
 			],
 		];
 	}

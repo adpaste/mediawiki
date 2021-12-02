@@ -1,7 +1,5 @@
 <?php
 /**
- * Abstraction for ResourceLoader modules that pull from wiki pages.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -23,10 +21,14 @@
  */
 
 use MediaWiki\Linker\LinkTarget;
-use Wikimedia\Assert\Assert;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\PageIdentity;
+use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\SlotRecord;
+use Wikimedia\Minify\CSSMin;
 use Wikimedia\Rdbms\Database;
 use Wikimedia\Rdbms\IDatabase;
-use MediaWiki\MediaWikiServices;
+use Wikimedia\Timestamp\ConvertibleTimestamp;
 
 /**
  * Abstraction for ResourceLoader modules which pull from wiki pages
@@ -47,34 +49,39 @@ use MediaWiki\MediaWikiServices;
  *   - getDB()
  *   - isKnownEmpty()
  *   - getTitleInfo()
+ *
+ * @ingroup ResourceLoader
+ * @since 1.17
  */
 class ResourceLoaderWikiModule extends ResourceLoaderModule {
-
-	// Origin defaults to users with sitewide authority
+	/** @var string Origin defaults to users with sitewide authority */
 	protected $origin = self::ORIGIN_USER_SITEWIDE;
 
-	// In-process cache for title info, structured as an array
-	// [
-	//  <batchKey> // Pipe-separated list of sorted keys from getPages
-	//   => [
-	//     <titleKey> => [ // Normalised title key
-	//       'page_len' => ..,
-	//       'page_latest' => ..,
-	//       'page_touched' => ..,
-	//     ]
-	//   ]
-	// ]
-	// @see self::fetchTitleInfo()
-	// @see self::makeTitleKey()
+	/**
+	 * In-process cache for title info, structured as an array
+	 * [
+	 *  <batchKey> // Pipe-separated list of sorted keys from getPages
+	 *   => [
+	 *     <titleKey> => [ // Normalised title key
+	 *       'page_len' => ..,
+	 *       'page_latest' => ..,
+	 *       'page_touched' => ..,
+	 *     ]
+	 *   ]
+	 * ]
+	 * @see self::fetchTitleInfo()
+	 * @see self::makeTitleKey()
+	 * @var array
+	 */
 	protected $titleInfo = [];
 
-	// List of page names that contain CSS
+	/** @var array List of page names that contain CSS */
 	protected $styles = [];
 
-	// List of page names that contain JavaScript
+	/** @var array List of page names that contain JavaScript */
 	protected $scripts = [];
 
-	// Group of module
+	/** @var string|null Group of module */
 	protected $group;
 
 	/**
@@ -82,7 +89,7 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 	 *  getPages.
 	 */
 	public function __construct( array $options = null ) {
-		if ( is_null( $options ) ) {
+		if ( $options === null ) {
 			return;
 		}
 
@@ -112,7 +119,8 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 	 * medium ('screen', 'print', etc.) of the stylesheet.
 	 *
 	 * @param ResourceLoaderContext $context
-	 * @return array
+	 * @return array[]
+	 * @phan-return array<string,array{type:string,media?:string}>
 	 */
 	protected function getPages( ResourceLoaderContext $context ) {
 		$config = $this->getConfig();
@@ -137,22 +145,25 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 	/**
 	 * Get group name
 	 *
-	 * @return string
+	 * @return string|null
 	 */
 	public function getGroup() {
 		return $this->group;
 	}
 
 	/**
-	 * Get the Database object used in getTitleInfo().
+	 * Get the Database handle used for computing the module version.
 	 *
-	 * Defaults to the local replica DB. Subclasses may want to override this to return a foreign
-	 * database object, or null if getTitleInfo() shouldn't access the database.
+	 * Subclasses may override this to return a foreign database, which would
+	 * allow them to register a module on wiki A that fetches wiki pages from
+	 * wiki B.
 	 *
-	 * NOTE: This ONLY works for getTitleInfo() and isKnownEmpty(), NOT FOR ANYTHING ELSE.
-	 * In particular, it doesn't work for getContent() or getScript() etc.
+	 * The way this works is that the local module is a placeholder that can
+	 * only computer a module version hash. The 'source' of the module must
+	 * be set to the foreign wiki directly. Methods getScript() and getContent()
+	 * will not use this handle and are not valid on the local wiki.
 	 *
-	 * @return IDatabase|null
+	 * @return IDatabase
 	 */
 	protected function getDB() {
 		return wfGetDB( DB_REPLICA );
@@ -160,12 +171,13 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 
 	/**
 	 * @param string $titleText
-	 * @param ResourceLoaderContext|null $context (but passing null is deprecated)
+	 * @param ResourceLoaderContext $context
 	 * @return null|string
 	 * @since 1.32 added the $context parameter
 	 */
-	protected function getContent( $titleText, ResourceLoaderContext $context = null ) {
-		$title = Title::newFromText( $titleText );
+	protected function getContent( $titleText, ResourceLoaderContext $context ) {
+		$pageStore = MediaWikiServices::getInstance()->getPageStore();
+		$title = $pageStore->getPageByText( $titleText );
 		if ( !$title ) {
 			return null; // Bad title
 		}
@@ -188,47 +200,45 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 	}
 
 	/**
-	 * @param Title $title
-	 * @param ResourceLoaderContext|null $context (but passing null is deprecated)
+	 * @param PageIdentity $page
+	 * @param ResourceLoaderContext $context
 	 * @param int|null $maxRedirects Maximum number of redirects to follow. If
 	 *  null, uses $wgMaxRedirects
 	 * @return Content|null
 	 * @since 1.32 added the $context and $maxRedirects parameters
 	 */
 	protected function getContentObj(
-		Title $title, ResourceLoaderContext $context = null, $maxRedirects = null
+		PageIdentity $page, ResourceLoaderContext $context, $maxRedirects = null
 	) {
-		if ( $context === null ) {
-			wfDeprecated( __METHOD__ . ' without a ResourceLoader context', '1.32' );
-		}
-
-		$overrideCallback = $context ? $context->getContentOverrideCallback() : null;
-		$content = $overrideCallback ? call_user_func( $overrideCallback, $title ) : null;
+		$overrideCallback = $context->getContentOverrideCallback();
+		$content = $overrideCallback ? call_user_func( $overrideCallback, $page ) : null;
 		if ( $content ) {
 			if ( !$content instanceof Content ) {
 				$this->getLogger()->error(
 					'Bad content override for "{title}" in ' . __METHOD__,
-					[ 'title' => $title->getPrefixedText() ]
+					[ 'title' => (string)$page ]
 				);
 				return null;
 			}
 		} else {
-			$revision = Revision::newKnownCurrent( wfGetDB( DB_REPLICA ), $title );
+			$revision = MediaWikiServices::getInstance()
+				->getRevisionLookup()
+				->getKnownCurrentRevision( $page );
 			if ( !$revision ) {
 				return null;
 			}
-			$content = $revision->getContent( Revision::RAW );
+			$content = $revision->getContent( SlotRecord::MAIN, RevisionRecord::RAW );
 
 			if ( !$content ) {
 				$this->getLogger()->error(
 					'Failed to load content of JS/CSS page "{title}" in ' . __METHOD__,
-					[ 'title' => $title->getPrefixedText() ]
+					[ 'title' => (string)$page ]
 				);
 				return null;
 			}
 		}
 
-		if ( $content && $content->isRedirect() ) {
+		if ( $content->isRedirect() ) {
 			if ( $maxRedirects === null ) {
 				$maxRedirects = $this->getConfig()->get( 'MaxRedirects' ) ?: 0;
 			}
@@ -296,8 +306,20 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 			if ( $this->getFlip( $context ) ) {
 				$style = CSSJanus::transform( $style, true, false );
 			}
-			$style = MemoizedCallable::call( 'CSSMin::remap',
-				[ $style, false, $this->getConfig()->get( 'ScriptPath' ), true ] );
+			$remoteDir = $this->getConfig()->get( 'ScriptPath' );
+			if ( $remoteDir === '' ) {
+				// When the site is configured with the script path at the
+				// document root, MediaWiki uses an empty string but that is
+				// not a valid URI path. Expand to a slash to avoid fatals
+				// later in CSSMin::resolveUrl().
+				// See also ResourceLoaderFilePath::extractBasePaths, T282280.
+				$remoteDir = '/';
+			}
+
+			$style = MemoizedCallable::call(
+				[ CSSMin::class, 'remap' ],
+				[ $style, false, $remoteDir, true ]
+			);
 			if ( !isset( $styles[$media] ) ) {
 				$styles[$media] = [];
 			}
@@ -375,14 +397,10 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 	/**
 	 * Get the information about the wiki pages for a given context.
 	 * @param ResourceLoaderContext $context
-	 * @return array Keyed by page name
+	 * @return array[] Keyed by page name
 	 */
 	protected function getTitleInfo( ResourceLoaderContext $context ) {
 		$dbr = $this->getDB();
-		if ( !$dbr ) {
-			// We're dealing with a subclass that doesn't have a DB
-			return [];
-		}
 
 		$pageNames = array_keys( $this->getPages( $context ) );
 		sort( $pageNames );
@@ -403,7 +421,7 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 					$titleInfo[$title->getPrefixedText()] = [
 						'page_len' => $content->getSize(),
 						'page_latest' => 'TBD', // None available
-						'page_touched' => wfTimestamp( TS_MW ),
+						'page_touched' => ConvertibleTimestamp::now( TS_MW ),
 					];
 				}
 			}
@@ -412,9 +430,16 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 		return $titleInfo;
 	}
 
+	/**
+	 * @param IDatabase $db
+	 * @param array $pages
+	 * @param string $fname
+	 * @return array
+	 */
 	protected static function fetchTitleInfo( IDatabase $db, array $pages, $fname = __METHOD__ ) {
 		$titleInfo = [];
-		$batch = new LinkBatch;
+		$linkBatchFactory = MediaWikiServices::getInstance()->getLinkBatchFactory();
+		$batch = $linkBatchFactory->newLinkBatch();
 		foreach ( $pages as $titleText ) {
 			$title = Title::newFromText( $titleText );
 			if ( $title ) {
@@ -462,8 +487,8 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 			$module = $rl->getModule( $name );
 			if ( $module instanceof self ) {
 				$mDB = $module->getDB();
-				// Subclasses may disable getDB and implement getTitleInfo differently
-				if ( $mDB && $mDB->getDomainID() === $db->getDomainID() ) {
+				// Subclasses may implement getDB differently
+				if ( $mDB->getDomainID() === $db->getDomainID() ) {
 					$wikiModules[] = $module;
 					$allPages += $module->getPages( $context );
 				}
@@ -485,16 +510,16 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 
 		$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
 		$allInfo = $cache->getWithSetCallback(
-			$cache->makeGlobalKey( 'resourceloader', 'titleinfo', $db->getDomainID(), $hash ),
+			$cache->makeGlobalKey( 'resourceloader-titleinfo', $db->getDomainID(), $hash ),
 			$cache::TTL_HOUR,
-			function ( $curVal, &$ttl, array &$setOpts ) use ( $func, $pageNames, $db, $fname ) {
+			static function ( $curVal, &$ttl, array &$setOpts ) use ( $func, $pageNames, $db, $fname ) {
 				$setOpts += Database::getCacheSetOptions( $db );
 
 				return call_user_func( $func, $db, $pageNames, $fname );
 			},
 			[
 				'checkKeys' => [
-					$cache->makeGlobalKey( 'resourceloader', 'titleinfo', $db->getDomainID() ) ]
+					$cache->makeGlobalKey( 'resourceloader-titleinfo', $db->getDomainID() ) ]
 			]
 		);
 
@@ -526,32 +551,45 @@ class ResourceLoaderWikiModule extends ResourceLoaderModule {
 	 * Clear the preloadTitleInfo() cache for all wiki modules on this wiki on
 	 * page change if it was a JS or CSS page
 	 *
-	 * @param Title $title
-	 * @param Revision|null $old Prior page revision
-	 * @param Revision|null $new New page revision
+	 * @internal
+	 * @param PageIdentity $page
+	 * @param RevisionRecord|null $old Prior page revision
+	 * @param RevisionRecord|null $new New page revision
 	 * @param string $domain Database domain ID
-	 * @since 1.28
 	 */
 	public static function invalidateModuleCache(
-		Title $title, Revision $old = null, Revision $new = null, $domain
+		PageIdentity $page,
+		?RevisionRecord $old,
+		?RevisionRecord $new,
+		string $domain
 	) {
-		static $formats = [ CONTENT_FORMAT_CSS, CONTENT_FORMAT_JAVASCRIPT ];
+		static $models = [ CONTENT_MODEL_CSS, CONTENT_MODEL_JAVASCRIPT ];
 
-		Assert::parameterType( 'string', $domain, '$domain' );
-
+		$purge = false;
 		// TODO: MCR: differentiate between page functionality and content model!
 		//       Not all pages containing CSS or JS have to be modules! [PageType]
-		if ( $old && in_array( $old->getContentFormat(), $formats ) ) {
-			$purge = true;
-		} elseif ( $new && in_array( $new->getContentFormat(), $formats ) ) {
-			$purge = true;
-		} else {
+		if ( $old ) {
+			$oldModel = $old->getSlot( SlotRecord::MAIN, RevisionRecord::RAW )->getModel();
+			if ( in_array( $oldModel, $models ) ) {
+				$purge = true;
+			}
+		}
+
+		if ( !$purge && $new ) {
+			$newModel = $new->getSlot( SlotRecord::MAIN, RevisionRecord::RAW )->getModel();
+			if ( in_array( $newModel, $models ) ) {
+				$purge = true;
+			}
+		}
+
+		if ( !$purge ) {
+			$title = Title::castFromPageIdentity( $page );
 			$purge = ( $title->isSiteConfigPage() || $title->isUserConfigPage() );
 		}
 
 		if ( $purge ) {
 			$cache = MediaWikiServices::getInstance()->getMainWANObjectCache();
-			$key = $cache->makeGlobalKey( 'resourceloader', 'titleinfo', $domain );
+			$key = $cache->makeGlobalKey( 'resourceloader-titleinfo', $domain );
 			$cache->touchCheckKey( $key );
 		}
 	}

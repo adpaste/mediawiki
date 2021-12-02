@@ -30,6 +30,7 @@
  * Base interface for content objects.
  *
  * @ingroup Content
+ * @unstable for implementation, extensions should extend AbstractContent instead.
  */
 interface Content {
 
@@ -269,7 +270,8 @@ interface Content {
 	 *       may call ParserOutput::recordOption() on the output object.
 	 *
 	 * @param Title $title The page title to use as a context for rendering.
-	 * @param int|null $revId Optional revision ID being rendered.
+	 * @param int|null $revId ID of the revision being rendered.
+	 *  See Parser::parse() for the ramifications. (default: null)
 	 * @param ParserOptions|null $options Any parser options.
 	 * @param bool $generateHtml Whether to generate HTML (default: true). If false,
 	 *        the result of calling getText() on the ParserOutput object returned by
@@ -283,36 +285,6 @@ interface Content {
 		ParserOptions $options = null, $generateHtml = true );
 
 	// TODO: make RenderOutput and RenderOptions base classes
-
-	/**
-	 * Returns a list of DataUpdate objects for recording information about this
-	 * Content in some secondary data store. If the optional second argument,
-	 * $old, is given, the updates may model only the changes that need to be
-	 * made to replace information about the old content with information about
-	 * the new content.
-	 *
-	 * @deprecated since 1.32, call and override
-	 *   ContentHandler::getSecondaryDataUpdates instead.
-	 *
-	 * @note Implementations should call the SecondaryDataUpdates hook, like
-	 *   AbstractContent does.
-	 *
-	 * @param Title $title The context for determining the necessary updates
-	 * @param Content|null $old An optional Content object representing the
-	 *    previous content, i.e. the content being replaced by this Content
-	 *    object.
-	 * @param bool $recursive Whether to include recursive updates (default:
-	 *    false).
-	 * @param ParserOutput|null $parserOutput Optional ParserOutput object.
-	 *    Provide if you have one handy, to avoid re-parsing of the content.
-	 *
-	 * @return DataUpdate[] A list of DataUpdate objects for putting information
-	 *    about this content object somewhere.
-	 *
-	 * @since 1.21
-	 */
-	public function getSecondaryDataUpdates( Title $title, Content $old = null,
-		$recursive = true, ParserOutput $parserOutput = null );
 
 	/**
 	 * Construct the redirect destination from this content and return an
@@ -334,7 +306,7 @@ interface Content {
 	 *
 	 * @since 1.21
 	 *
-	 * @return Title|null The corresponding Title.
+	 * @return Title|null
 	 */
 	public function getRedirectTarget();
 
@@ -406,7 +378,7 @@ interface Content {
 	 * @param Content $with New content of the section
 	 * @param string $sectionTitle New section's subject, only if $section is 'new'
 	 *
-	 * @return string|null Complete article text, or null if error
+	 * @return Content|null New content of the entire page, or null if error
 	 */
 	public function replaceSection( $sectionId, Content $with, $sectionTitle = '' );
 
@@ -415,7 +387,8 @@ interface Content {
 	 * object if no transformations apply).
 	 *
 	 * @since 1.21
-	 *
+	 * @deprecated since 1.37. Hard-deprecated since 1.37. Use ContentTransformer::preSaveTransform
+	 * and override ContentHandler::preSaveTransform.
 	 * @param Title $title
 	 * @param User $user
 	 * @param ParserOptions $parserOptions
@@ -442,7 +415,8 @@ interface Content {
 	 * object if no transformations apply).
 	 *
 	 * @since 1.21
-	 *
+	 * @deprecated since 1.37. Hard-deprecated since 1.37. Use ContentTransformer::preloadTransform
+	 * and override ContentHandler::preloadTransform.
 	 * @param Title $title
 	 * @param ParserOptions $parserOptions
 	 * @param array $params
@@ -452,7 +426,7 @@ interface Content {
 	public function preloadTransform( Title $title, ParserOptions $parserOptions, $params = [] );
 
 	/**
-	 * Prepare Content for saving. Called before Content is saved by WikiPage::doEditContent() and in
+	 * Prepare Content for saving. Called before Content is saved by WikiPage::doUserEditContent() and in
 	 * similar places.
 	 *
 	 * This may be used to check the content's consistency with global state. This function should
@@ -467,7 +441,7 @@ interface Content {
 	 * @since 1.21
 	 *
 	 * @param WikiPage $page The page to be saved.
-	 * @param int $flags Bitfield for use with EDIT_XXX constants, see WikiPage::doEditContent()
+	 * @param int $flags Bitfield for use with EDIT_XXX constants, see WikiPage::doUserEditContent()
 	 * @param int $parentRevId The ID of the current revision
 	 * @param User $user
 	 *
@@ -475,29 +449,9 @@ interface Content {
 	 *   successfully prepared for saving. If the returned status indicates
 	 *   an error, a rollback will be performed and the transaction aborted.
 	 *
-	 * @see WikiPage::doEditContent()
+	 * @see WikiPage::doUserEditContent()
 	 */
 	public function prepareSave( WikiPage $page, $flags, $parentRevId, User $user );
-
-	/**
-	 * Returns a list of updates to perform when this content is deleted.
-	 * The necessary updates may be taken from the Content object, or depend on
-	 * the current state of the database.
-	 *
-	 * @since 1.21
-	 * @deprecated since 1.32, call and override
-	 *   ContentHandler::getDeletionUpdates instead.
-	 *
-	 * @param WikiPage $page The page the content was deleted from.
-	 * @param ParserOutput|null $parserOutput Optional parser output object
-	 *    for efficient access to meta-information about the content object.
-	 *    Provide if you have one handy.
-	 *
-	 * @return DeferrableUpdate[] A list of DeferrableUpdate instances that will clean up the
-	 *    database after deletion.
-	 */
-	public function getDeletionUpdates( WikiPage $page,
-		ParserOutput $parserOutput = null );
 
 	/**
 	 * Returns true if this Content object matches the given magic word.
@@ -523,6 +477,7 @@ interface Content {
 	 * that conversion is not supported.
 	 */
 	public function convert( $toModel, $lossy = '' );
+
 	// @todo ImagePage and CategoryPage interfere with per-content action handlers
 	// @todo nice&sane integration of GeSHi syntax highlighting
 	//   [11:59] <vvv> Hooks are ugly; make CodeHighlighter interface and a

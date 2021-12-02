@@ -22,6 +22,8 @@
  * @since 1.25
  */
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * This class formats block log entries.
  *
@@ -56,6 +58,7 @@ class BlockLogFormatter extends LogFormatter {
 			// in English to help visitors from other wikis.
 			// The lrm is needed to make sure that the number
 			// is shown on the correct side of the tooltip text.
+			// @phan-suppress-next-line SecurityCheck-DoubleEscaped
 			$durationTooltip = '&lrm;' . htmlspecialchars( $params[4] );
 			$blockExpiry = $this->context->getLanguage()->translateBlockExpiry(
 				$params[4],
@@ -67,7 +70,8 @@ class BlockLogFormatter extends LogFormatter {
 			} else {
 				$params[4] = Message::rawParam(
 					"<span class=\"blockExpiry\" title=\"$durationTooltip\">" .
-					$blockExpiry .
+					// @phan-suppress-next-line SecurityCheck-DoubleEscaped language class does not escape
+					htmlspecialchars( $blockExpiry ) .
 					'</span>'
 				);
 			}
@@ -84,12 +88,17 @@ class BlockLogFormatter extends LogFormatter {
 				$namespaces = $params[6]['namespaces'] ?? [];
 				$namespaces = array_map( function ( $ns ) {
 					$text = (int)$ns === NS_MAIN
-						? $this->msg( 'blanknamespace' )->text()
-						: $this->context->getLanguage()->getFormattedNsText( $ns );
+						? $this->msg( 'blanknamespace' )->escaped()
+						: htmlspecialchars( $this->context->getLanguage()->getFormattedNsText( $ns ) );
 					$params = [ 'namespace' => $ns ];
 
 					return $this->makePageLink( SpecialPage::getTitleFor( 'Allpages' ), $params, $text );
 				}, $namespaces );
+
+				$actions = $params[6]['actions'] ?? [];
+				$actions = array_map( function ( $actions ) {
+					return $this->msg( 'ipb-action-' . $actions )->text();
+				}, $actions );
 
 				$restrictions = [];
 				if ( $pages ) {
@@ -102,6 +111,13 @@ class BlockLogFormatter extends LogFormatter {
 					$restrictions[] = $this->msg( 'logentry-partialblock-block-ns' )
 						->numParams( count( $namespaces ) )
 						->rawParams( $this->context->getLanguage()->listToText( $namespaces ) )->text();
+				}
+				$enablePartialActionBlocks = MediaWikiServices::getInstance()
+					->getMainConfig()->get( 'EnablePartialActionBlocks' );
+				if ( $actions && $enablePartialActionBlocks ) {
+					$restrictions[] = $this->msg( 'logentry-partialblock-block-action' )
+						->numParams( count( $actions ) )
+						->rawParams( $this->context->getLanguage()->listToText( $actions ) )->text();
 				}
 
 				$params[6] = Message::rawParam( $this->context->getLanguage()->listToText( $restrictions ) );
@@ -126,11 +142,19 @@ class BlockLogFormatter extends LogFormatter {
 
 	public function getPreloadTitles() {
 		$title = $this->entry->getTarget();
+		$preload = [];
 		// Preload user page for non-autoblocks
-		if ( substr( $title->getText(), 0, 1 ) !== '#' ) {
-			return [ $title->getTalkPage() ];
+		if ( substr( $title->getText(), 0, 1 ) !== '#' && $title->canExist() ) {
+			$preload[] = $title->getTalkPage();
 		}
-		return [];
+		// Preload page restriction
+		$params = $this->extractParameters();
+		if ( isset( $params[6]['pages'] ) ) {
+			foreach ( $params[6]['pages'] as $page ) {
+				$preload[] = Title::newFromText( $page );
+			}
+		}
+		return $preload;
 	}
 
 	public function getActionLinks() {
@@ -138,7 +162,7 @@ class BlockLogFormatter extends LogFormatter {
 		$linkRenderer = $this->getLinkRenderer();
 		if ( $this->entry->isDeleted( LogPage::DELETED_ACTION ) // Action is hidden
 			|| !( $subtype === 'block' || $subtype === 'reblock' )
-			|| !$this->context->getUser()->isAllowed( 'block' )
+			|| !$this->context->getAuthority()->isAllowed( 'block' )
 		) {
 			return '';
 		}
@@ -187,7 +211,7 @@ class BlockLogFormatter extends LogFormatter {
 	/**
 	 * Translate a block log flag if possible
 	 *
-	 * @param int $flag Flag to translate
+	 * @param string $flag Flag to translate
 	 * @param Language $lang Language object to use
 	 * @return string
 	 */
@@ -245,6 +269,7 @@ class BlockLogFormatter extends LogFormatter {
 			];
 
 			if ( !is_array( $params['6:array:flags'] ) ) {
+				// @phan-suppress-next-line PhanSuspiciousValueComparison
 				$params['6:array:flags'] = $params['6:array:flags'] === ''
 					? []
 					: explode( ',', $params['6:array:flags'] );
@@ -262,6 +287,10 @@ class BlockLogFormatter extends LogFormatter {
 		return $params;
 	}
 
+	/**
+	 * @inheritDoc
+	 * @suppress PhanTypeInvalidDimOffset
+	 */
 	public function formatParametersForApi() {
 		$ret = parent::formatParametersForApi();
 		if ( isset( $ret['flags'] ) ) {

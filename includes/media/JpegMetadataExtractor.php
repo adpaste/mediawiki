@@ -32,11 +32,11 @@ use Wikimedia\XMPReader\Reader as XMPReader;
  * @ingroup Media
  */
 class JpegMetadataExtractor {
-	const MAX_JPEG_SEGMENTS = 200;
-
-	// the max segment is a sanity check.
-	// A jpeg file should never even remotely have
-	// that many segments. Your average file has about 10.
+	/**
+	 * The max segment is a sanity check. A JPEG file should never even remotely have
+	 * that many segments. Your average file has about 10.
+	 */
+	private const MAX_JPEG_SEGMENTS = 200;
 
 	/** Function to extract metadata segments of interest from jpeg files
 	 * based on GIFMetadataExtractor.
@@ -49,7 +49,7 @@ class JpegMetadataExtractor {
 	 * @return array Array of interesting segments.
 	 * @throws MWException If given invalid file.
 	 */
-	static function segmentSplitter( $filename ) {
+	public static function segmentSplitter( $filename ) {
 		$showXMP = XMPReader::isSupported();
 
 		$segmentCount = 0;
@@ -114,7 +114,7 @@ class JpegMetadataExtractor {
 				if ( $com === $oldCom ) {
 					$segments["COM"][] = $oldCom;
 				} else {
-					wfDebug( __METHOD__ . " Ignoring JPEG comment as is garbage.\n" );
+					wfDebug( __METHOD__ . " Ignoring JPEG comment as is garbage." );
 				}
 			} elseif ( $buffer === "\xE1" ) {
 				// APP1 section (Exif, XMP, and XMP extended)
@@ -134,7 +134,7 @@ class JpegMetadataExtractor {
 					// use trim to remove trailing \0 chars
 					$segments["XMP"] = trim( substr( $temp, 29 ) );
 					wfDebug( __METHOD__ . ' Found XMP section with wrong app identifier '
-						. "Using anyways.\n" );
+						. "Using anyways." );
 				} elseif ( substr( $temp, 0, 6 ) === "Exif\0\0" ) {
 					// Just need to find out what the byte order is.
 					// because php's exif plugin sucks...
@@ -145,7 +145,7 @@ class JpegMetadataExtractor {
 					} elseif ( $byteOrderMarker === 'II' ) {
 						$segments['byteOrder'] = 'LE';
 					} else {
-						wfDebug( __METHOD__ . " Invalid byte ordering?!\n" );
+						wfDebug( __METHOD__ . " Invalid byte ordering?!" );
 					}
 				}
 			} elseif ( $buffer === "\xED" ) {
@@ -157,6 +157,13 @@ class JpegMetadataExtractor {
 			} elseif ( $buffer === "\xD9" || $buffer === "\xDA" ) {
 				// EOI - end of image or SOS - start of scan. either way we're past any interesting segments
 				return $segments;
+			} elseif ( in_array( $buffer, [
+				"\xC0", "\xC1", "\xC2", "\xC3", "\xC5", "\xC6", "\xC7",
+				"\xC9", "\xCA", "\xCB", "\xCD", "\xCE", "\xCF" ] )
+			) {
+				// SOF0, SOF1, SOF2, ... (same list as getimagesize)
+				$temp = self::jpegExtractMarker( $fh );
+				$segments["SOF"] = wfUnpack( 'Cbits/nheight/nwidth/Ccomponents', $temp );
 			} else {
 				// segment we don't care about, so skip
 				$size = wfUnpack( "nint", fread( $fh, 2 ), 2 );

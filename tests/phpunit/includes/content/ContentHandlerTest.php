@@ -1,4 +1,5 @@
 <?php
+
 use MediaWiki\MediaWikiServices;
 use Wikimedia\TestingAccessWrapper;
 
@@ -6,9 +7,9 @@ use Wikimedia\TestingAccessWrapper;
  * @group ContentHandler
  * @group Database
  */
-class ContentHandlerTest extends MediaWikiTestCase {
+class ContentHandlerTest extends MediaWikiIntegrationTestCase {
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->setMwGlobals( [
@@ -28,7 +29,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 				CONTENT_MODEL_CSS => CssContentHandler::class,
 				CONTENT_MODEL_TEXT => TextContentHandler::class,
 				'testing' => DummyContentHandlerForTesting::class,
-				'testing-callbacks' => function ( $modelId ) {
+				'testing-callbacks' => static function ( $modelId ) {
 					return new DummyContentHandlerForTesting( $modelId );
 				}
 			],
@@ -38,7 +39,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		MediaWikiServices::getInstance()->resetServiceForTesting( 'LinkCache' );
 	}
 
-	protected function tearDown() {
+	protected function tearDown(): void {
 		// Reset LinkCache
 		MediaWikiServices::getInstance()->resetServiceForTesting( 'LinkCache' );
 
@@ -92,6 +93,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 	 * @covers ContentHandler::getForTitle
 	 */
 	public function testGetForTitle( $title, $expectedContentModel ) {
+		$this->hideDeprecated( 'ContentHandler::getForTitle' );
 		$title = Title::newFromText( $title );
 		MediaWikiServices::getInstance()->getLinkCache()->addBadLinkObj( $title );
 		$handler = ContentHandler::getForTitle( $title );
@@ -155,7 +157,9 @@ class ContentHandlerTest extends MediaWikiTestCase {
 
 		$expected = wfGetLangObj( $expected );
 
-		$handler = ContentHandler::getForTitle( $title );
+		$handler = MediaWikiServices::getInstance()
+			->getContentHandlerFactory()
+			->getContentHandler( $title->getContentModel() );
 		$lang = $handler->getPageLanguage( $title );
 
 		$this->assertInstanceOf( Language::class, $lang );
@@ -180,7 +184,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		$content = null;
 
 		$text = ContentHandler::getContentText( $content );
-		$this->assertEquals( '', $text );
+		$this->assertSame( '', $text );
 	}
 
 	public static function dataGetContentText_TextContent() {
@@ -206,7 +210,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 
 	/**
 	 * ContentHandler::getContentText should have thrown an exception for non-text Content object
-	 * @expectedException MWException
+	 *
 	 * @covers ContentHandler::getContentText
 	 */
 	public function testGetContentText_NonTextContent_fail() {
@@ -214,6 +218,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 
 		$content = new DummyContentForTesting( "hello world" );
 
+		$this->expectException( MWException::class );
 		ContentHandler::getContentText( $content );
 	}
 
@@ -336,7 +341,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 			wfMessage( 'autosumm-newblank' )->inContentLanguage()->text() );
 		// now check, what we become with another bitmask
 		$autoSummary = $content->getAutosummary( null, $newContent, 92 );
-		$this->assertEquals( $autoSummary, '' );
+		$this->assertSame( '', $autoSummary );
 	}
 
 	/**
@@ -352,7 +357,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		$newContent = ContentHandler::makeContent( '', null, CONTENT_MODEL_WIKITEXT, null );
 		// Get the tag for this edit
 		$tag = $wikitextContentHandler->getChangeTag( $oldContent, $newContent, EDIT_UPDATE );
-		$this->assertSame( $tag, 'mw-contentmodelchange' );
+		$this->assertSame( 'mw-contentmodelchange', $tag );
 	}
 
 	/**
@@ -424,9 +429,8 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		$searchEngine = $this->getMockBuilder( SearchEngine::class )
 			->getMock();
 
-		$searchEngine->expects( $this->any() )
-			->method( 'makeSearchFieldMapping' )
-			->will( $this->returnCallback( function ( $name, $type ) {
+		$searchEngine->method( 'makeSearchFieldMapping' )
+			->will( $this->returnCallback( static function ( $name, $type ) {
 					return new DummySearchIndexFieldDefinition( $name, $type );
 			} ) );
 
@@ -442,7 +446,7 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		$page = new WikiPage( $title );
 
 		$this->setTemporaryHook( 'SearchDataForIndex',
-			function (
+			static function (
 				&$fields,
 				ContentHandler $handler,
 				WikiPage $page,
@@ -471,14 +475,14 @@ class ContentHandlerTest extends MediaWikiTestCase {
 
 		$out = $page->getContentHandler()->getParserOutputForIndexing( $page );
 		$this->assertInstanceOf( ParserOutput::class, $out );
-		$this->assertContains( 'one who smiths', $out->getRawText() );
+		$this->assertStringContainsString( 'one who smiths', $out->getRawText() );
 	}
 
 	/**
 	 * @covers ContentHandler::getContentModels
 	 */
 	public function testGetContentModelsHook() {
-		$this->setTemporaryHook( 'GetContentModels', function ( &$models ) {
+		$this->setTemporaryHook( 'GetContentModels', static function ( &$models ) {
 			$models[] = 'Ferrari';
 		} );
 		$this->assertContains( 'Ferrari', ContentHandler::getContentModels() );
@@ -514,12 +518,11 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		$customDifferenceEngine->objectId = 12345;
 		$customContentHandler = $this->getMockBuilder( ContentHandler::class )
 			->setConstructorArgs( [ 'foo', [] ] )
-			->setMethods( [ 'createDifferenceEngine' ] )
+			->onlyMethods( [ 'createDifferenceEngine' ] )
 			->getMockForAbstractClass();
-		$customContentHandler->expects( $this->any() )
-			->method( 'createDifferenceEngine' )
+		$customContentHandler->method( 'createDifferenceEngine' )
 			->willReturn( $customDifferenceEngine );
-		/** @var $customContentHandler ContentHandler */
+		/** @var ContentHandler $customContentHandler */
 		$slotDiffRenderer = $customContentHandler->getSlotDiffRenderer( RequestContext::getMain() );
 		$this->assertInstanceOf( DifferenceEngineSlotDiffRenderer::class, $slotDiffRenderer );
 		$this->assertSame(
@@ -545,15 +548,13 @@ class ContentHandlerTest extends MediaWikiTestCase {
 			->getMockForAbstractClass();
 		$customContentHandler2 = $this->getMockBuilder( ContentHandler::class )
 			->setConstructorArgs( [ 'bar', [] ] )
-			->setMethods( [ 'createDifferenceEngine', 'getSlotDiffRendererInternal' ] )
+			->onlyMethods( [ 'createDifferenceEngine', 'getSlotDiffRendererInternal' ] )
 			->getMockForAbstractClass();
-		$customContentHandler2->expects( $this->any() )
-			->method( 'createDifferenceEngine' )
+		$customContentHandler2->method( 'createDifferenceEngine' )
 			->willReturn( $customDifferenceEngine );
-		$customContentHandler2->expects( $this->any() )
-			->method( 'getSlotDiffRendererInternal' )
+		$customContentHandler2->method( 'getSlotDiffRendererInternal' )
 			->willReturn( $customSlotDiffRenderer );
-		/** @var $customContentHandler2 ContentHandler */
+		/** @var ContentHandler $customContentHandler2 */
 		$slotDiffRenderer = $customContentHandler2->getSlotDiffRenderer( RequestContext::getMain() );
 		$this->assertSame( $customSlotDiffRenderer, $slotDiffRenderer );
 	}
@@ -572,33 +573,30 @@ class ContentHandlerTest extends MediaWikiTestCase {
 			->getMock();
 		$customContentHandler = $this->getMockBuilder( ContentHandler::class )
 			->setConstructorArgs( [ 'foo', [] ] )
-			->setMethods( [ 'createDifferenceEngine' ] )
+			->onlyMethods( [ 'createDifferenceEngine' ] )
 			->getMockForAbstractClass();
-		$customContentHandler->expects( $this->any() )
-			->method( 'createDifferenceEngine' )
+		$customContentHandler->method( 'createDifferenceEngine' )
 			->willReturn( $customDifferenceEngine );
-		/** @var $customContentHandler ContentHandler */
+		/** @var ContentHandler $customContentHandler */
 
 		$customSlotDiffRenderer = $this->getMockBuilder( SlotDiffRenderer::class )
 			->disableOriginalConstructor()
 			->getMockForAbstractClass();
 		$customContentHandler2 = $this->getMockBuilder( ContentHandler::class )
 			->setConstructorArgs( [ 'bar', [] ] )
-			->setMethods( [ 'createDifferenceEngine', 'getSlotDiffRendererInternal' ] )
+			->onlyMethods( [ 'createDifferenceEngine', 'getSlotDiffRendererInternal' ] )
 			->getMockForAbstractClass();
-		$customContentHandler2->expects( $this->any() )
-			->method( 'createDifferenceEngine' )
+		$customContentHandler2->method( 'createDifferenceEngine' )
 			->willReturn( $customDifferenceEngine );
-		$customContentHandler2->expects( $this->any() )
-			->method( 'getSlotDiffRendererInternal' )
+		$customContentHandler2->method( 'getSlotDiffRendererInternal' )
 			->willReturn( $customSlotDiffRenderer );
-		/** @var $customContentHandler2 ContentHandler */
+		/** @var ContentHandler $customContentHandler2 */
 
 		$customSlotDiffRenderer2 = $this->getMockBuilder( SlotDiffRenderer::class )
 			->disableOriginalConstructor()
 			->getMockForAbstractClass();
 		$this->setTemporaryHook( 'GetSlotDiffRenderer',
-			function ( $handler, &$slotDiffRenderer ) use ( $customSlotDiffRenderer2 ) {
+			static function ( $handler, &$slotDiffRenderer ) use ( $customSlotDiffRenderer2 ) {
 				$slotDiffRenderer = $customSlotDiffRenderer2;
 			} );
 
@@ -608,4 +606,32 @@ class ContentHandlerTest extends MediaWikiTestCase {
 		$this->assertSame( $customSlotDiffRenderer2, $slotDiffRenderer );
 	}
 
+	public function providerGetPageViewLanguage() {
+		yield [ NS_FILE, 'sr', 'sr-ec', 'sr-ec' ];
+		yield [ NS_FILE, 'sr', 'sr', 'sr' ];
+		yield [ NS_MEDIAWIKI, 'sr-ec', 'sr', 'sr-ec' ];
+		yield [ NS_MEDIAWIKI, 'sr', 'sr-ec', 'sr' ];
+	}
+
+	/**
+	 * @dataProvider providerGetPageViewLanguage
+	 * @covers ContentHandler::getPageViewLanguage
+	 */
+	public function testGetPageViewLanguage( $namespace, $lang, $variant, $expected ) {
+		$contentHandler = $this->getMockBuilder( ContentHandler::class )
+			->disableOriginalConstructor()
+			->getMockForAbstractClass();
+
+		$title = Title::newFromText( "SimpleTitle", $namespace );
+
+		$this->setMwGlobals( [
+			'wgDefaultLanguageVariant' => $variant,
+		] );
+
+		$this->setUserLang( $lang );
+		$this->setContentLang( $lang );
+
+		$pageViewLanguage = $contentHandler->getPageViewLanguage( $title );
+		$this->assertEquals( $expected, $pageViewLanguage->getCode() );
+	}
 }

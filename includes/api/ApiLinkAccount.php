@@ -20,8 +20,8 @@
  * @file
  */
 
-use MediaWiki\Auth\AuthManager;
 use MediaWiki\Auth\AuthenticationResponse;
+use MediaWiki\Auth\AuthManager;
 
 /**
  * Link an account with AuthManager
@@ -30,8 +30,21 @@ use MediaWiki\Auth\AuthenticationResponse;
  */
 class ApiLinkAccount extends ApiBase {
 
-	public function __construct( ApiMain $main, $action ) {
+	/** @var AuthManager */
+	private $authManager;
+
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param AuthManager $authManager
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		AuthManager $authManager
+	) {
 		parent::__construct( $main, $action, 'link' );
+		$this->authManager = $authManager;
 	}
 
 	public function getFinalDescription() {
@@ -48,7 +61,7 @@ class ApiLinkAccount extends ApiBase {
 	}
 
 	public function execute() {
-		if ( !$this->getUser()->isLoggedIn() ) {
+		if ( !$this->getUser()->isRegistered() ) {
 			$this->dieWithError( 'apierror-mustbeloggedin-linkaccounts', 'notloggedin' );
 		}
 
@@ -67,14 +80,13 @@ class ApiLinkAccount extends ApiBase {
 			}
 		}
 
-		$helper = new ApiAuthManagerHelper( $this );
-		$manager = AuthManager::singleton();
+		$helper = new ApiAuthManagerHelper( $this, $this->authManager );
 
 		// Check security-sensitive operation status
 		$helper->securitySensitiveOperation( 'LinkAccounts' );
 
 		// Make sure it's possible to link accounts
-		if ( !$manager->canLinkAccounts() ) {
+		if ( !$this->authManager->canLinkAccounts() ) {
 			$this->getResult()->addValue( null, 'linkaccount', $helper->formatAuthenticationResponse(
 				AuthenticationResponse::newFail( $this->msg( 'userlogin-cannot-' . AuthManager::ACTION_LINK ) )
 			) );
@@ -84,10 +96,10 @@ class ApiLinkAccount extends ApiBase {
 		// Perform the link step
 		if ( $params['continue'] ) {
 			$reqs = $helper->loadAuthenticationRequests( AuthManager::ACTION_LINK_CONTINUE );
-			$res = $manager->continueAccountLink( $reqs );
+			$res = $this->authManager->continueAccountLink( $reqs );
 		} else {
 			$reqs = $helper->loadAuthenticationRequests( AuthManager::ACTION_LINK );
-			$res = $manager->beginAccountLink( $this->getUser(), $reqs, $params['returnurl'] );
+			$res = $this->authManager->beginAccountLink( $this->getUser(), $reqs, $params['returnurl'] );
 		}
 
 		$this->getResult()->addValue( null, 'linkaccount',

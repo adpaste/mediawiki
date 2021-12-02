@@ -23,6 +23,8 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\Watchlist\WatchlistManager;
 
 /**
  * Form for handling uploads and special page.
@@ -31,19 +33,46 @@ use MediaWiki\MediaWikiServices;
  * @ingroup Upload
  */
 class SpecialUpload extends SpecialPage {
+
+	/** @var LocalRepo */
+	private $localRepo;
+
+	/** @var UserOptionsLookup */
+	private $userOptionsLookup;
+
+	/** @var NamespaceInfo */
+	private $nsInfo;
+
+	/** @var WatchlistManager */
+	private $watchlistManager;
+
 	/**
-	 * Get data POSTed through the form and assign them to the object
-	 * @param WebRequest|null $request Data posted.
+	 * @param RepoGroup|null $repoGroup
+	 * @param UserOptionsLookup|null $userOptionsLookup
+	 * @param NamespaceInfo|null $nsInfo
+	 * @param WatchlistManager|null $watchlistManager
 	 */
-	public function __construct( $request = null ) {
+	public function __construct(
+		RepoGroup $repoGroup = null,
+		UserOptionsLookup $userOptionsLookup = null,
+		NamespaceInfo $nsInfo = null,
+		WatchlistManager $watchlistManager = null
+	) {
 		parent::__construct( 'Upload', 'upload' );
+		// This class is extended and therefor fallback to global state - T265300
+		$services = MediaWikiServices::getInstance();
+		$repoGroup = $repoGroup ?? $services->getRepoGroup();
+		$this->localRepo = $repoGroup->getLocalRepo();
+		$this->userOptionsLookup = $userOptionsLookup ?? $services->getUserOptionsLookup();
+		$this->nsInfo = $nsInfo ?? $services->getNamespaceInfo();
+		$this->watchlistManager = $watchlistManager ?? $services->getWatchlistManager();
 	}
 
 	public function doesWrites() {
 		return true;
 	}
 
-	/** Misc variables **/
+	/** Misc variables */
 
 	/** @var WebRequest|FauxRequest The request this form is supposed to handle */
 	public $mRequest;
@@ -56,21 +85,21 @@ class SpecialUpload extends SpecialPage {
 	public $mLocalFile;
 	public $mUploadClicked;
 
-	/** User input variables from the "description" section **/
+	/** User input variables from the "description" section */
 
 	/** @var string The requested target file name */
 	public $mDesiredDestName;
 	public $mComment;
 	public $mLicense;
 
-	/** User input variables from the root section **/
+	/** User input variables from the root section */
 
 	public $mIgnoreWarning;
 	public $mWatchthis;
 	public $mCopyrightStatus;
 	public $mCopyrightSource;
 
-	/** Hidden variables **/
+	/** Hidden variables */
 
 	public $mDestWarningAck;
 
@@ -84,8 +113,9 @@ class SpecialUpload extends SpecialPage {
 	/** @var bool Subclasses can use this to determine whether a file was uploaded */
 	public $mUploadSuccessful = false;
 
-	/** Text injection points for hooks not using HTMLForm **/
+	/** @var string Raw html injection point for hooks not using HTMLForm */
 	public $uploadFormTextTop;
+	/** @var string Raw html injection point for hooks not using HTMLForm */
 	public $uploadFormTextAfterSummary;
 
 	/**
@@ -109,7 +139,7 @@ class SpecialUpload extends SpecialPage {
 		$this->mDestWarningAck = $request->getText( 'wpDestFileWarningAck' );
 		$this->mIgnoreWarning = $request->getCheck( 'wpIgnoreWarning' )
 			|| $request->getCheck( 'wpUploadIgnoreWarning' );
-		$this->mWatchthis = $request->getBool( 'wpWatchthis' ) && $this->getUser()->isLoggedIn();
+		$this->mWatchthis = $request->getBool( 'wpWatchthis' ) && $this->getUser()->isRegistered();
 		$this->mCopyrightStatus = $request->getText( 'wpUploadCopyStatus' );
 		$this->mCopyrightSource = $request->getText( 'wpUploadSource' );
 
@@ -177,12 +207,22 @@ class SpecialUpload extends SpecialPage {
 
 		# Check blocks
 		if ( $user->isBlockedFromUpload() ) {
-			throw new UserBlockedError( $user->getBlock() );
+			throw new UserBlockedError(
+				$user->getBlock(),
+				$user,
+				$this->getLanguage(),
+				$this->getRequest()->getIP()
+			);
 		}
 
 		// Global blocks
 		if ( $user->isBlockedGlobally() ) {
-			throw new UserBlockedError( $user->getGlobalBlock() );
+			throw new UserBlockedError(
+				$user->getGlobalBlock(),
+				$user,
+				$this->getLanguage(),
+				$this->getRequest()->getIP()
+			);
 		}
 
 		# Check whether we actually want to allow changing stuff
@@ -204,10 +244,8 @@ class SpecialUpload extends SpecialPage {
 			$this->processUpload();
 		} else {
 			# Backwards compatibility hook
-			// Avoid PHP 7.1 warning of passing $this by reference
-			$upload = $this;
-			if ( !Hooks::run( 'UploadForm:initial', [ &$upload ] ) ) {
-				wfDebug( "Hook 'UploadForm:initial' broke output of the upload form\n" );
+			if ( !$this->getHookRunner()->onUploadForm_initial( $this ) ) {
+				wfDebug( "Hook 'UploadForm:initial' broke output of the upload form" );
 
 				return;
 			}
@@ -250,18 +288,25 @@ class SpecialUpload extends SpecialPage {
 		# Initialize form
 		$context = new DerivativeContext( $this->getContext() );
 		$context->setTitle( $this->getPageTitle() ); // Remove subpage
-		$form = new UploadForm( [
-			'watch' => $this->getWatchCheck(),
-			'forreupload' => $this->mForReUpload,
-			'sessionkey' => $sessionKey,
-			'hideignorewarning' => $hideIgnoreWarning,
-			'destwarningack' => (bool)$this->mDestWarningAck,
+		$form = new UploadForm(
+			[
+				'watch' => $this->getWatchCheck(),
+				'forreupload' => $this->mForReUpload,
+				'sessionkey' => $sessionKey,
+				'hideignorewarning' => $hideIgnoreWarning,
+				'destwarningack' => (bool)$this->mDestWarningAck,
 
-			'description' => $this->mComment,
-			'texttop' => $this->uploadFormTextTop,
-			'textaftersummary' => $this->uploadFormTextAfterSummary,
-			'destfile' => $this->mDesiredDestName,
-		], $context, $this->getLinkRenderer() );
+				'description' => $this->mComment,
+				'texttop' => $this->uploadFormTextTop,
+				'textaftersummary' => $this->uploadFormTextAfterSummary,
+				'destfile' => $this->mDesiredDestName,
+			],
+			$context,
+			$this->getLinkRenderer(),
+			$this->localRepo,
+			$this->getContentLanguage(),
+			$this->nsInfo
+		);
 
 		# Check the token, but only if necessary
 		if (
@@ -276,12 +321,10 @@ class SpecialUpload extends SpecialPage {
 		$desiredTitleObj = Title::makeTitleSafe( NS_FILE, $this->mDesiredDestName );
 		$delNotice = ''; // empty by default
 		if ( $desiredTitleObj instanceof Title && !$desiredTitleObj->exists() ) {
-			$dbr = wfGetDB( DB_REPLICA );
-
 			LogEventsList::showLogExtract( $delNotice, [ 'delete', 'move' ],
 				$desiredTitleObj,
 				'', [ 'lim' => 10,
-					'conds' => [ 'log_action != ' . $dbr->addQuotes( 'revision' ) ],
+					'conds' => [ 'log_action != ' . $this->localRepo->getReplicaDB()->addQuotes( 'revision' ) ],
 					'showIfEmpty' => false,
 					'msgKey' => [ 'upload-recreate-warning' ] ]
 			);
@@ -313,14 +356,15 @@ class SpecialUpload extends SpecialPage {
 		$user = $this->getUser();
 		// Show a subtitle link to deleted revisions (to sysops et al only)
 		if ( $title instanceof Title ) {
-			$count = $title->isDeleted();
-			if ( $count > 0 && $user->isAllowed( 'deletedhistory' ) ) {
+			$count = $title->getDeletedEditsCount();
+			if ( $count > 0 && $this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
 				$restorelink = $this->getLinkRenderer()->makeKnownLink(
 					SpecialPage::getTitleFor( 'Undelete', $title->getPrefixedText() ),
 					$this->msg( 'restorelink' )->numParams( $count )->text()
 				);
-				$link = $this->msg( $user->isAllowed( 'delete' ) ? 'thisisdeleted' : 'viewdeleted' )
-					->rawParams( $restorelink )->parseAsBlock();
+				$link = $this->msg(
+					$this->getAuthority()->isAllowed( 'delete' ) ? 'thisisdeleted' : 'viewdeleted'
+				)->rawParams( $restorelink )->parseAsBlock();
 				$this->getOutput()->addHTML(
 					Html::rawElement(
 						'div',
@@ -352,8 +396,8 @@ class SpecialUpload extends SpecialPage {
 			$sessionKey = null;
 			$uploadWarning = 'upload-tryagain-nostash';
 		}
-		$message = '<h2>' . $this->msg( 'uploaderror' )->escaped() . "</h2>\n" .
-			'<div class="error">' . $message . "</div>\n";
+		$message = '<h2>' . $this->msg( 'uploaderror' )->escaped() . '</h2>' .
+			Html::errorBox( $message );
 
 		$form = $this->getUploadForm( $message, $sessionKey );
 		$form->setSubmitText( $this->msg( $uploadWarning )->escaped() );
@@ -451,7 +495,7 @@ class SpecialUpload extends SpecialPage {
 		$warningHtml .= $this->msg( $uploadWarning )->parseAsBlock();
 
 		$form = $this->getUploadForm( $warningHtml, $sessionKey, /* $hideIgnoreWarning */ true );
-		$form->setSubmitText( $this->msg( 'upload-tryagain' )->text() );
+		$form->setSubmitTextMsg( 'upload-tryagain' );
 		$form->addButton( [
 			'name' => 'wpUploadIgnoreWarning',
 			'value' => $this->msg( 'ignorewarning' )->text()
@@ -473,8 +517,8 @@ class SpecialUpload extends SpecialPage {
 	 * @param string $message HTML string
 	 */
 	protected function showUploadError( $message ) {
-		$message = '<h2>' . $this->msg( 'uploadwarning' )->escaped() . "</h2>\n" .
-			'<div class="error">' . $message . "</div>\n";
+		$message = '<h2>' . $this->msg( 'uploadwarning' )->escaped() . '</h2>' .
+			Html::errorBox( $message );
 		$this->showUploadForm( $this->getUploadForm( $message ) );
 	}
 
@@ -486,14 +530,14 @@ class SpecialUpload extends SpecialPage {
 		// Fetch the file if required
 		$status = $this->mUpload->fetchFile();
 		if ( !$status->isOK() ) {
-			$this->showUploadError( $this->getOutput()->parseAsInterface( $status->getWikiText() ) );
+			$this->showUploadError( $this->getOutput()->parseAsInterface(
+				$status->getWikiText( false, false, $this->getLanguage() )
+			) );
 
 			return;
 		}
-		// Avoid PHP 7.1 warning of passing $this by reference
-		$upload = $this;
-		if ( !Hooks::run( 'UploadForm:BeforeProcessing', [ &$upload ] ) ) {
-			wfDebug( "Hook 'UploadForm:BeforeProcessing' broke processing the file.\n" );
+		if ( !$this->getHookRunner()->onUploadForm_BeforeProcessing( $this ) ) {
+			wfDebug( "Hook 'UploadForm:BeforeProcessing' broke processing the file." );
 			// This code path is deprecated. If you want to break upload processing
 			// do so by hooking into the appropriate hooks in UploadBase::verifyUpload
 			// and UploadBase::verifyFile.
@@ -511,7 +555,8 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		// Verify permissions for this title
-		$permErrors = $this->mUpload->verifyTitlePermissions( $this->getUser() );
+		$user = $this->getUser();
+		$permErrors = $this->mUpload->verifyTitlePermissions( $user );
 		if ( $permErrors !== true ) {
 			$code = array_shift( $permErrors[0] );
 			$this->showRecoverableUploadError( $this->msg( $code, $permErrors[0] )->parse() );
@@ -523,14 +568,14 @@ class SpecialUpload extends SpecialPage {
 
 		// Check warnings if necessary
 		if ( !$this->mIgnoreWarning ) {
-			$warnings = $this->mUpload->checkWarnings();
+			$warnings = $this->mUpload->checkWarnings( $user );
 			if ( $this->showUploadWarning( $warnings ) ) {
 				return;
 			}
 		}
 
 		// This is as late as we can throttle, after expected issues have been handled
-		if ( UploadBase::isThrottled( $this->getUser() ) ) {
+		if ( UploadBase::isThrottled( $user ) ) {
 			$this->showRecoverableUploadError(
 				$this->msg( 'actionthrottledtext' )->escaped()
 			);
@@ -546,7 +591,7 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		$changeTags = $this->getRequest()->getVal( 'wpChangeTags' );
-		if ( is_null( $changeTags ) || $changeTags === '' ) {
+		if ( $changeTags === null || $changeTags === '' ) {
 			$changeTags = [];
 		} else {
 			$changeTags = array_filter( array_map( 'trim', explode( ',', $changeTags ) ) );
@@ -554,10 +599,10 @@ class SpecialUpload extends SpecialPage {
 
 		if ( $changeTags ) {
 			$changeTagsStatus = ChangeTags::canAddTagsAccompanyingChange(
-				$changeTags, $this->getUser() );
+				$changeTags, $user );
 			if ( !$changeTagsStatus->isOK() ) {
 				$this->showUploadError( $this->getOutput()->parseAsInterface(
-					$changeTagsStatus->getWikiText()
+					$changeTagsStatus->getWikiText( false, false, $this->getLanguage() )
 				) );
 
 				return;
@@ -568,13 +613,15 @@ class SpecialUpload extends SpecialPage {
 			$this->mComment,
 			$pageText,
 			$this->mWatchthis,
-			$this->getUser(),
+			$user,
 			$changeTags
 		);
 
 		if ( !$status->isGood() ) {
 			$this->showRecoverableUploadError(
-				$this->getOutput()->parseAsInterface( $status->getWikiText() )
+				$this->getOutput()->parseAsInterface(
+					$status->getWikiText( false, false, $this->getLanguage() )
+				)
 			);
 
 			return;
@@ -582,9 +629,7 @@ class SpecialUpload extends SpecialPage {
 
 		// Success, redirect to description page
 		$this->mUploadSuccessful = true;
-		// Avoid PHP 7.1 warning of passing $this by reference
-		$upload = $this;
-		Hooks::run( 'SpecialUploadComplete', [ &$upload ] );
+		$this->getHookRunner()->onSpecialUploadComplete( $this );
 		$this->getOutput()->redirect( $this->mLocalFile->getTitle()->getFullURL() );
 	}
 
@@ -640,7 +685,7 @@ class SpecialUpload extends SpecialPage {
 		}
 
 		// allow extensions to modify the content
-		Hooks::run( 'UploadForm:getInitialPageText', [ &$pageText, $msg, $config ] );
+		Hooks::runner()->onUploadForm_getInitialPageText( $pageText, $msg, $config );
 
 		return $pageText;
 	}
@@ -655,29 +700,31 @@ class SpecialUpload extends SpecialPage {
 	 *
 	 * Note that the page target can be changed *on the form*, so our check
 	 * state can get out of sync.
-	 * @return bool|string
+	 * @return bool
 	 */
 	protected function getWatchCheck() {
-		if ( $this->getUser()->getOption( 'watchdefault' ) ) {
+		$user = $this->getUser();
+		if ( $this->userOptionsLookup->getBoolOption( $user, 'watchdefault' ) ) {
 			// Watch all edits!
 			return true;
 		}
 
 		$desiredTitleObj = Title::makeTitleSafe( NS_FILE, $this->mDesiredDestName );
-		if ( $desiredTitleObj instanceof Title && $this->getUser()->isWatched( $desiredTitleObj ) ) {
+		if ( $desiredTitleObj instanceof Title &&
+			$this->watchlistManager->isWatched( $user, $desiredTitleObj ) ) {
 			// Already watched, don't change that
 			return true;
 		}
 
-		$local = wfLocalFile( $this->mDesiredDestName );
+		$local = $this->localRepo->newFile( $this->mDesiredDestName );
 		if ( $local && $local->exists() ) {
 			// We're uploading a new version of an existing file.
 			// No creation, so don't watch it if we're not already.
 			return false;
 		} else {
 			// New page should get watched if that's our option.
-			return $this->getUser()->getOption( 'watchcreations' ) ||
-				$this->getUser()->getOption( 'watchuploads' );
+			return $this->userOptionsLookup->getBoolOption( $user, 'watchcreations' ) ||
+				$this->userOptionsLookup->getBoolOption( $user, 'watchuploads' );
 		}
 	}
 
@@ -689,7 +736,7 @@ class SpecialUpload extends SpecialPage {
 	 */
 	protected function processVerificationError( $details ) {
 		switch ( $details['status'] ) {
-			/** Statuses that only require name changing **/
+			/** Statuses that only require name changing */
 			case UploadBase::MIN_LENGTH_PARTNAME:
 				$this->showRecoverableUploadError( $this->msg( 'minlength1' )->escaped() );
 				break;
@@ -707,7 +754,7 @@ class SpecialUpload extends SpecialPage {
 				$this->showRecoverableUploadError( $this->msg( 'windows-nonascii-filename' )->parse() );
 				break;
 
-			/** Statuses that require reuploading **/
+			/** Statuses that require reuploading */
 			case UploadBase::EMPTY_FILE:
 				$this->showUploadError( $this->msg( 'emptyfile' )->escaped() );
 				break;
@@ -780,7 +827,7 @@ class SpecialUpload extends SpecialPage {
 		}
 	}
 
-	/*** Functions for formatting warnings ***/
+	/** Functions for formatting warnings */
 
 	/**
 	 * Formats a result of UploadBase::getExistsWarning as HTML
@@ -820,7 +867,7 @@ class SpecialUpload extends SpecialPage {
 			$warnMsg = wfMessage( 'filename-bad-prefix', $exists['prefix'] );
 		}
 
-		return $warnMsg ? $warnMsg->title( $file->getTitle() )->parse() : '';
+		return $warnMsg ? $warnMsg->page( $file->getTitle() )->parse() : '';
 	}
 
 	/**

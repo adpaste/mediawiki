@@ -19,15 +19,23 @@
  * @ingroup Pager
  */
 
+use MediaWiki\Block\BlockActionInfo;
+use MediaWiki\Block\BlockRestrictionStore;
+use MediaWiki\Block\BlockUtils;
+use MediaWiki\Block\Restriction\ActionRestriction;
+use MediaWiki\Block\Restriction\NamespaceRestriction;
+use MediaWiki\Block\Restriction\PageRestriction;
+use MediaWiki\Block\Restriction\Restriction;
+use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\SpecialPage\SpecialPageFactory;
+use MediaWiki\User\UserIdentity;
+use Wikimedia\IPUtils;
+use Wikimedia\Rdbms\ILoadBalancer;
+use Wikimedia\Rdbms\IResultWrapper;
+
 /**
  * @ingroup Pager
  */
-use MediaWiki\Block\Restriction\Restriction;
-use MediaWiki\Block\Restriction\PageRestriction;
-use MediaWiki\Block\Restriction\NamespaceRestriction;
-use MediaWiki\MediaWikiServices;
-use Wikimedia\Rdbms\IResultWrapper;
-
 class BlockListPager extends TablePager {
 
 	protected $conds;
@@ -39,17 +47,59 @@ class BlockListPager extends TablePager {
 	 */
 	protected $restrictions = [];
 
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
+
+	/** @var BlockRestrictionStore */
+	private $blockRestrictionStore;
+
+	/** @var SpecialPageFactory */
+	private $specialPageFactory;
+
+	/** @var CommentStore */
+	private $commentStore;
+
+	/** @var BlockUtils */
+	private $blockUtils;
+
+	/** @var BlockActionInfo */
+	private $blockActionInfo;
+
 	/**
 	 * @param SpecialPage $page
 	 * @param array $conds
+	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param BlockRestrictionStore $blockRestrictionStore
+	 * @param ILoadBalancer $loadBalancer
+	 * @param SpecialPageFactory $specialPageFactory
+	 * @param CommentStore $commentStore
+	 * @param BlockUtils $blockUtils
+	 * @param BlockActionInfo $blockActionInfo
 	 */
-	public function __construct( $page, $conds ) {
+	public function __construct(
+		$page,
+		$conds,
+		LinkBatchFactory $linkBatchFactory,
+		BlockRestrictionStore $blockRestrictionStore,
+		ILoadBalancer $loadBalancer,
+		SpecialPageFactory $specialPageFactory,
+		CommentStore $commentStore,
+		BlockUtils $blockUtils,
+		BlockActionInfo $blockActionInfo
+	) {
+		$this->mDb = $loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		parent::__construct( $page->getContext(), $page->getLinkRenderer() );
 		$this->conds = $conds;
 		$this->mDefaultDirection = IndexPager::DIR_DESCENDING;
-		parent::__construct( $page->getContext() );
+		$this->linkBatchFactory = $linkBatchFactory;
+		$this->blockRestrictionStore = $blockRestrictionStore;
+		$this->specialPageFactory = $specialPageFactory;
+		$this->commentStore = $commentStore;
+		$this->blockUtils = $blockUtils;
+		$this->blockActionInfo = $blockActionInfo;
 	}
 
-	function getFieldNames() {
+	protected function getFieldNames() {
 		static $headers = null;
 
 		if ( $headers === null ) {
@@ -69,7 +119,13 @@ class BlockListPager extends TablePager {
 		return $headers;
 	}
 
-	function formatValue( $name, $value ) {
+	/**
+	 * @param string $name
+	 * @param string|null $value
+	 * @return string
+	 * @suppress PhanTypeArraySuspicious
+	 */
+	public function formatValue( $name, $value ) {
 		static $msg = null;
 		if ( $msg === null ) {
 			$keys = [
@@ -88,15 +144,16 @@ class BlockListPager extends TablePager {
 				$msg[$key] = $this->msg( $key )->text();
 			}
 		}
+		'@phan-var string[] $msg';
 
-		/** @var object $row */
+		/** @var stdClass $row */
 		$row = $this->mCurrentRow;
 
 		$language = $this->getLanguage();
 
 		$formatted = '';
 
-		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
+		$linkRenderer = $this->getLinkRenderer();
 
 		switch ( $name ) {
 			case 'ipb_timestamp':
@@ -107,20 +164,24 @@ class BlockListPager extends TablePager {
 				if ( $row->ipb_auto ) {
 					$formatted = $this->msg( 'autoblockid', $row->ipb_id )->parse();
 				} else {
-					list( $target, $type ) = Block::parseTarget( $row->ipb_address );
-					switch ( $type ) {
-						case Block::TYPE_USER:
-						case Block::TYPE_IP:
-							$formatted = Linker::userLink( $target->getId(), $target );
-							$formatted .= Linker::userToolLinks(
-								$target->getId(),
-								$target,
-								false,
-								Linker::TOOL_LINKS_NOBLOCK
-							);
-							break;
-						case Block::TYPE_RANGE:
-							$formatted = htmlspecialchars( $target );
+					list( $target, ) = $this->blockUtils->parseBlockTarget( $row->ipb_address );
+
+					if ( is_string( $target ) ) {
+						if ( IPUtils::isValidRange( $target ) ) {
+							$target = User::newFromName( $target, false );
+						} else {
+							$formatted = $target;
+						}
+					}
+
+					if ( $target instanceof UserIdentity ) {
+						$formatted = Linker::userLink( $target->getId(), $target->getName() );
+						$formatted .= Linker::userToolLinks(
+							$target->getId(),
+							$target->getName(),
+							false,
+							Linker::TOOL_LINKS_NOBLOCK
+						);
 					}
 				}
 				break;
@@ -128,32 +189,35 @@ class BlockListPager extends TablePager {
 			case 'ipb_expiry':
 				$formatted = htmlspecialchars( $language->formatExpiry(
 					$value,
-					/* User preference timezone */true
+					/* User preference timezone */true,
+					'infinity',
+					$this->getUser()
 				) );
-				if ( $this->getUser()->isAllowed( 'block' ) ) {
+				if ( $this->getAuthority()->isAllowed( 'block' ) ) {
+					$links = [];
 					if ( $row->ipb_auto ) {
 						$links[] = $linkRenderer->makeKnownLink(
-							SpecialPage::getTitleFor( 'Unblock' ),
+							$this->specialPageFactory->getTitleForAlias( 'Unblock' ),
 							$msg['unblocklink'],
 							[],
 							[ 'wpTarget' => "#{$row->ipb_id}" ]
 						);
 					} else {
 						$links[] = $linkRenderer->makeKnownLink(
-							SpecialPage::getTitleFor( 'Unblock', $row->ipb_address ),
+							$this->specialPageFactory->getTitleForAlias( 'Unblock/' . $row->ipb_address ),
 							$msg['unblocklink']
 						);
 						$links[] = $linkRenderer->makeKnownLink(
-							SpecialPage::getTitleFor( 'Block', $row->ipb_address ),
+							$this->specialPageFactory->getTitleForAlias( 'Block/' . $row->ipb_address ),
 							$msg['change-blocklink']
 						);
 					}
 					$formatted .= ' ' . Html::rawElement(
-							'span',
-							[ 'class' => 'mw-blocklist-actions' ],
-							$this->msg( 'parentheses' )->rawParams(
-								$language->pipeList( $links ) )->escaped()
-						);
+						'span',
+						[ 'class' => 'mw-blocklist-actions' ],
+						$this->msg( 'parentheses' )->rawParams(
+							$language->pipeList( $links ) )->escaped()
+					);
 				}
 				if ( $value !== 'infinity' ) {
 					$timestamp = new MWTimestamp( $value );
@@ -174,23 +238,19 @@ class BlockListPager extends TablePager {
 				break;
 
 			case 'ipb_by':
-				if ( isset( $row->by_user_name ) ) {
-					$formatted = Linker::userLink( $value, $row->by_user_name );
-					$formatted .= Linker::userToolLinks( $value, $row->by_user_name );
-				} else {
-					$formatted = htmlspecialchars( $row->ipb_by_text ); // foreign user?
-				}
+				$formatted = Linker::userLink( $value, $row->ipb_by_text );
+				$formatted .= Linker::userToolLinks( $value, $row->ipb_by_text );
 				break;
 
 			case 'ipb_reason':
-				$value = CommentStore::getStore()->getComment( 'ipb_reason', $row )->text;
+				$value = $this->commentStore->getComment( 'ipb_reason', $row )->text;
 				$formatted = Linker::formatComment( $value );
 				break;
 
 			case 'ipb_params':
 				$properties = [];
 
-				if ( $this->getConfig()->get( 'EnablePartialBlocks' ) && $row->ipb_sitewide ) {
+				if ( $row->ipb_sitewide ) {
 					$properties[] = htmlspecialchars( $msg['blocklist-editing-sitewide'] );
 				}
 
@@ -220,16 +280,16 @@ class BlockListPager extends TablePager {
 				}
 
 				$formatted = Html::rawElement(
-						'ul',
-						[],
-						implode( '', array_map( function ( $prop ) {
-							return Html::rawElement(
-								'li',
-								[],
-								$prop
-							);
-						}, $properties ) )
-					);
+					'ul',
+					[],
+					implode( '', array_map( static function ( $prop ) {
+						return Html::rawElement(
+							'li',
+							[],
+							$prop
+						);
+					}, $properties ) )
+				);
 				break;
 
 			default:
@@ -249,6 +309,7 @@ class BlockListPager extends TablePager {
 	 */
 	private function getRestrictionListHTML( stdClass $row ) {
 		$items = [];
+		$linkRenderer = $this->getLinkRenderer();
 
 		foreach ( $this->restrictions as $restriction ) {
 			if ( $restriction->getBlockId() !== (int)$row->ipb_id ) {
@@ -257,32 +318,47 @@ class BlockListPager extends TablePager {
 
 			switch ( $restriction->getType() ) {
 				case PageRestriction::TYPE:
+					'@phan-var PageRestriction $restriction';
 					if ( $restriction->getTitle() ) {
 						$items[$restriction->getType()][] = Html::rawElement(
 							'li',
 							[],
-							Linker::link( $restriction->getTitle() )
+							$linkRenderer->makeLink( $restriction->getTitle() )
 						);
 					}
 					break;
 				case NamespaceRestriction::TYPE:
 					$text = $restriction->getValue() === NS_MAIN
-						? $this->msg( 'blanknamespace' )
+						? $this->msg( 'blanknamespace' )->text()
 						: $this->getLanguage()->getFormattedNsText(
 							$restriction->getValue()
 						);
-					$items[$restriction->getType()][] = Html::rawElement(
-						'li',
-						[],
-						Linker::link(
-							SpecialPage::getTitleValueFor( 'Allpages' ),
-							$text,
+					if ( $text ) {
+						$items[$restriction->getType()][] = Html::rawElement(
+							'li',
 							[],
-							[
-								'namespace' => $restriction->getValue()
-							]
-						)
-					);
+							$linkRenderer->makeLink(
+								$this->specialPageFactory->getTitleForAlias( 'Allpages' ),
+								$text,
+								[],
+								[
+									'namespace' => $restriction->getValue()
+								]
+							)
+						);
+					}
+					break;
+				case ActionRestriction::TYPE:
+					$actionName = $this->blockActionInfo->getActionFromId( $restriction->getValue() );
+					$enablePartialActionBlocks = $this->getConfig()->get( 'EnablePartialActionBlocks' );
+					if ( $actionName && $enablePartialActionBlocks ) {
+						$items[$restriction->getType()][] = Html::rawElement(
+							'li',
+							[],
+							$this->msg( 'ipb-action-' .
+								$this->blockActionInfo->getActionFromId( $restriction->getValue() ) )->escaped()
+						);
+					}
 					break;
 			}
 		}
@@ -311,19 +387,20 @@ class BlockListPager extends TablePager {
 		);
 	}
 
-	function getQueryInfo() {
-		$commentQuery = CommentStore::getStore()->getJoin( 'ipb_reason' );
-		$actorQuery = ActorMigration::newMigration()->getJoin( 'ipb_by' );
+	public function getQueryInfo() {
+		$commentQuery = $this->commentStore->getJoin( 'ipb_reason' );
 
 		$info = [
 			'tables' => array_merge(
-				[ 'ipblocks' ], $commentQuery['tables'], $actorQuery['tables'], [ 'user' ]
+				[ 'ipblocks', 'ipblocks_by_actor' => 'actor' ],
+				$commentQuery['tables']
 			),
 			'fields' => [
 				'ipb_id',
 				'ipb_address',
 				'ipb_user',
-				'by_user_name' => 'user_name',
+				'ipb_by' => 'ipblocks_by_actor.actor_user',
+				'ipb_by_text' => 'ipblocks_by_actor.actor_name',
 				'ipb_timestamp',
 				'ipb_auto',
 				'ipb_anon_only',
@@ -336,11 +413,11 @@ class BlockListPager extends TablePager {
 				'ipb_block_email',
 				'ipb_allow_usertalk',
 				'ipb_sitewide',
-			] + $commentQuery['fields'] + $actorQuery['fields'],
+			] + $commentQuery['fields'],
 			'conds' => $this->conds,
 			'join_conds' => [
-				'user' => [ 'LEFT JOIN', 'user_id = ' . $actorQuery['fields']['ipb_by'] ]
-			] + $commentQuery['joins'] + $actorQuery['joins']
+				'ipblocks_by_actor' => [ 'JOIN', 'actor_id=ipb_by_actor' ]
+			] + $commentQuery['joins']
 		];
 
 		# Filter out any expired blocks
@@ -348,7 +425,7 @@ class BlockListPager extends TablePager {
 		$info['conds'][] = 'ipb_expiry > ' . $db->addQuotes( $db->timestamp() );
 
 		# Is the user allowed to see hidden blocks?
-		if ( !$this->getUser()->isAllowed( 'hideuser' ) ) {
+		if ( !$this->getAuthority()->isAllowed( 'hideuser' ) ) {
 			$info['conds']['ipb_deleted'] = 0;
 		}
 
@@ -360,34 +437,30 @@ class BlockListPager extends TablePager {
 	 *
 	 * @return int Total number of unexpired active autoblocks
 	 */
-	function getTotalAutoblocks() {
+	public function getTotalAutoblocks() {
 		$dbr = $this->getDatabase();
-		$res = $dbr->selectField( 'ipblocks',
-			[ 'COUNT(*) AS totalautoblocks' ],
+		return (int)$dbr->selectField( 'ipblocks', 'COUNT(*)',
 			[
 				'ipb_auto' => '1',
 				'ipb_expiry >= ' . $dbr->addQuotes( $dbr->timestamp() ),
-			]
+			],
+			__METHOD__
 		);
-		if ( $res ) {
-			return $res;
-		}
-		return 0; // We found nothing
 	}
 
 	protected function getTableClass() {
 		return parent::getTableClass() . ' mw-blocklist';
 	}
 
-	function getIndexField() {
-		return 'ipb_timestamp';
+	public function getIndexField() {
+		return [ [ 'ipb_timestamp', 'ipb_id' ] ];
 	}
 
-	function getDefaultSort() {
-		return 'ipb_timestamp';
+	public function getDefaultSort() {
+		return '';
 	}
 
-	function isFieldSortable( $name ) {
+	protected function isFieldSortable( $name ) {
 		return false;
 	}
 
@@ -395,9 +468,9 @@ class BlockListPager extends TablePager {
 	 * Do a LinkBatch query to minimise database load when generating all these links
 	 * @param IResultWrapper $result
 	 */
-	function preprocessResults( $result ) {
+	public function preprocessResults( $result ) {
 		# Do a link batch query
-		$lb = new LinkBatch;
+		$lb = $this->linkBatchFactory->newLinkBatch();
 		$lb->setCaller( __METHOD__ );
 
 		$partialBlocks = [];
@@ -405,9 +478,9 @@ class BlockListPager extends TablePager {
 			$lb->add( NS_USER, $row->ipb_address );
 			$lb->add( NS_USER_TALK, $row->ipb_address );
 
-			if ( isset( $row->by_user_name ) ) {
-				$lb->add( NS_USER, $row->by_user_name );
-				$lb->add( NS_USER_TALK, $row->by_user_name );
+			if ( $row->ipb_by ?? null ) {
+				$lb->add( NS_USER, $row->ipb_by_text );
+				$lb->add( NS_USER_TALK, $row->ipb_by_text );
 			}
 
 			if ( !$row->ipb_sitewide ) {
@@ -418,8 +491,17 @@ class BlockListPager extends TablePager {
 		if ( $partialBlocks ) {
 			// Mutations to the $row object are not persisted. The restrictions will
 			// need be stored in a separate store.
-			$blockRestrictionStore = MediaWikiServices::getInstance()->getBlockRestrictionStore();
-			$this->restrictions = $blockRestrictionStore->loadByBlockId( $partialBlocks );
+			$this->restrictions = $this->blockRestrictionStore->loadByBlockId( $partialBlocks );
+
+			foreach ( $this->restrictions as $restriction ) {
+				if ( $restriction->getType() === PageRestriction::TYPE ) {
+					'@phan-var PageRestriction $restriction';
+					$title = $restriction->getTitle();
+					if ( $title ) {
+						$lb->addObj( $title );
+					}
+				}
+			}
 		}
 
 		$lb->execute();

@@ -9,3 +9,8 @@
  */
 
 $fallback = 'hy';
+
+/** @phpcs-require-sorted-array */
+$magicWords['redirect'] = [ '#REDIRECT', '#ՎԵՐԱՀՂՈՒՄ', '#ՎԵՐԱՅՂՈՒՄ', '0' ];
+
+$namespaceNames[NS_CATEGORY] = 'Ստորոգութիւն';

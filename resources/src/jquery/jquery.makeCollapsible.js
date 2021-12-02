@@ -5,7 +5,7 @@
  * familiarise yourself with that CSS before making any changes to this code.
  *
  * Dual licensed:
- * - CC BY 3.0 <http://creativecommons.org/licenses/by/3.0>
+ * - CC BY 3.0 <https://creativecommons.org/licenses/by/3.0>
  * - GPL2 <http://www.gnu.org/licenses/old-licenses/gpl-2.0.html>
  *
  * @class jQuery.plugin.makeCollapsible
@@ -122,6 +122,7 @@
 		if ( options.wasCollapsed !== undefined ) {
 			wasCollapsed = options.wasCollapsed;
 		} else {
+			// eslint-disable-next-line no-jquery/no-class-state
 			wasCollapsed = $collapsible.hasClass( 'mw-collapsed' );
 		}
 
@@ -133,6 +134,11 @@
 			$toggle
 				.toggleClass( 'mw-collapsible-toggle-collapsed', !wasCollapsed )
 				.toggleClass( 'mw-collapsible-toggle-expanded', wasCollapsed );
+		}
+
+		// Toggle `aria-expanded` attribute, if requested (for default and premade togglers by default).
+		if ( options.toggleARIA ) {
+			$toggle.attr( 'aria-expanded', wasCollapsed ? 'true' : 'false' );
 		}
 
 		// Toggle the text ("Show"/"Hide") within elements tagged with mw-collapsible-text
@@ -148,6 +154,43 @@
 
 		// And finally toggle the element state itself
 		toggleElement( $collapsible, wasCollapsed ? 'expand' : 'collapse', $toggle, options );
+	}
+
+	/**
+	 * If the URL contains a hash followed by the fragment identifier of an
+	 * element inside collapsed parents, expand them all and scroll to it.
+	 *
+	 * @private
+	 */
+	function hashHandler() {
+		var fragment, $parents;
+
+		fragment = document.querySelector( ':target' );
+		if ( !fragment ) {
+			// The fragment doesn't exist
+			return;
+		}
+
+		$parents = $( fragment ).parents( '.mw-collapsed' );
+		if ( !$parents.length ) {
+			// The fragment is not in a collapsed element
+			return;
+		}
+
+		// Expand collapsed parents
+		$parents.each( function () {
+			var $collapsible = $( this );
+			if ( $collapsible.data( 'mw-made-collapsible' ) ) {
+				$collapsible.data( 'mw-collapsible' ).expand();
+			} else {
+				// The collapsible has not been initialized, so just prevent it
+				// from being collapsed
+				$collapsible.removeClass( 'mw-collapsed' );
+			}
+		} );
+
+		// Scroll to the fragment
+		fragment.scrollIntoView();
 	}
 
 	/**
@@ -210,6 +253,7 @@
 			actionHandler = function ( e, opts ) {
 				var defaultOpts = {
 					toggleClasses: true,
+					toggleARIA: true,
 					toggleText: { collapseText: collapseText, expandText: expandText }
 				};
 				opts = $.extend( defaultOpts, options, opts );
@@ -271,7 +315,7 @@
 						}
 					} else {
 						// The toggle-link will be in one of the cells (td or th) of the first row
-						$firstItem = $collapsible.find( 'tr:first th, tr:first td' );
+						$firstItem = $collapsible.find( 'tr' ).first().find( 'th, td' );
 						$toggle = $firstItem.find( '> .mw-collapsible-toggle' );
 
 						// If theres no toggle link, add it to the last cell
@@ -289,7 +333,7 @@
 					$collapsible.before( $toggle );
 				} else if ( $collapsible.is( 'ul' ) || $collapsible.is( 'ol' ) ) {
 					// The toggle-link will be in the first list-item
-					$firstItem = $collapsible.find( 'li:first' );
+					$firstItem = $collapsible.find( 'li' ).first();
 					$toggle = $firstItem.find( '> .mw-collapsible-toggle' );
 
 					// If theres no toggle link, add it
@@ -324,6 +368,7 @@
 
 			// Attach event handlers to togglelink
 			$toggle.on( 'click.mw-collapsible keypress.mw-collapsible', actionHandler )
+				.attr( 'aria-expanded', 'true' )
 				.prop( 'tabIndex', 0 );
 
 			$( this ).data( 'mw-collapsible', {
@@ -339,6 +384,7 @@
 			} );
 
 			// Initial state
+			// eslint-disable-next-line no-jquery/no-class-state
 			if ( options.collapsed || $collapsible.hasClass( 'mw-collapsed' ) ) {
 				// One toggler can hook to multiple elements, and one element can have
 				// multiple togglers. This is the sanest way to handle that.
@@ -346,6 +392,9 @@
 			}
 
 		} );
+
+		// Attach hash handler
+		window.addEventListener( 'hashchange', hashHandler );
 
 		/**
 		 * Fired after collapsible content has been initialized
@@ -360,6 +409,9 @@
 
 		return this;
 	};
+
+	// Run hash handler right now in case the URL already has a hash
+	hashHandler();
 
 	/**
 	 * @class jQuery

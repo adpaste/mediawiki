@@ -24,16 +24,12 @@
  * @ingroup Testing
  */
 
-// Some methods which are discouraged for normal code throw exceptions unless
-// we declare this is just a test.
-define( 'MW_PARSER_TEST', true );
-
-require __DIR__ . '/../../maintenance/Maintenance.php';
+require_once __DIR__ . '/../../maintenance/Maintenance.php';
 
 use MediaWiki\MediaWikiServices;
 
 class ParserTestsMaintenance extends Maintenance {
-	function __construct() {
+	public function __construct() {
 		parent::__construct();
 		$this->addDescription( 'Run parser tests' );
 
@@ -77,6 +73,10 @@ class ParserTestsMaintenance extends Maintenance {
 	}
 
 	public function finalSetup() {
+		// Some methods which are discouraged for normal code throw exceptions unless
+		// we declare this is just a test.
+		define( 'MW_PARSER_TEST', true );
+
 		parent::finalSetup();
 		self::requireTestsAutoloader();
 		TestSetup::applyInitialConfig();
@@ -88,7 +88,7 @@ class ParserTestsMaintenance extends Maintenance {
 		// Cases of weird db corruption were encountered when running tests on earlyish
 		// versions of SQLite
 		if ( $wgDBtype == 'sqlite' ) {
-			$db = wfGetDB( DB_MASTER );
+			$db = wfGetDB( DB_PRIMARY );
 			$version = $db->getServerVersion();
 			if ( version_compare( $version, '3.6' ) < 0 ) {
 				die( "Parser tests require SQLite version 3.6 or later, you have $version\n" );
@@ -151,7 +151,7 @@ class ParserTestsMaintenance extends Maintenance {
 			$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 			$recorderLB = $lbFactory->newMainLB();
 			// This connection will have the wiki's table prefix, not parsertest_
-			$recorderDB = $recorderLB->getConnection( DB_MASTER );
+			$recorderDB = $recorderLB->getConnection( DB_PRIMARY );
 
 			// Add recorder before previewer because recorder will create the
 			// DB table if it doesn't exist
@@ -160,13 +160,9 @@ class ParserTestsMaintenance extends Maintenance {
 			}
 			$recorder->addRecorder( new DbTestPreviewer(
 				$recorderDB,
-				function ( $name ) use ( $regex ) {
+				static function ( $name ) use ( $regex ) {
 					// Filter reports of old tests by the filter regex
-					if ( $regex === false ) {
-						return true;
-					} else {
-						return (bool)preg_match( $regex, $name );
-					}
+					return $regex === false || (bool)preg_match( $regex, $name );
 				} ) );
 		}
 
@@ -196,5 +192,5 @@ class ParserTestsMaintenance extends Maintenance {
 	}
 }
 
-$maintClass = 'ParserTestsMaintenance';
+$maintClass = ParserTestsMaintenance::class;
 require_once RUN_MAINTENANCE_IF_MAIN;

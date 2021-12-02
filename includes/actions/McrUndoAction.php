@@ -5,10 +5,12 @@
  * @ingroup Actions
  */
 
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\MutableRevisionRecord;
+use MediaWiki\Revision\RevisionLookup;
 use MediaWiki\Revision\RevisionRecord;
+use MediaWiki\Revision\RevisionRenderer;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Storage\EditResult;
 
 /**
  * Temporary action for MCR undos
@@ -32,6 +34,35 @@ class McrUndoAction extends FormAction {
 
 	/** @var RevisionRecord|null */
 	protected $curRev = null;
+
+	/** @var ReadOnlyMode */
+	private $readOnlyMode;
+
+	/** @var RevisionLookup */
+	private $revisionLookup;
+
+	/** @var RevisionRenderer */
+	private $revisionRenderer;
+
+	/**
+	 * @param Page $page
+	 * @param IContextSource $context
+	 * @param ReadOnlyMode $readOnlyMode
+	 * @param RevisionLookup $revisionLookup
+	 * @param RevisionRenderer $revisionRenderer
+	 */
+	public function __construct(
+		Page $page,
+		IContextSource $context,
+		ReadOnlyMode $readOnlyMode,
+		RevisionLookup $revisionLookup,
+		RevisionRenderer $revisionRenderer
+	) {
+		parent::__construct( $page, $context );
+		$this->readOnlyMode = $readOnlyMode;
+		$this->revisionLookup = $revisionLookup;
+		$this->revisionRenderer = $revisionRenderer;
+	}
 
 	public function getName() {
 		return 'mcrundo';
@@ -60,10 +91,10 @@ class McrUndoAction extends FormAction {
 
 		// IP warning headers copied from EditPage
 		// (should more be copied?)
-		if ( wfReadOnly() ) {
+		if ( $this->readOnlyMode->isReadOnly() ) {
 			$out->wrapWikiMsg(
 				"<div id=\"mw-read-only-warning\">\n$1\n</div>",
-				[ 'readonlywarning', wfReadOnlyReason() ]
+				[ 'readonlywarning', $this->readOnlyMode->getReason() ]
 			);
 		} elseif ( $this->context->getUser()->isAnon() ) {
 			if ( !$this->getRequest()->getCheck( 'wpPreview' ) ) {
@@ -98,11 +129,11 @@ class McrUndoAction extends FormAction {
 			throw new ErrorPageError( 'mcrundofailed', 'mcrundo-missingparam' );
 		}
 
-		$curRev = $this->page->getRevision();
+		$curRev = $this->getWikiPage()->getRevisionRecord();
 		if ( !$curRev ) {
 			throw new ErrorPageError( 'mcrundofailed', 'nopagetext' );
 		}
-		$this->curRev = $curRev->getRevisionRecord();
+		$this->curRev = $curRev;
 		$this->cur = $this->getRequest()->getInt( 'cur', $this->curRev->getId() );
 	}
 
@@ -111,10 +142,8 @@ class McrUndoAction extends FormAction {
 
 		$this->initFromParameters();
 
-		$revisionLookup = MediaWikiServices::getInstance()->getRevisionLookup();
-
-		$undoRev = $revisionLookup->getRevisionById( $this->undo );
-		$oldRev = $revisionLookup->getRevisionById( $this->undoafter );
+		$undoRev = $this->revisionLookup->getRevisionById( $this->undo );
+		$oldRev = $this->revisionLookup->getRevisionById( $this->undoafter );
 
 		if ( $undoRev === null || $oldRev === null ||
 			$undoRev->isDeleted( RevisionRecord::DELETED_TEXT ) ||
@@ -130,10 +159,8 @@ class McrUndoAction extends FormAction {
 	 * @return MutableRevisionRecord
 	 */
 	private function getNewRevision() {
-		$revisionLookup = MediaWikiServices::getInstance()->getRevisionLookup();
-
-		$undoRev = $revisionLookup->getRevisionById( $this->undo );
-		$oldRev = $revisionLookup->getRevisionById( $this->undoafter );
+		$undoRev = $this->revisionLookup->getRevisionById( $this->undo );
+		$oldRev = $this->revisionLookup->getRevisionById( $this->undoafter );
 		$curRev = $this->curRev;
 
 		$isLatest = $curRev->getId() === $undoRev->getId();
@@ -260,12 +287,12 @@ class McrUndoAction extends FormAction {
 
 			$note = $this->context->msg( 'previewnote' )->plain() . ' ' . $continueEditing;
 
-			$parserOptions = $this->page->makeParserOptions( $this->context );
+			$parserOptions = $this->getWikiPage()->makeParserOptions( $this->context );
 			$parserOptions->setIsPreview( true );
 			$parserOptions->setIsSectionPreview( false );
 			$parserOptions->enableLimitReport();
 
-			$parserOutput = MediaWikiServices::getInstance()->getRevisionRenderer()
+			$parserOutput = $this->revisionRenderer
 				->getRenderedRevision( $rev, $parserOptions, $this->context->getUser() )
 				->getRevisionParserOutput();
 			$previewHTML = $parserOutput->getText( [ 'enableSectionEditLinks' => false ] );
@@ -289,8 +316,9 @@ class McrUndoAction extends FormAction {
 				'h2', [ 'id' => 'mw-previewheader' ],
 				$this->context->msg( 'preview' )->text()
 			) .
-			$out->parseAsInterface( $note ) .
-			"<hr />"
+			Html::rawElement( 'div', [ 'class' => 'warningbox' ],
+				$out->parseAsInterface( $note )
+			)
 		);
 
 		$pageViewLang = $this->getTitle()->getPageViewLanguage();
@@ -309,7 +337,7 @@ class McrUndoAction extends FormAction {
 			return false;
 		}
 
-		$updater = $this->page->getPage()->newPageUpdater( $this->context->getUser() );
+		$updater = $this->getWikiPage()->newPageUpdater( $this->context->getUser() );
 		$curRev = $updater->grabParentRevision();
 		if ( !$curRev ) {
 			throw new ErrorPageError( 'mcrundofailed', 'nopagetext' );
@@ -333,11 +361,28 @@ class McrUndoAction extends FormAction {
 				}
 			}
 
-			$updater->setOriginalRevisionId( false );
-			$updater->setUndidRevisionId( $this->undo );
+			// The revision we revert to is specified by the undoafter param.
+			// $oldRev is not null, we check this and more in getNewRevision()
+			$oldRev = $this->revisionLookup->getRevisionById( $this->undoafter );
+			$oldestRevertedRev = $this->revisionLookup->getNextRevision( $oldRev );
+			if ( $oldestRevertedRev ) {
+				$updater->markAsRevert(
+					EditResult::REVERT_UNDO,
+					$oldestRevertedRev->getId(),
+					$this->undo
+				);
+			} else {
+				// fallback in case something goes wrong
+				$updater->markAsRevert( EditResult::REVERT_UNDO, $this->undo );
+			}
+			// Set the original revision ID if this is an exact revert.
+			if ( $oldRev->hasSameContent( $newRev ) ) {
+				$updater->setOriginalRevisionId( $oldRev->getId() );
+			}
 
-			// TODO: Ugh.
-			if ( $wgUseRCPatrol && $this->getTitle()->userCan( 'autopatrol', $this->getUser() ) ) {
+			if ( $wgUseRCPatrol && $this->getContext()->getAuthority()
+					->authorizeWrite( 'autopatrol', $this->getTitle() )
+			) {
 				$updater->setRcPatrolStatus( RecentChange::PRC_AUTOPATROLLED );
 			}
 
@@ -361,7 +406,6 @@ class McrUndoAction extends FormAction {
 		$ret = [
 			'diff' => [
 				'type' => 'info',
-				'vertical-label' => true,
 				'raw' => true,
 				'default' => function () {
 					return $this->generateDiffOrPreview();

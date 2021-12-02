@@ -1,7 +1,5 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
-
 /**
  * @group ContentHandler
  * @group Database
@@ -10,7 +8,7 @@ use MediaWiki\MediaWikiServices;
 class TextContentTest extends MediaWikiLangTestCase {
 	protected $context;
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		// trigger purging of all page related tables
@@ -21,28 +19,21 @@ class TextContentTest extends MediaWikiLangTestCase {
 		$user = new User();
 		$user->setName( '127.0.0.1' );
 
-		$this->context = new RequestContext( new FauxRequest() );
-		$this->context->setTitle( Title::newFromText( 'Test' ) );
+		$this->context = new RequestContext();
+		$this->context->setTitle( Title::makeTitle( NS_MAIN, 'Test' ) );
 		$this->context->setUser( $user );
 
+		RequestContext::getMain()->setTitle( $this->context->getTitle() );
+
 		$this->setMwGlobals( [
-			'wgUser' => $user,
 			'wgTextModelsToParse' => [
 				CONTENT_MODEL_WIKITEXT,
 				CONTENT_MODEL_CSS,
 				CONTENT_MODEL_JAVASCRIPT,
 			],
-			'wgTidyConfig' => [ 'driver' => 'RemexHtml' ],
 			'wgCapitalLinks' => true,
 			'wgHooks' => [], // bypass hook ContentGetParserOutput that force custom rendering
 		] );
-
-		MWTidy::destroySingleton();
-	}
-
-	protected function tearDown() {
-		MWTidy::destroySingleton();
-		parent::tearDown();
 	}
 
 	/**
@@ -86,8 +77,8 @@ class TextContentTest extends MediaWikiLangTestCase {
 
 		if ( $expectedFields ) {
 			foreach ( $expectedFields as $field => $exp ) {
-				$f = 'get' . ucfirst( $field );
-				$v = call_user_func( [ $po, $f ] );
+				$getter = 'get' . ucfirst( $field );
+				$v = $po->$getter();
 
 				if ( is_array( $exp ) ) {
 					$this->assertArrayEquals( $exp, $v );
@@ -98,67 +89,6 @@ class TextContentTest extends MediaWikiLangTestCase {
 		}
 
 		// TODO: assert more properties
-	}
-
-	public static function dataPreSaveTransform() {
-		return [
-			[
-				# 0: no signature resolution
-				'hello this is ~~~',
-				'hello this is ~~~',
-			],
-			[
-				# 1: rtrim
-				" Foo \n ",
-				' Foo',
-			],
-			[
-				# 2: newline normalization
-				"LF\n\nCRLF\r\n\r\nCR\r\rEND",
-				"LF\n\nCRLF\n\nCR\n\nEND",
-			],
-		];
-	}
-
-	/**
-	 * @dataProvider dataPreSaveTransform
-	 * @covers TextContent::preSaveTransform
-	 */
-	public function testPreSaveTransform( $text, $expected ) {
-		$options = ParserOptions::newFromUserAndLang( $this->context->getUser(),
-			MediaWikiServices::getInstance()->getContentLanguage() );
-
-		$content = $this->newContent( $text );
-		$content = $content->preSaveTransform(
-			$this->context->getTitle(),
-			$this->context->getUser(),
-			$options
-		);
-
-		$this->assertEquals( $expected, $content->getText() );
-	}
-
-	public static function dataPreloadTransform() {
-		return [
-			[
-				'hello this is ~~~',
-				'hello this is ~~~',
-			],
-		];
-	}
-
-	/**
-	 * @dataProvider dataPreloadTransform
-	 * @covers TextContent::preloadTransform
-	 */
-	public function testPreloadTransform( $text, $expected ) {
-		$options = ParserOptions::newFromUserAndLang( $this->context->getUser(),
-			MediaWikiServices::getInstance()->getContentLanguage() );
-
-		$content = $this->newContent( $text );
-		$content = $content->preloadTransform( $this->context->getTitle(), $options );
-
-		$this->assertEquals( $expected, $content->getText() );
 	}
 
 	public static function dataGetRedirectTarget() {
@@ -177,7 +107,7 @@ class TextContentTest extends MediaWikiLangTestCase {
 		$content = $this->newContent( $text );
 		$t = $content->getRedirectTarget();
 
-		if ( is_null( $expected ) ) {
+		if ( $expected === null ) {
 			$this->assertNull( $t, "text should not have generated a redirect target: $text" );
 		} else {
 			$this->assertEquals( $expected, $t->getPrefixedText() );
@@ -191,7 +121,7 @@ class TextContentTest extends MediaWikiLangTestCase {
 	public function testIsRedirect( $text, $expected ) {
 		$content = $this->newContent( $text );
 
-		$this->assertEquals( !is_null( $expected ), $content->isRedirect() );
+		$this->assertEquals( $expected !== null, $content->isRedirect() );
 	}
 
 	public static function dataIsCountable() {
@@ -218,7 +148,7 @@ class TextContentTest extends MediaWikiLangTestCase {
 
 		$content = $this->newContent( $text );
 
-		$v = $content->isCountable( $hasLinks, $this->context->getTitle() );
+		$v = $content->isCountable( $hasLinks );
 
 		$this->assertEquals(
 			$expected,
@@ -365,54 +295,6 @@ class TextContentTest extends MediaWikiLangTestCase {
 	 */
 	public function testEquals( Content $a, Content $b = null, $equal = false ) {
 		$this->assertEquals( $equal, $a->equals( $b ) );
-	}
-
-	public static function dataGetDeletionUpdates() {
-		return [
-			[
-				CONTENT_MODEL_TEXT, "hello ''world''\n",
-				[]
-			],
-			[
-				CONTENT_MODEL_TEXT, "hello [[world test 21344]]\n",
-				[]
-			],
-			// TODO: more...?
-		];
-	}
-
-	/**
-	 * @dataProvider dataGetDeletionUpdates
-	 * @covers TextContent::getDeletionUpdates
-	 */
-	public function testDeletionUpdates( $model, $text, $expectedStuff ) {
-		$page = $this->getNonexistingTestPage( get_class( $this ) . '-' . $this->getName() );
-		$title = $page->getTitle();
-
-		$content = ContentHandler::makeContent( $text, $title, $model );
-		$page->doEditContent( $content, '' );
-
-		$updates = $content->getDeletionUpdates( $page );
-
-		// make updates accessible by class name
-		foreach ( $updates as $update ) {
-			$class = get_class( $update );
-			$updates[$class] = $update;
-		}
-
-		foreach ( $expectedStuff as $class => $fieldValues ) {
-			$this->assertArrayHasKey( $class, $updates, "missing an update of type $class" );
-
-			$update = $updates[$class];
-
-			foreach ( $fieldValues as $field => $value ) {
-				$v = $update->$field; # if the field doesn't exist, just crash and burn
-				$this->assertEquals( $value, $v, "unexpected value for field $field in instance of $class" );
-			}
-		}
-
-		// make phpunit happy even if $expectedStuff was empty
-		$this->assertTrue( true );
 	}
 
 	public static function provideConvert() {

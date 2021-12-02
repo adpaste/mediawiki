@@ -19,6 +19,8 @@
  *
  * @file
  */
+
+use Wikimedia\AtEase\AtEase;
 use Wikimedia\Timestamp\ConvertibleTimestamp;
 
 /**
@@ -35,9 +37,30 @@ class HTTPFileStreamer {
 	protected $streamMimeFunc;
 
 	// Do not send any HTTP headers unless requested by caller (e.g. body only)
-	const STREAM_HEADLESS = 1;
+	public const STREAM_HEADLESS = 1;
 	// Do not try to tear down any PHP output buffers
-	const STREAM_ALLOW_OB = 2;
+	public const STREAM_ALLOW_OB = 2;
+
+	/**
+	 * Takes HTTP headers in a name => value format and converts them to the weird format
+	 * expected by stream().
+	 * @param string[] $headers
+	 * @return array[] [ $headers, $optHeaders ]
+	 * @since 1.34
+	 */
+	public static function preprocessHeaders( $headers ) {
+		$rawHeaders = [];
+		$optHeaders = [];
+		foreach ( $headers as $name => $header ) {
+			$nameLower = strtolower( $name );
+			if ( in_array( $nameLower, [ 'range', 'if-modified-since' ], true ) ) {
+				$optHeaders[$nameLower] = $header;
+			} else {
+				$rawHeaders[] = "$name: $header";
+			}
+		}
+		return [ $rawHeaders, $optHeaders ];
+	}
 
 	/**
 	 * Takes HTTP headers in a name => value format and converts them to the weird format
@@ -93,16 +116,16 @@ class HTTPFileStreamer {
 		}
 
 		$headerFunc = ( $flags & self::STREAM_HEADLESS )
-			? function ( $header ) {
+			? static function ( $header ) {
 				// no-op
 			}
-			: function ( $header ) {
+			: static function ( $header ) {
 				is_int( $header ) ? HttpStatus::header( $header ) : header( $header );
 			};
 
-		Wikimedia\suppressWarnings();
+		AtEase::suppressWarnings();
 		$info = stat( $this->path );
-		Wikimedia\restoreWarnings();
+		AtEase::restoreWarnings();
 
 		if ( !is_array( $info ) ) {
 			if ( $sendErrors ) {
@@ -267,7 +290,7 @@ class HTTPFileStreamer {
 	 */
 	protected static function contentTypeFromPath( $filename ) {
 		$ext = strrchr( $filename, '.' );
-		$ext = $ext === false ? '' : strtolower( substr( $ext, 1 ) );
+		$ext = $ext ? strtolower( substr( $ext, 1 ) ) : '';
 
 		switch ( $ext ) {
 			case 'gif':

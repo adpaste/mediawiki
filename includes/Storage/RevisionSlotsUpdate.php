@@ -86,6 +86,7 @@ class RevisionSlotsUpdate {
 	 * in $newContent are not considered removed. They are instead assumed to be inherited.
 	 *
 	 * @param Content[] $newContent The new content, using slot roles as array keys.
+	 * @param RevisionSlots|null $parentSlots
 	 *
 	 * @return RevisionSlotsUpdate
 	 */
@@ -218,7 +219,10 @@ class RevisionSlotsUpdate {
 		if ( isset( $this->modifiedSlots[$role] ) ) {
 			return $this->modifiedSlots[$role];
 		} else {
-			throw new RevisionAccessException( 'No such slot: ' . $role );
+			throw new RevisionAccessException(
+				'No such slot: {role}',
+				[ 'role' => $role ]
+			);
 		}
 	}
 

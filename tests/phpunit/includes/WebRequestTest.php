@@ -3,17 +3,20 @@
 /**
  * @group WebRequest
  */
-class WebRequestTest extends MediaWikiTestCase {
-	protected $oldServer;
+class WebRequestTest extends MediaWikiIntegrationTestCase {
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->oldServer = $_SERVER;
+		$this->oldWgRequest = $GLOBALS['wgRequest'];
+		$this->oldWgServer = $GLOBALS['wgServer'];
 	}
 
-	protected function tearDown() {
+	protected function tearDown(): void {
 		$_SERVER = $this->oldServer;
+		$GLOBALS['wgRequest'] = $this->oldWgRequest;
+		$GLOBALS['wgServer'] = $this->oldWgServer;
 
 		parent::tearDown();
 	}
@@ -156,7 +159,7 @@ class WebRequestTest extends MediaWikiTestCase {
 		$req = $this->mockWebRequest( [], [ 'requestTime' => $now ] );
 		$this->assertGreaterThanOrEqual( 10.0, $req->getElapsedTime() );
 		// Catch common errors, but don't fail on slow hardware or VMs (T199764).
-		$this->assertEquals( 10.0, $req->getElapsedTime(), '', 60.0 );
+		$this->assertEqualsWithDelta( 10.0, $req->getElapsedTime(), 60.0 );
 	}
 
 	/**
@@ -353,7 +356,6 @@ class WebRequestTest extends MediaWikiTestCase {
 	 */
 	public function testGetValues() {
 		$values = [ 'x' => 'Value', 'y' => '' ];
-		// Avoid FauxRequest (overrides getValues)
 		$req = $this->mockWebRequest( $values );
 		$this->assertSame( $values, $req->getValues() );
 		$this->assertSame( [ 'x' => 'Value' ], $req->getValues( 'x' ), 'Specific keys' );
@@ -369,24 +371,40 @@ class WebRequestTest extends MediaWikiTestCase {
 	}
 
 	/**
+	 * @covers WebRequest
+	 */
+	public function testGetFullRequestURL() {
+		// Stub this for wfGetServerUrl()
+		$GLOBALS['wgServer'] = '//wiki.test';
+		$req = $this->getMockBuilder( WebRequest::class )
+			->onlyMethods( [ 'getRequestURL', 'getProtocol' ] )
+			->getMock();
+		$req->method( 'getRequestURL' )->willReturn( '/path' );
+		$req->method( 'getProtocol' )->willReturn( 'https' );
+
+		$this->assertSame(
+			'https://wiki.test/path',
+			$req->getFullRequestURL()
+		);
+	}
+
+	/**
 	 * @dataProvider provideGetIP
 	 * @covers WebRequest::getIP
 	 */
-	public function testGetIP( $expected, $input, $squid, $xffList, $private, $description ) {
+	public function testGetIP( $expected, $input, $cdn, $xffList, $private, $description ) {
 		$this->setServerVars( $input );
 		$this->setMwGlobals( [
 			'wgUsePrivateIPs' => $private,
-			'wgHooks' => [
-				'IsTrustedProxy' => [
-					function ( &$ip, &$trusted ) use ( $xffList ) {
-						$trusted = $trusted || in_array( $ip, $xffList );
-						return true;
-					}
-				]
-			]
 		] );
 
-		$this->setService( 'ProxyLookup', new ProxyLookup( [], $squid ) );
+		$hookContainer = $this->createHookContainer( [
+			'IsTrustedProxy' => static function ( &$ip, &$trusted ) use ( $xffList ) {
+				$trusted = $trusted || in_array( $ip, $xffList );
+				return true;
+			}
+		] );
+		$this->setService( 'ProxyLookup', new ProxyLookup( [], $cdn, $hookContainer ) );
 
 		$request = new WebRequest();
 		$result = $request->getIP();
@@ -562,51 +580,55 @@ class WebRequestTest extends MediaWikiTestCase {
 	}
 
 	/**
-	 * @expectedException MWException
 	 * @covers WebRequest::getIP
 	 */
 	public function testGetIpLackOfRemoteAddrThrowAnException() {
 		// ensure that local install state doesn't interfere with test
 		$this->setMwGlobals( [
-			'wgSquidServersNoPurge' => [],
-			'wgSquidServers' => [],
+			'wgCdnServers' => [],
+			'wgCdnServersNoPurge' => [],
 			'wgUsePrivateIPs' => false,
-			'wgHooks' => [],
 		] );
-		$this->setService( 'ProxyLookup', new ProxyLookup( [], [] ) );
+
+		$hookContainer = $this->createHookContainer();
+		$this->setService( 'ProxyLookup', new ProxyLookup( [], [], $hookContainer ) );
 
 		$request = new WebRequest();
-		# Next call throw an exception about lacking an IP
+		# Next call should throw an exception about lacking an IP
+		$this->expectException( MWException::class );
 		$request->getIP();
 	}
 
 	public static function provideLanguageData() {
 		return [
 			[ '', [], 'Empty Accept-Language header' ],
-			[ 'en', [ 'en' => 1 ], 'One language' ],
-			[ 'en, ar', [ 'en' => 1, 'ar' => 1 ], 'Two languages listed in appearance order.' ],
+			[ 'en', [ 'en' => 1.0 ], 'One language' ],
+			[ 'en;q=', [ 'en' => 1.0 ], 'Empty q= defaults to 1' ],
+			[ 'en;q=0, de;q=0. pt;q=0.0 it;q=0.0000', [], 'Zeros to be skipped' ],
+			[ 'EN;Q=1.0009', [ 'en' => 1.000 ], 'Limited to max. 3 decimal places' ],
+			[ 'en, ar', [ 'en' => 1.0, 'ar' => 1.0 ], 'Two languages listed in appearance order.' ],
 			[
 				'zh-cn,zh-tw',
-				[ 'zh-cn' => 1, 'zh-tw' => 1 ],
+				[ 'zh-cn' => 1.0, 'zh-tw' => 1.0 ],
 				'Two equally prefered languages, listed in appearance order per rfc3282. Checks c9119'
 			],
 			[
 				'es, en; q=0.5',
-				[ 'es' => 1, 'en' => '0.5' ],
+				[ 'es' => 1.0, 'en' => 0.5 ],
 				'Spanish as first language and English and second'
 			],
-			[ 'en; q=0.5, es', [ 'es' => 1, 'en' => '0.5' ], 'Less prefered language first' ],
-			[ 'fr, en; q=0.5, es', [ 'fr' => 1, 'es' => 1, 'en' => '0.5' ], 'Three languages' ],
-			[ 'en; q=0.5, es', [ 'es' => 1, 'en' => '0.5' ], 'Two languages' ],
-			[ 'en, zh;q=0', [ 'en' => 1 ], "It's Chinese to me" ],
+			[ 'en; q=0.5, es', [ 'es' => 1.0, 'en' => 0.5 ], 'Less prefered language first' ],
+			[ 'fr, en; q=0.5, es', [ 'fr' => 1.0, 'es' => 1.0, 'en' => 0.5 ], 'Three languages' ],
+			[ 'en; q=0.5, es', [ 'es' => 1.0, 'en' => 0.5 ], 'Two languages' ],
+			[ 'en, zh;q=0', [ 'en' => 1.0 ], "It's Chinese to me" ],
 			[
 				'es; q=1, pt;q=0.7, it; q=0.6, de; q=0.1, ru;q=0',
-				[ 'es' => '1', 'pt' => '0.7', 'it' => '0.6', 'de' => '0.1' ],
+				[ 'es' => 1.0, 'pt' => 0.7, 'it' => 0.6, 'de' => 0.1 ],
 				'Preference for Romance languages'
 			],
 			[
 				'en-gb, en-us; q=1',
-				[ 'en-gb' => 1, 'en-us' => '1' ],
+				[ 'en-gb' => 1.0, 'en-us' => 1.0 ],
 				'Two equally prefered English variants'
 			],
 			[ '_', [], 'Invalid input' ],
@@ -617,10 +639,39 @@ class WebRequestTest extends MediaWikiTestCase {
 	 * @dataProvider provideLanguageData
 	 * @covers WebRequest::getAcceptLang
 	 */
-	public function testAcceptLang( $acceptLanguageHeader, $expectedLanguages, $description ) {
+	public function testAcceptLang( $acceptLanguageHeader, array $expectedLanguages, $description ) {
 		$this->setServerVars( [ 'HTTP_ACCEPT_LANGUAGE' => $acceptLanguageHeader ] );
 		$request = new WebRequest();
-		$this->assertSame( $request->getAcceptLang(), $expectedLanguages, $description );
+		$this->assertSame( $expectedLanguages, $request->getAcceptLang(), $description );
+	}
+
+	/**
+	 * @covers WebRequest::getHeader
+	 */
+	public function testGetHeaderCanYieldSpecialCgiHeaders() {
+		$contentType = 'application/json; charset=utf-8';
+		$contentLength = '4711';
+		$contentMd5 = 'rL0Y20zC+Fzt72VPzMSk2A==';
+		$this->setServerVars( [
+			'HTTP_CONTENT_TYPE' => $contentType,
+			'HTTP_CONTENT_LENGTH' => $contentLength,
+			'HTTP_CONTENT_MD5' => $contentMd5,
+		] );
+		$request = new WebRequest();
+		$this->assertSame( $request->getHeader( 'Content-Type' ), $contentType );
+		$this->assertSame( $request->getHeader( 'Content-Length' ), $contentLength );
+		$this->assertSame( $request->getHeader( 'Content-Md5' ), $contentMd5 );
+	}
+
+	/**
+	 * @covers WebRequest::getHeader
+	 */
+	public function testGetHeaderKeyIsCaseInsensitive() {
+		$cacheControl = 'private, must-revalidate, max-age=0';
+		$this->setServerVars( [ 'HTTP_CACHE_CONTROL' => $cacheControl ] );
+		$request = new WebRequest();
+		$this->assertSame( $request->getHeader( 'Cache-Control' ), $cacheControl );
+		$this->assertSame( $request->getHeader( 'cache-control' ), $cacheControl );
 	}
 
 	protected function setServerVars( $vars ) {

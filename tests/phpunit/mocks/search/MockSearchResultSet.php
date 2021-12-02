@@ -1,7 +1,7 @@
 <?php
 
 class MockSearchResultSet extends SearchResultSet {
-	/*
+	/**
 	 * @var SearchResultSet[][] Map from result type to list of results for
 	 *  that type.
 	 */
@@ -9,7 +9,7 @@ class MockSearchResultSet extends SearchResultSet {
 
 	/**
 	 * @param SearchResult[]|callable[] $results
-	 * @param SearchResultSet[][]|callable[][] $interwikiResults Map from result type
+	 * @param ISearchResultSet[][]|callable[][] $interwikiResults Map from result type
 	 *  to list of results for that type.
 	 */
 	public function __construct( array $results, array $interwikiResults = [] ) {

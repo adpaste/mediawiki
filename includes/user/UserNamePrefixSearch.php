@@ -20,42 +20,96 @@
  * @file
  */
 
+namespace MediaWiki\User;
+
+use InvalidArgumentException;
+use MediaWiki\Permissions\Authority;
+use Wikimedia\Rdbms\ILoadBalancer;
+
 /**
  * Handles searching prefixes of user names
  *
- * @since 1.27
+ * @note There are two classes called UserNamePrefixSearch.  You should use this first one, in
+ * namespace MediaWiki\User, which is a service.  \UserNamePrefixSearch is a deprecated static wrapper
+ * that forwards to the global service.
+ *
+ * @since 1.36 as a service in the current namespace
+ * @author DannyS712
  */
 class UserNamePrefixSearch {
+
+	/** @var string */
+	public const AUDIENCE_PUBLIC = 'public';
+
+	/** @var ILoadBalancer */
+	private $loadBalancer;
+
+	/** @var UserFactory */
+	private $userFactory;
+
+	/** @var UserNameUtils */
+	private $userNameUtils;
+
+	/**
+	 * @param ILoadBalancer $loadBalancer
+	 * @param UserFactory $userFactory
+	 * @param UserNameUtils $userNameUtils
+	 */
+	public function __construct(
+		ILoadBalancer $loadBalancer,
+		UserFactory $userFactory,
+		UserNameUtils $userNameUtils
+	) {
+		$this->loadBalancer = $loadBalancer;
+		$this->userFactory = $userFactory;
+		$this->userNameUtils = $userNameUtils;
+	}
 
 	/**
 	 * Do a prefix search of user names and return a list of matching user names.
 	 *
-	 * @param string|User $audience The string 'public' or a user object to show the search for
+	 * @param string|UserIdentity|Authority $audience Either AUDIENCE_PUBLIC or a user to
+	 *    show the search for, providing a UserIdentity is deprecated since 1.37
 	 * @param string $search
 	 * @param int $limit
 	 * @param int $offset How many results to offset from the beginning
-	 * @return array Array of strings
+	 * @return string[]
+	 * @throws InvalidArgumentException if $audience is invalid
 	 */
-	public static function search( $audience, $search, $limit, $offset = 0 ) {
-		$user = User::newFromName( $search );
+	public function search( $audience, string $search, int $limit, int $offset = 0 ): array {
+		if ( $audience instanceof UserIdentity && !( $audience instanceof Authority ) ) {
+			wfDeprecated( __METHOD__ . ' with a UserIdentity', '1.37' );
+			$audience = $this->userFactory->newFromUserIdentity( $audience );
+		}
 
-		$dbr = wfGetDB( DB_REPLICA );
-		$prefix = $user ? $user->getName() : '';
+		if ( $audience !== self::AUDIENCE_PUBLIC &&
+			!( $audience instanceof Authority )
+		) {
+			throw new InvalidArgumentException(
+				'$audience must be AUDIENCE_PUBLIC or an Authority object'
+			);
+		}
+
+		// Invalid user names are treated as empty strings
+		$prefix = $this->userNameUtils->getCanonical( $search ) ?: '';
+
+		$dbr = $this->loadBalancer->getConnectionRef( DB_REPLICA );
+
 		$tables = [ 'user' ];
-		$cond = [ 'user_name ' . $dbr->buildLike( $prefix, $dbr->anyString() ) ];
+		$conds = [ 'user_name ' . $dbr->buildLike( $prefix, $dbr->anyString() ) ];
 		$joinConds = [];
 
 		// Filter out hidden user names
-		if ( $audience === 'public' || !$audience->isAllowed( 'hideuser' ) ) {
+		if ( $audience === self::AUDIENCE_PUBLIC || !$audience->isAllowed( 'hideuser' ) ) {
 			$tables[] = 'ipblocks';
-			$cond['ipb_deleted'] = [ 0, null ];
+			$conds['ipb_deleted'] = [ 0, null ];
 			$joinConds['ipblocks'] = [ 'LEFT JOIN', 'user_id=ipb_user' ];
 		}
 
 		$res = $dbr->selectFieldValues(
 			$tables,
 			'user_name',
-			$cond,
+			$conds,
 			__METHOD__,
 			[
 				'LIMIT' => $limit,
@@ -65,6 +119,6 @@ class UserNamePrefixSearch {
 			$joinConds
 		);
 
-		return $res === false ? [] : $res;
+		return $res;
 	}
 }

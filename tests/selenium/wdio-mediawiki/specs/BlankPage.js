@@ -1,5 +1,7 @@
-const assert = require( 'assert' ),
-	BlankPage = require( './../BlankPage' );
+'use strict';
+
+const assert = require( 'assert' );
+const BlankPage = require( './../BlankPage' );
 
 describe( 'BlankPage', function () {
 	it( 'should have its title @daily', function () {

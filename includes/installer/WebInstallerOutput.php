@@ -18,7 +18,7 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @ingroup Deployment
+ * @ingroup Installer
  */
 
 use MediaWiki\MediaWikiServices;
@@ -31,9 +31,9 @@ use MediaWiki\MediaWikiServices;
  * quite a lot of things you could do in OutputPage that would break the installer,
  * that wouldn't be immediately obvious.
  *
- * @ingroup Deployment
+ * @ingroup Installer
  * @since 1.17
- * @private
+ * @internal
  */
 class WebInstallerOutput {
 
@@ -92,15 +92,6 @@ class WebInstallerOutput {
 
 	/**
 	 * @param string $text
-	 * @deprecated since 1.32; use addWikiTextAsInterface instead
-	 */
-	public function addWikiText( $text ) {
-		wfDeprecated( __METHOD__, '1.32' );
-		$this->addWikiTextAsInterface( $text );
-	}
-
-	/**
-	 * @param string $text
 	 * @since 1.32
 	 */
 	public function addWikiTextAsInterface( $text ) {
@@ -140,56 +131,31 @@ class WebInstallerOutput {
 	 * @return string
 	 */
 	public function getCSS() {
-		global $wgStyleDirectory;
-
-		$moduleNames = [
-			// Based on Skin::getDefaultModules
-			'mediawiki.legacy.shared',
-			// Based on Vector::setupSkinUserCss
-			'mediawiki.skinning.interface',
-		];
-
 		$resourceLoader = MediaWikiServices::getInstance()->getResourceLoader();
 
-		if ( file_exists( "$wgStyleDirectory/Vector/skin.json" ) ) {
-			// Force loading Vector skin if available as a fallback skin
-			// for whatever ResourceLoader wants to have as the default.
-			$registry = new ExtensionRegistry();
-			$data = $registry->readFromQueue( [
-				"$wgStyleDirectory/Vector/skin.json" => 1,
-			] );
-			if ( isset( $data['globals']['wgResourceModules'] ) ) {
-				$resourceLoader->register( $data['globals']['wgResourceModules'] );
-			}
-
-			$moduleNames[] = 'skins.vector.styles';
-		}
-
-		$moduleNames[] = 'mediawiki.legacy.config';
-
 		$rlContext = new ResourceLoaderContext( $resourceLoader, new FauxRequest( [
-				'debug' => 'true',
-				'lang' => $this->getLanguage()->getCode(),
-				'only' => 'styles',
+			'debug' => 'true',
+			'lang' => $this->getLanguage()->getCode(),
+			'only' => 'styles',
 		] ) );
 
-		$styles = [];
-		foreach ( $moduleNames as $moduleName ) {
-			/** @var ResourceLoaderFileModule $module */
-			$module = $resourceLoader->getModule( $moduleName );
-			if ( !$module ) {
-				// T98043: Don't fatal, but it won't look as pretty.
-				continue;
-			}
+		$module = new ResourceLoaderSkinModule( [
+			'features' => [
+				'elements',
+				'interface-message-box'
+			],
+			'styles' => [
+				'mw-config/config.css',
+			],
+		] );
+		$module->setConfig( $resourceLoader->getConfig() );
 
-			// Based on: ResourceLoaderFileModule::getStyles (without the DB query)
-			$styles = array_merge( $styles, ResourceLoader::makeCombinedStyles(
-				$module->readStyleFiles(
-					$module->getStyleFiles( $rlContext ),
-					$module->getFlip( $rlContext ),
-					$rlContext
-			) ) );
-		}
+		// Based on: ResourceLoaderFileModule::getStyles (without the DB query)
+		$styles = ResourceLoader::makeCombinedStyles(
+			$module->readStyleFiles(
+				$module->getStyleFiles( $rlContext ),
+				$rlContext
+		) );
 
 		return implode( "\n", $styles );
 	}
@@ -229,7 +195,8 @@ class WebInstallerOutput {
 	private function getLanguage() {
 		global $wgLang;
 
-		return is_object( $wgLang ) ? $wgLang : Language::factory( 'en' );
+		return is_object( $wgLang ) ? $wgLang
+			: MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' );
 	}
 
 	/**
@@ -270,6 +237,7 @@ class WebInstallerOutput {
 
 			return;
 		}
+
 ?>
 <?php echo Html::htmlHeader( $this->getHeadAttribs() ); ?>
 
@@ -285,7 +253,7 @@ class WebInstallerOutput {
 <?php echo Html::openElement( 'body', [ 'class' => $this->getLanguage()->getDir() ] ) . "\n"; ?>
 <div id="mw-page-base"></div>
 <div id="mw-head-base"></div>
-<div id="content" class="mw-body">
+<div id="content" class="mw-body" role="main">
 <div id="bodyContent" class="mw-body-content">
 
 <h1><?php $this->outputTitle(); ?></h1>
@@ -304,17 +272,30 @@ class WebInstallerOutput {
 
 <div id="mw-panel">
 	<div class="portal" id="p-logo">
-		<a style="background-image: url(images/installer-logo.png);"
-			href="https://www.mediawiki.org/"
-			title="Main Page"></a>
+		<a href="https://www.mediawiki.org/" title="Main Page"></a>
 	</div>
 <?php
 	$message = wfMessage( 'config-sidebar' )->plain();
+	// Section 1: External links
+	// @todo FIXME: Migrate to plain link label messages (T227297).
 	foreach ( explode( '----', $message ) as $section ) {
 		echo '<div class="portal"><div class="body">';
 		echo $this->parent->parse( $section, true );
 		echo '</div></div>';
 	}
+	// Section 2: Installer pages
+	echo '<div class="portal"><div class="body"><ul>';
+	foreach ( [
+		'config-sidebar-relnotes' => 'ReleaseNotes',
+		'config-sidebar-license' => 'Copying',
+		'config-sidebar-upgrade' => 'UpgradeDoc',
+	] as $msgKey => $pageName ) {
+		echo $this->parent->makeLinkItem(
+			$this->parent->getDocUrl( $pageName ),
+			wfMessage( $msgKey )->text()
+		);
+	}
+	echo '</ul></div></div>';
 ?>
 </div>
 
@@ -325,13 +306,14 @@ class WebInstallerOutput {
 	public function outputShortHeader() {
 ?>
 <?php echo Html::htmlHeader( $this->getHeadAttribs() ); ?>
+
 <head>
-	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
 	<meta name="robots" content="noindex, nofollow" />
+	<meta http-equiv="Content-type" content="text/html; charset=utf-8" />
 	<title><?php $this->outputTitle(); ?></title>
 	<?php echo $this->getCssUrl() . "\n"; ?>
-	<?php echo $this->getJQuery(); ?>
-	<?php echo Html::linkedScript( 'config.js' ); ?>
+	<?php echo $this->getJQuery() . "\n"; ?>
+	<?php echo Html::linkedScript( 'config.js' ) . "\n"; ?>
 </head>
 
 <body style="background-image: none">
@@ -339,8 +321,7 @@ class WebInstallerOutput {
 	}
 
 	public function outputTitle() {
-		global $wgVersion;
-		echo wfMessage( 'config-title', $wgVersion )->escaped();
+		echo wfMessage( 'config-title', MW_VERSION )->escaped();
 	}
 
 	/**

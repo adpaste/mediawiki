@@ -1,55 +1,14 @@
-@import 'mediawiki.mixins';
-@import 'mediawiki.ui/variables';
+@import 'mediawiki.mixins.less';
+@import 'mediawiki.ui/mixins.buttons.less';
+@import 'mediawiki.ui/variables.less';
 
-// Buttons
-// Helper mixins
-// Primary buttons mixin
-.button-colors-primary( @bgColor, @highlightColor, @activeColor ) {
-	background-color: @bgColor;
-	color: #fff;
-	// border of the same color as background so that light background and
-	// dark background buttons are the same height and width
-	border: 1px solid @bgColor;
-
-	&:hover {
-		background-color: @highlightColor;
-		border-color: @highlightColor;
-	}
-
-	&:focus {
-		box-shadow: inset 0 0 0 1px @bgColor, inset 0 0 0 2px #fff;
-	}
-
-	&:active,
-	&.is-on {
-		background-color: @activeColor;
-		border-color: @activeColor;
-		box-shadow: none;
-	}
-
-	&:disabled {
-		background-color: @colorGray12;
-		color: #fff;
-		border-color: @colorGray12;
-
-		// Make sure disabled buttons don't have hover and active states
-		&:hover,
-		&:active {
-			background-color: @colorGray12;
-			color: #fff;
-			border-color: @colorGray12;
-			box-shadow: none;
-		}
-	}
-}
+/* stylelint-disable selector-class-pattern */
 
 // All buttons start with `.mw-ui-button` class, modified by other classes.
 // It can be any element.  Due to a lack of a CSS reset, the exact styling of
 // the button depends on what type of element is used.
 // There are two kinds of buttons, the default is a "Call to Action" with an obvious border
 // and there is a quiet kind without a border.
-//
-// Styleguide 2.
 
 // Neutral button styling
 //
@@ -62,90 +21,32 @@
 // <div>
 //   <button class="mw-ui-button" disabled>.mw-ui-button</button>
 // </div>
-//
-// Styleguide 2.1.
 .mw-ui-button {
 	background-color: @colorGray15;
-	color: @colorButtonText;
-	// Container layout
-	display: inline-block;
-	.box-sizing( border-box );
-	min-width: 4em;
-	max-width: 28.75em; // equivalent to 460px, @see T95367
-	margin: 0;
-	padding: 0.57142857em 0.9375em; // equivalent to `8px 12px`
-	border: @border-width-base @border-style-base @border-color-base;
-	border-radius: @borderRadius;
-	// Inherit the font rather than apply user agent stylesheet (T72072)
-	font-family: inherit;
-	font-size: 1em;
-	font-weight: bold;
-	line-height: 1;
-	text-align: center;
-	// Disable weird iOS styling
-	-webkit-appearance: none;
-	// IE 6 & 7 hack
-	// https://stackoverflow.com/a/5838575/365238
-	*display: inline; /* stylelint-disable-line declaration-block-no-duplicate-properties */
-	zoom: 1;
-	// Ensure that buttons and inputs are nicely aligned when they have differing heights
-	vertical-align: middle;
-	// Interaction styling
-	cursor: pointer;
+	color: @color-base;
+	.mw-ui-button();
+	.mw-ui-button-states();
 
-	// Make sure that `color` isn't inheriting from user-agent styles
-	&:visited {
-		color: @colorButtonText;
-	}
+	&.mw-ui-icon-element {
+		&:not( .mw-ui-icon-with-label-desktop ) {
+			// stylelint-disable-next-line declaration-no-important
+			color: transparent !important;
 
-	&:hover {
-		background-color: @background-color-base;
-		color: @colorGray4;
-		border-color: @colorGray10;
-	}
-
-	&:focus {
-		background-color: @background-color-base;
-		// Make sure that `color` isn't inheriting from user-agent styles
-		color: @colorButtonText;
-		border-color: @colorProgressive;
-		box-shadow: inset 0 0 0 1px @colorProgressive, inset 0 0 0 2px @background-color-base;
-		outline-width: 0;
-
-		// Remove the inner border and padding in Firefox.
-		&::-moz-focus-inner {
-			border-color: transparent;
-			padding: 0;
+			span {
+				.mixin-screen-reader-text();
+			}
 		}
-	}
 
-	&:active,
-	&.is-on {
-		background-color: @colorGray12;
-		color: @colorGray1;
-		border-color: @colorGray7;
-		box-shadow: none;
-	}
+		@media all and ( max-width: @width-breakpoint-desktop ) {
+			&.mw-ui-icon-with-label-desktop {
+				// stylelint-disable-next-line declaration-no-important
+				color: transparent !important;
+			}
 
-	&:disabled {
-		background-color: @colorGray12;
-		color: @colorBaseInverted;
-		border-color: @colorGray12;
-		cursor: default;
-
-		// Make sure disabled buttons don't have hover and active states
-		&:hover,
-		&:active {
-			background-color: @colorGray12;
-			color: @colorBaseInverted;
-			box-shadow: none;
-			border-color: @colorGray12;
+			span {
+				.mixin-screen-reader-text();
+			}
 		}
-	}
-
-	// `:not()` is used exclusively for `transition`s as both are not supported by IE < 9
-	&:not( :disabled ) {
-		.transition( ~'background-color 100ms, color 100ms, border-color 100ms, box-shadow 100ms' );
 	}
 
 	// Styling for specific button types
@@ -172,34 +73,40 @@
 	// <div>
 	//   <button class="mw-ui-button mw-ui-progressive mw-ui-quiet" disabled>.mw-ui-progressive</button>
 	// </div>
-	//
-	// Styleguide 2.1.1.
 	&.mw-ui-quiet,
 	&.mw-ui-quiet.mw-ui-progressive,
 	&.mw-ui-quiet.mw-ui-destructive {
 		background-color: transparent;
 		// Quiet buttons all start gray, and reveal
 		// progressive/destructive color on hover and active.
-		color: @colorButtonText;
+		color: @color-base;
 		border-color: transparent;
+		font-weight: bold;
 
+		&:not( .mw-ui-icon-element ) {
+			min-height: 32px;
+		}
+
+		// If a sibling element is a checklist, the state should also apply to the button.
+		input[ type='checkbox' ]:hover + &,
 		&:hover {
-			background-color: transparent;
-			color: @colorButtonTextHighlight;
-			border-color: transparent;
-			box-shadow: none;
-		}
-
-		&:active {
-			background-color: transparent;
-			color: @colorButtonTextActive;
+			background-color: @background-color-quiet--hover;
+			color: @color-base;
 			border-color: transparent;
 		}
 
+		input[ type='checkbox' ]:focus + &,
 		&:focus {
-			background-color: transparent;
-			color: @colorButtonText;
-			border-color: transparent;
+			color: @color-base;
+			border-color: @border-color-base--focus;
+			box-shadow: @box-shadow-primary--focus;
+		}
+
+		input[ type='checkbox' ]:active + &,
+		&:active {
+			background-color: @background-color-quiet--active;
+			color: @color-base--active;
+			border-color: @colorGray7;
 			box-shadow: none;
 		}
 
@@ -207,7 +114,7 @@
 		&:disabled:hover,
 		&:disabled:active {
 			background-color: transparent;
-			color: @colorDisabledText;
+			color: @color-base--disabled;
 			border-color: transparent;
 		}
 	}
@@ -223,26 +130,32 @@
 	// <div>
 	//   <button class="mw-ui-button mw-ui-progressive" disabled>.mw-ui-progressive</button>
 	// </div>
-	//
-	// Styleguide 2.1.2.
 	&.mw-ui-progressive {
-		.button-colors-primary( @colorProgressive, @colorProgressiveHighlight, @colorProgressiveActive );
+		.mw-ui-button-colors-primary( @color-primary, @color-primary--hover, @color-primary--active );
 
 		&.mw-ui-quiet {
-			color: @colorProgressive;
+			color: @color-primary;
+			background-color: transparent;
+			border-color: transparent;
 
+			input[ type='checkbox' ]:hover + &,
 			&:hover {
-				background-color: transparent;
-				color: @colorProgressiveHighlight;
+				background-color: @background-color-primary--hover;
+				border-color: transparent;
+				color: @color-primary--hover;
 			}
 
-			&:active {
-				color: @colorProgressiveActive;
-			}
-
+			input[ type='checkbox' ]:focus + &,
 			&:focus {
-				background-color: transparent;
-				color: @colorProgressive;
+				color: @color-primary--focus;
+				border-color: @color-primary--focus;
+			}
+
+			input[ type='checkbox' ]:active + &,
+			&:active {
+				color: @color-base--inverted;
+				background-color: @color-primary--active;
+				border-color: @color-primary--active;
 			}
 		}
 	}
@@ -259,26 +172,32 @@
 	// <div>
 	//   <button class="mw-ui-button mw-ui-destructive" disabled>.mw-ui-destructive</button>
 	// </div>
-	//
-	// Styleguide 2.1.3.
 	&.mw-ui-destructive {
-		.button-colors-primary( @colorDestructive, @colorDestructiveHighlight, @colorDestructiveActive );
+		.mw-ui-button-colors-primary( @color-destructive, @color-destructive--hover, @color-destructive--active );
 
 		&.mw-ui-quiet {
-			color: @colorDestructive;
+			color: @color-destructive;
+			background-color: transparent;
+			border-color: transparent;
 
+			input[ type='checkbox' ]:hover + &,
 			&:hover {
-				background-color: transparent;
-				color: @colorDestructiveHighlight;
+				background-color: @background-color-destructive--hover;
+				border-color: transparent;
+				color: @color-destructive--hover;
 			}
 
-			&:active {
-				color: @colorDestructiveActive;
-			}
-
+			input[ type='checkbox' ]:focus + &,
 			&:focus {
-				background-color: transparent;
-				color: @colorDestructive;
+				color: @color-destructive;
+				border-color: @color-destructive--focus;
+			}
+
+			input[ type='checkbox' ]:active + &,
+			&:active {
+				color: @color-base--inverted;
+				background-color: @color-destructive--active;
+				border-color: @color-destructive--active;
 			}
 		}
 	}
@@ -298,8 +217,6 @@
 	// <div>
 	//   <button class="mw-ui-button mw-ui-destructive mw-ui-big">.mw-ui-destructive</button>
 	// </div>
-	//
-	// Styleguide 2.1.4.
 	&.mw-ui-big {
 		font-size: 1.3em;
 	}
@@ -318,22 +235,11 @@
 	// <div>
 	//   <button class="mw-ui-button mw-ui-destructive mw-ui-block">.mw-ui-destructive</button>
 	// </div>
-	//
-	// Styleguide 2.1.5.
 	&.mw-ui-block {
 		display: block;
 		width: 100%;
 		margin-left: auto;
 		margin-right: auto;
-	}
-}
-
-input.mw-ui-button,
-button.mw-ui-button {
-	// Buttons in Firefox have extra height
-	&::-moz-focus-inner {
-		margin-top: -1px;
-		margin-bottom: -1px;
 	}
 }
 
@@ -359,8 +265,6 @@ a.mw-ui-button {
 //   <div class="mw-ui-button">C</div>
 //   <div class="mw-ui-button">D</div>
 // </div><div style="clear:both"></div>
-//
-// Styleguide 2.2.
 .mw-ui-button-group {
 	& > * {
 		min-width: 48px;
@@ -368,8 +272,8 @@ a.mw-ui-button {
 		float: left;
 
 		&:first-child {
-			border-top-left-radius: @borderRadius;
-			border-bottom-left-radius: @borderRadius;
+			border-top-left-radius: @border-radius-base;
+			border-bottom-left-radius: @border-radius-base;
 		}
 
 		&:not( :first-child ) {
@@ -377,8 +281,8 @@ a.mw-ui-button {
 		}
 
 		&:last-child {
-			border-top-right-radius: @borderRadius;
-			border-bottom-right-radius: @borderRadius;
+			border-top-right-radius: @border-radius-base;
+			border-bottom-right-radius: @border-radius-base;
 		}
 	}
 

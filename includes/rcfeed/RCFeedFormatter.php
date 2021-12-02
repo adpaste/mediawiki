@@ -22,6 +22,7 @@
 /**
  * Interface for RC feed formatters
  *
+ * @stable to implement
  * @since 1.22
  */
 interface RCFeedFormatter {

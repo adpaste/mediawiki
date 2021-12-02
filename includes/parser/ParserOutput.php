@@ -1,5 +1,11 @@
 <?php
 
+use MediaWiki\Json\JsonUnserializable;
+use MediaWiki\Json\JsonUnserializableTrait;
+use MediaWiki\Json\JsonUnserializer;
+use MediaWiki\Logger\LoggerFactory;
+use Wikimedia\Reflection\GhostFieldAccessTrait;
+
 /**
  * Output of the PHP parser.
  *
@@ -23,166 +29,177 @@
  */
 
 class ParserOutput extends CacheTime {
+	use GhostFieldAccessTrait;
+	use JsonUnserializableTrait;
+
 	/**
 	 * Feature flags to indicate to extensions that MediaWiki core supports and
 	 * uses getText() stateless transforms.
+	 *
+	 * @since 1.31
 	 */
-	const SUPPORTS_STATELESS_TRANSFORMS = 1;
-	const SUPPORTS_UNWRAP_TRANSFORM = 1;
+	public const SUPPORTS_STATELESS_TRANSFORMS = 1;
 
 	/**
-	 * @var string|null $mText The output text
+	 * @since 1.31
+	 */
+	public const SUPPORTS_UNWRAP_TRANSFORM = 1;
+
+	/**
+	 * @var string|null The output text
 	 */
 	public $mText = null;
 
 	/**
-	 * @var array $mLanguageLinks List of the full text of language links,
+	 * @var array List of the full text of language links,
 	 *  in the order they appear.
 	 */
 	public $mLanguageLinks;
 
 	/**
-	 * @var array $mCategoriesMap of category names to sort keys
+	 * @var array Map of category names to sort keys
 	 */
 	public $mCategories;
 
 	/**
-	 * @var array $mIndicators Page status indicators, usually displayed in top-right corner.
+	 * @var array Page status indicators, usually displayed in top-right corner.
 	 */
 	public $mIndicators = [];
 
 	/**
-	 * @var string $mTitleText Title text of the chosen language variant, as HTML.
+	 * @var string Title text of the chosen language variant, as HTML.
 	 */
 	public $mTitleText;
 
 	/**
-	 * @var array $mLinks 2-D map of NS/DBK to ID for the links in the document.
+	 * @var int[][] 2-D map of NS/DBK to ID for the links in the document.
 	 *  ID=zero for broken.
+	 * @phan-var array<int,array<string,int>>
 	 */
 	public $mLinks = [];
 
 	/**
-	 * @var array $mTemplates 2-D map of NS/DBK to ID for the template references.
+	 * @var array Keys are DBKs for the links to special pages in the document.
+	 * @since 1.35
+	 */
+	public $mLinksSpecial = [];
+
+	/**
+	 * @var array 2-D map of NS/DBK to ID for the template references.
 	 *  ID=zero for broken.
 	 */
 	public $mTemplates = [];
 
 	/**
-	 * @var array $mTemplateIds 2-D map of NS/DBK to rev ID for the template references.
+	 * @var array 2-D map of NS/DBK to rev ID for the template references.
 	 *  ID=zero for broken.
 	 */
 	public $mTemplateIds = [];
 
 	/**
-	 * @var array $mImages DB keys of the images used, in the array key only
+	 * @var array DB keys of the images used, in the array key only
 	 */
 	public $mImages = [];
 
 	/**
-	 * @var array $mFileSearchOptions DB keys of the images used mapped to sha1 and MW timestamp.
+	 * @var array DB keys of the images used mapped to sha1 and MW timestamp.
 	 */
 	public $mFileSearchOptions = [];
 
 	/**
-	 * @var array $mExternalLinks External link URLs, in the key only.
+	 * @var array External link URLs, in the key only.
 	 */
 	public $mExternalLinks = [];
 
 	/**
-	 * @var array $mInterwikiLinks 2-D map of prefix/DBK (in keys only)
+	 * @var array 2-D map of prefix/DBK (in keys only)
 	 *  for the inline interwiki links in the document.
 	 */
 	public $mInterwikiLinks = [];
 
 	/**
-	 * @var bool $mNewSection Show a new section link?
+	 * @var bool Show a new section link?
 	 */
 	public $mNewSection = false;
 
 	/**
-	 * @var bool $mHideNewSection Hide the new section link?
+	 * @var bool Hide the new section link?
 	 */
 	public $mHideNewSection = false;
 
 	/**
-	 * @var bool $mNoGallery No gallery on category page? (__NOGALLERY__).
+	 * @var bool No gallery on category page? (__NOGALLERY__).
 	 */
 	public $mNoGallery = false;
 
 	/**
-	 * @var array $mHeadItems Items to put in the <head> section
+	 * @var array Items to put in the <head> section
 	 */
 	public $mHeadItems = [];
 
 	/**
-	 * @var array $mModules Modules to be loaded by ResourceLoader
+	 * @var array Modules to be loaded by ResourceLoader
 	 */
 	public $mModules = [];
 
 	/**
-	 * @var array $mModuleStyles Modules of which only the CSSS will be loaded by ResourceLoader.
+	 * @var array Modules of which only the CSSS will be loaded by ResourceLoader.
 	 */
 	public $mModuleStyles = [];
 
 	/**
-	 * @var array $mJsConfigVars JavaScript config variable for mw.config combined with this page.
+	 * @var array JavaScript config variable for mw.config combined with this page.
 	 */
 	public $mJsConfigVars = [];
 
 	/**
-	 * @var array $mOutputHooks Hook tags as per $wgParserOutputHooks.
+	 * @var array Hook tags as per $wgParserOutputHooks.
 	 */
 	public $mOutputHooks = [];
 
 	/**
-	 * @var array $mWarnings Warning text to be returned to the user.
+	 * @var array Warning text to be returned to the user.
 	 *  Wikitext formatted, in the key only.
 	 */
 	public $mWarnings = [];
 
 	/**
-	 * @var array $mSections Table of contents
+	 * @var array Table of contents
 	 */
 	public $mSections = [];
 
 	/**
-	 * @var array $mProperties Name/value pairs to be cached in the DB.
+	 * @var array Name/value pairs to be cached in the DB.
 	 */
 	public $mProperties = [];
 
 	/**
-	 * @var string $mTOCHTML HTML of the TOC.
+	 * @var string HTML of the TOC.
 	 */
 	public $mTOCHTML = '';
 
 	/**
-	 * @var string $mTimestamp Timestamp of the revision.
+	 * @var string Timestamp of the revision.
 	 */
 	public $mTimestamp;
 
 	/**
-	 * @var bool $mEnableOOUI Whether OOUI should be enabled.
+	 * @var bool Whether OOUI should be enabled.
 	 */
 	public $mEnableOOUI = false;
 
 	/**
-	 * @var string $mIndexPolicy 'index' or 'noindex'?  Any other value will result in no change.
+	 * @var string 'index' or 'noindex'?  Any other value will result in no change.
 	 */
 	private $mIndexPolicy = '';
 
 	/**
-	 * @var true[] $mAccessedOptions List of ParserOptions (stored in the keys).
-	 */
-	private $mAccessedOptions = [];
-
-	/**
-	 * @var array $mExtensionData extra data used by extensions.
+	 * @var array extra data used by extensions.
 	 */
 	private $mExtensionData = [];
 
 	/**
-	 * @var array $mLimitReportData Parser limit report data.
+	 * @var array Parser limit report data.
 	 */
 	private $mLimitReportData = [];
 
@@ -190,22 +207,51 @@ class ParserOutput extends CacheTime {
 	private $mLimitReportJSData = [];
 
 	/**
-	 * @var array $mParseStartTime Timestamps for getTimeSinceStart().
+	 * @var array Timestamps for getTimeSinceStart().
 	 */
 	private $mParseStartTime = [];
 
 	/**
-	 * @var bool $mPreventClickjacking Whether to emit X-Frame-Options: DENY.
+	 * @var bool Whether to emit X-Frame-Options: DENY.
 	 */
 	private $mPreventClickjacking = false;
 
 	/**
-	 * @var array $mFlags Generic flags.
+	 * @var array Extra script-src for CSP
+	 */
+	private $mExtraScriptSrcs = [];
+
+	/**
+	 * @var array Extra default-src for CSP [Everything but script and style]
+	 */
+	private $mExtraDefaultSrcs = [];
+
+	/**
+	 * @var array Extra style-src for CSP
+	 */
+	private $mExtraStyleSrcs = [];
+
+	/**
+	 * @var array Generic flags.
 	 */
 	private $mFlags = [];
 
+	/** @var string[] */
+	private const SPECULATIVE_FIELDS = [
+		'speculativePageIdUsed',
+		'mSpeculativeRevId',
+		'revisionTimestampUsed'
+	];
+
 	/** @var int|null Assumed rev ID for {{REVISIONID}} if no revision is set */
 	private $mSpeculativeRevId;
+	/** @var int|null Assumed page ID for {{PAGEID}} if no revision is set */
+	private $speculativePageIdUsed;
+	/** @var int|null Assumed rev timestamp for {{REVISIONTIMESTAMP}} if no revision is set */
+	private $revisionTimestampUsed;
+
+	/** @var string|null SHA-1 base 36 hash of any self-transclusion */
+	private $revisionUsedSha1Base36;
 
 	/** string CSS classes to use for the wrapping div, stored in the array keys.
 	 * If no class is given, no wrapper is added.
@@ -215,17 +261,17 @@ class ParserOutput extends CacheTime {
 	/** @var int Upper bound of expiry based on parse duration */
 	private $mMaxAdaptiveExpiry = INF;
 
-	const EDITSECTION_REGEX =
+	private const EDITSECTION_REGEX =
 		'#<(?:mw:)?editsection page="(.*?)" section="(.*?)"(?:/>|>(.*?)(</(?:mw:)?editsection>))#s';
 
 	// finalizeAdaptiveCacheExpiry() uses TTL = MAX( m * PARSE_TIME + b, MIN_AR_TTL)
 	// Current values imply that m=3933.333333 and b=-333.333333
 	// See https://www.nngroup.com/articles/website-response-times/
-	const PARSE_FAST_SEC = 0.100; // perceived "fast" page parse
-	const PARSE_SLOW_SEC = 1.0; // perceived "slow" page parse
-	const FAST_AR_TTL = 60; // adaptive TTL for "fast" pages
-	const SLOW_AR_TTL = 3600; // adaptive TTL for "slow" pages
-	const MIN_AR_TTL = 15; // min adaptive TTL (for sanity, pool counter, and edit stashing)
+	private const PARSE_FAST_SEC = 0.100; // perceived "fast" page parse
+	private const PARSE_SLOW_SEC = 1.0; // perceived "slow" page parse
+	private const FAST_AR_TTL = 60; // adaptive TTL for "fast" pages
+	private const SLOW_AR_TTL = 3600; // adaptive TTL for "slow" pages
+	private const MIN_AR_TTL = 15; // min adaptive TTL (for sanity, pool counter, and edit stashing)
 
 	/**
 	 * @param string|null $text HTML. Use null to indicate that this ParserOutput contains only
@@ -285,6 +331,7 @@ class ParserOutput extends CacheTime {
 	 *  - enableSectionEditLinks: (bool) Include section edit links, assuming
 	 *     section edit link tokens are present in the HTML. Default is true,
 	 *     but might be statefully overridden.
+	 *  - skin: (Skin) Skin object used for transforming section edit links.
 	 *  - unwrap: (bool) Return text without a wrapper div. Default is false,
 	 *    meaning a wrapper div will be added if getWrapperDivClass() returns
 	 *    a non-empty string.
@@ -304,36 +351,49 @@ class ParserOutput extends CacheTime {
 		$options += [
 			'allowTOC' => true,
 			'enableSectionEditLinks' => true,
+			'skin' => null,
 			'unwrap' => false,
 			'deduplicateStyles' => true,
 			'wrapperDivClass' => $this->getWrapperDivClass(),
 		];
 		$text = $this->getRawText();
 
-		Hooks::runWithoutAbort( 'ParserOutputPostCacheTransform', [ $this, &$text, &$options ] );
+		Hooks::runner()->onParserOutputPostCacheTransform( $this, $text, $options );
 
 		if ( $options['wrapperDivClass'] !== '' && !$options['unwrap'] ) {
 			$text = Html::rawElement( 'div', [ 'class' => $options['wrapperDivClass'] ], $text );
 		}
 
 		if ( $options['enableSectionEditLinks'] ) {
+			// TODO: Passing the skin should be required
+			$skin = $options['skin'] ?: RequestContext::getMain()->getSkin();
+
 			$text = preg_replace_callback(
 				self::EDITSECTION_REGEX,
-				function ( $m ) {
+				function ( $m ) use ( $skin ) {
 					$editsectionPage = Title::newFromText( htmlspecialchars_decode( $m[1] ) );
 					$editsectionSection = htmlspecialchars_decode( $m[2] );
 					$editsectionContent = isset( $m[4] ) ? Sanitizer::decodeCharReferences( $m[3] ) : null;
 
 					if ( !is_object( $editsectionPage ) ) {
-						throw new MWException( "Bad parser output text." );
+						LoggerFactory::getInstance( 'Parser' )
+							->error(
+								'ParserOutput::getText(): bad title in editsection placeholder',
+								[
+									'placeholder' => $m[0],
+									'editsectionPage' => $m[1],
+									'titletext' => $this->getTitleText(),
+									'phab' => 'T261347'
+								]
+							);
+						return '';
 					}
 
-					$context = RequestContext::getMain();
-					return $context->getSkin()->doEditSectionLink(
+					return $skin->doEditSectionLink(
 						$editsectionPage,
 						$editsectionSection,
 						$editsectionContent,
-						$context->getLanguage()
+						$skin->getLanguage()
 					);
 				},
 				$text
@@ -356,7 +416,7 @@ class ParserOutput extends CacheTime {
 			$seen = [];
 			$text = preg_replace_callback(
 				'#<style\s+([^>]*data-mw-deduplicate\s*=[^>]*)>.*?</style>#s',
-				function ( $m ) use ( &$seen ) {
+				static function ( $m ) use ( &$seen ) {
 					$attr = Sanitizer::decodeTagAttributes( $m[1] );
 					if ( !isset( $attr['data-mw-deduplicate'] ) ) {
 						return $m[0];
@@ -384,7 +444,7 @@ class ParserOutput extends CacheTime {
 		// Hydrate slot section header placeholders generated by RevisionRenderer.
 		$text = preg_replace_callback(
 			'#<mw:slotheader>(.*?)</mw:slotheader>#',
-			function ( $m ) {
+			static function ( $m ) {
 				$role = htmlspecialchars_decode( $m[1] );
 				// TODO: map to message, using the interface language. Set lang="xyz" accordingly.
 				$headerText = $role;
@@ -393,6 +453,15 @@ class ParserOutput extends CacheTime {
 			$text
 		);
 		return $text;
+	}
+
+	/**
+	 * Adds a comment notice about cache state to the text of the page
+	 * @param string $msg
+	 * @internal used by ParserCache
+	 */
+	public function addCacheMessage( string $msg ) {
+		$this->mText .= "\n<!-- $msg\n -->\n";
 	}
 
 	/**
@@ -439,6 +508,65 @@ class ParserOutput extends CacheTime {
 		return $this->mSpeculativeRevId;
 	}
 
+	/**
+	 * @param int $id
+	 * @since 1.34
+	 */
+	public function setSpeculativePageIdUsed( $id ) {
+		$this->speculativePageIdUsed = $id;
+	}
+
+	/**
+	 * @return int|null
+	 * @since 1.34
+	 */
+	public function getSpeculativePageIdUsed() {
+		return $this->speculativePageIdUsed;
+	}
+
+	/**
+	 * @param string $timestamp TS_MW timestamp
+	 * @since 1.34
+	 */
+	public function setRevisionTimestampUsed( $timestamp ) {
+		$this->revisionTimestampUsed = $timestamp;
+	}
+
+	/**
+	 * @return string|null TS_MW timestamp or null if not used
+	 * @since 1.34
+	 */
+	public function getRevisionTimestampUsed() {
+		return $this->revisionTimestampUsed;
+	}
+
+	/**
+	 * @param string $hash Lowercase SHA-1 base 36 hash
+	 * @since 1.34
+	 */
+	public function setRevisionUsedSha1Base36( $hash ) {
+		if ( $hash === null ) {
+			return; // e.g. RevisionRecord::getSha1() returned null
+		}
+
+		if (
+			$this->revisionUsedSha1Base36 !== null &&
+			$this->revisionUsedSha1Base36 !== $hash
+		) {
+			$this->revisionUsedSha1Base36 = ''; // mismatched
+		} else {
+			$this->revisionUsedSha1Base36 = $hash;
+		}
+	}
+
+	/**
+	 * @return string|null Lowercase SHA-1 base 36 hash, null if unused, or "" on inconsistency
+	 * @since 1.34
+	 */
+	public function getRevisionUsedSha1Base36() {
+		return $this->revisionUsedSha1Base36;
+	}
+
 	public function &getLanguageLinks() {
 		return $this->mLanguageLinks;
 	}
@@ -471,16 +599,16 @@ class ParserOutput extends CacheTime {
 		return $this->mSections;
 	}
 
-	/**
-	 * @deprecated since 1.31 Use getText() options.
-	 */
-	public function getEditSectionTokens() {
-		wfDeprecated( __METHOD__, '1.31' );
-		return true;
-	}
-
 	public function &getLinks() {
 		return $this->mLinks;
+	}
+
+	/**
+	 * @return array Keys are DBKs for the links to special pages in the document
+	 * @since 1.35
+	 */
+	public function &getLinksSpecial() {
+		return $this->mLinksSpecial;
 	}
 
 	public function &getTemplates() {
@@ -506,6 +634,7 @@ class ParserOutput extends CacheTime {
 	public function setNoGallery( $value ) {
 		$this->mNoGallery = (bool)$value;
 	}
+
 	public function getNoGallery() {
 		return $this->mNoGallery;
 	}
@@ -516,11 +645,6 @@ class ParserOutput extends CacheTime {
 
 	public function getModules() {
 		return $this->mModules;
-	}
-
-	public function getModuleScripts() {
-		wfDeprecated( __METHOD__, '1.33' );
-		return [];
 	}
 
 	public function getModuleStyles() {
@@ -566,16 +690,35 @@ class ParserOutput extends CacheTime {
 		return $this->mLimitReportJSData;
 	}
 
-	/**
-	 * @deprecated since 1.31 Use getText() options.
-	 */
-	public function getTOCEnabled() {
-		wfDeprecated( __METHOD__, '1.31' );
-		return true;
-	}
-
 	public function getEnableOOUI() {
 		return $this->mEnableOOUI;
+	}
+
+	/**
+	 * Get extra Content-Security-Policy 'default-src' directives
+	 * @since 1.35
+	 * @return array
+	 */
+	public function getExtraCSPDefaultSrcs() {
+		return $this->mExtraDefaultSrcs;
+	}
+
+	/**
+	 * Get extra Content-Security-Policy 'script-src' directives
+	 * @since 1.35
+	 * @return array
+	 */
+	public function getExtraCSPScriptSrcs() {
+		return $this->mExtraScriptSrcs;
+	}
+
+	/**
+	 * Get extra Content-Security-Policy 'style-src' directives
+	 * @since 1.35
+	 * @return array
+	 */
+	public function getExtraCSPStyleSrcs() {
+		return $this->mExtraStyleSrcs;
 	}
 
 	public function setText( $text ) {
@@ -598,14 +741,6 @@ class ParserOutput extends CacheTime {
 		return wfSetVar( $this->mSections, $toc );
 	}
 
-	/**
-	 * @deprecated since 1.31 Use getText() options.
-	 */
-	public function setEditSectionTokens( $t ) {
-		wfDeprecated( __METHOD__, '1.31' );
-		return true;
-	}
-
 	public function setIndexPolicy( $policy ) {
 		return wfSetVar( $this->mIndexPolicy, $policy );
 	}
@@ -616,14 +751,6 @@ class ParserOutput extends CacheTime {
 
 	public function setTimestamp( $timestamp ) {
 		return wfSetVar( $this->mTimestamp, $timestamp );
-	}
-
-	/**
-	 * @deprecated since 1.31 Use getText() options.
-	 */
-	public function setTOCEnabled( $flag ) {
-		wfDeprecated( __METHOD__, '1.31' );
-		return true;
 	}
 
 	public function addCategory( $c, $sort ) {
@@ -665,12 +792,15 @@ class ParserOutput extends CacheTime {
 	public function setNewSection( $value ) {
 		$this->mNewSection = (bool)$value;
 	}
+
 	public function hideNewSection( $value ) {
 		$this->mHideNewSection = (bool)$value;
 	}
+
 	public function getHideNewSection() {
 		return (bool)$this->mHideNewSection;
 	}
+
 	public function getNewSection() {
 		return (bool)$this->mNewSection;
 	}
@@ -724,12 +854,13 @@ class ParserOutput extends CacheTime {
 		}
 		$ns = $title->getNamespace();
 		$dbk = $title->getDBkey();
-		if ( $ns == NS_MEDIA ) {
+		if ( $ns === NS_MEDIA ) {
 			// Normalize this pseudo-alias if it makes it down here...
 			$ns = NS_FILE;
-		} elseif ( $ns == NS_SPECIAL ) {
-			// We don't record Special: links currently
+		} elseif ( $ns === NS_SPECIAL ) {
+			// We don't want to record Special: links in the database, so put them in a separate place.
 			// It might actually be wise to, but we'd need to do some normalization.
+			$this->mLinksSpecial[$dbk] = 1;
 			return;
 		} elseif ( $dbk === '' ) {
 			// Don't record self links -  [[#Foo]]
@@ -738,7 +869,7 @@ class ParserOutput extends CacheTime {
 		if ( !isset( $this->mLinks[$ns] ) ) {
 			$this->mLinks[$ns] = [];
 		}
-		if ( is_null( $id ) ) {
+		if ( $id === null ) {
 			$id = $title->getArticleID();
 		}
 		$this->mLinks[$ns][$dbk] = $id;
@@ -808,6 +939,7 @@ class ParserOutput extends CacheTime {
 
 	/**
 	 * @see OutputPage::addModules
+	 * @param string|array $modules
 	 */
 	public function addModules( $modules ) {
 		$this->mModules = array_merge( $this->mModules, (array)$modules );
@@ -815,6 +947,7 @@ class ParserOutput extends CacheTime {
 
 	/**
 	 * @see OutputPage::addModuleStyles
+	 * @param string|array $modules
 	 */
 	public function addModuleStyles( $modules ) {
 		$this->mModuleStyles = array_merge( $this->mModuleStyles, (array)$modules );
@@ -870,13 +1003,13 @@ class ParserOutput extends CacheTime {
 	 */
 	public function addTrackingCategory( $msg, $title ) {
 		if ( $title->isSpecialPage() ) {
-			wfDebug( __METHOD__ . ": Not adding tracking category $msg to special page!\n" );
+			wfDebug( __METHOD__ . ": Not adding tracking category $msg to special page!" );
 			return false;
 		}
 
 		// Important to parse with correct title (T33469)
 		$cat = wfMessage( $msg )
-			->title( $title )
+			->page( $title )
 			->inContentLanguage()
 			->text();
 
@@ -890,7 +1023,7 @@ class ParserOutput extends CacheTime {
 			$this->addCategory( $containerCategory->getDBkey(), $this->getProperty( 'defaultsort' ) ?: '' );
 			return true;
 		} else {
-			wfDebug( __METHOD__ . ": [[MediaWiki:$msg]] is not a valid title!\n" );
+			wfDebug( __METHOD__ . ": [[MediaWiki:$msg]] is not a valid title!" );
 			return false;
 		}
 	}
@@ -928,15 +1061,28 @@ class ParserOutput extends CacheTime {
 	}
 
 	/**
-	 * Fairly generic flag setter thingy.
+	 * Attach a flag to the output so that it can be checked later to handle special cases
+	 *
 	 * @param string $flag
 	 */
 	public function setFlag( $flag ) {
 		$this->mFlags[$flag] = true;
 	}
 
+	/**
+	 * @param string $flag
+	 * @return bool Whether the given flag was set to signify a special case
+	 */
 	public function getFlag( $flag ) {
 		return isset( $this->mFlags[$flag] );
+	}
+
+	/**
+	 * @return string[] List of flags signifying special cases
+	 * @since 1.34
+	 */
+	public function getAllFlags() {
+		return array_keys( $this->mFlags );
 	}
 
 	/**
@@ -996,8 +1142,13 @@ class ParserOutput extends CacheTime {
 	 * @code
 	 *    $parser->getOutput()->my_ext_foo = '...';
 	 * @endcode
+	 *
+	 * @note Only scalar values like numbers and strings are supported
+	 * as a value. Attempt to use an object or array will
+	 * not work properly with LinksUpdate.
+	 *
 	 * @param string $name
-	 * @param mixed $value
+	 * @param int|float|string|bool|null $value
 	 */
 	public function setProperty( $name, $value ) {
 		$this->mProperties[$name] = $value;
@@ -1024,34 +1175,6 @@ class ParserOutput extends CacheTime {
 			$this->mProperties = [];
 		}
 		return $this->mProperties;
-	}
-
-	/**
-	 * Returns the options from its ParserOptions which have been taken
-	 * into account to produce this output.
-	 * @return string[]
-	 */
-	public function getUsedOptions() {
-		if ( !isset( $this->mAccessedOptions ) ) {
-			return [];
-		}
-		return array_keys( $this->mAccessedOptions );
-	}
-
-	/**
-	 * Tags a parser option for use in the cache key for this parser output.
-	 * Registered as a watcher at ParserOptions::registerWatcher() by Parser::clearState().
-	 * The information gathered here is available via getUsedOptions(),
-	 * and is used by ParserCache::save().
-	 *
-	 * @see ParserCache::getKey
-	 * @see ParserCache::save
-	 * @see ParserOptions::addExtraKey
-	 * @see ParserOptions::optionsHash
-	 * @param string $option
-	 */
-	public function recordOption( $option ) {
-		$this->mAccessedOptions[$option] = true;
 	}
 
 	/**
@@ -1086,13 +1209,16 @@ class ParserOutput extends CacheTime {
 	 *    $parser->getOutput()->my_ext_foo = '...';
 	 * @endcode
 	 *
-	 * @since 1.21
+	 * @note Only scalar values, e.g. numbers, strings, arrays or MediaWiki\Json\JsonUnserializable
+	 * instances are supported as a value. Attempt to set other class instance as a extension data
+	 * will break ParserCache for the page.
 	 *
 	 * @param string $key The key for accessing the data. Extensions should take care to avoid
 	 *   conflicts in naming keys. It is suggested to use the extension's name as a prefix.
 	 *
-	 * @param mixed $value The value to set. Setting a value to null is equivalent to removing
-	 *   the value.
+	 * @param mixed|JsonUnserializable $value The value to set.
+	 *   Setting a value to null is equivalent to removing the value.
+	 * @since 1.21
 	 */
 	public function setExtensionData( $key, $value ) {
 		if ( $value === null ) {
@@ -1123,11 +1249,9 @@ class ParserOutput extends CacheTime {
 			$ret['wall'] = microtime( true );
 		}
 		if ( !$clock || $clock === 'cpu' ) {
-			$ru = wfGetRusage();
-			if ( $ru ) {
-				$ret['cpu'] = $ru['ru_utime.tv_sec'] + $ru['ru_utime.tv_usec'] / 1e6;
-				$ret['cpu'] += $ru['ru_stime.tv_sec'] + $ru['ru_stime.tv_usec'] / 1e6;
-			}
+			$ru = getrusage( 0 /* RUSAGE_SELF */ );
+			$ret['cpu'] = $ru['ru_utime.tv_sec'] + $ru['ru_utime.tv_usec'] / 1e6;
+			$ret['cpu'] += $ru['ru_stime.tv_sec'] + $ru['ru_stime.tv_usec'] / 1e6;
 		}
 		return $ret;
 	}
@@ -1204,19 +1328,34 @@ class ParserOutput extends CacheTime {
 	}
 
 	/**
-	 * Check whether the cache TTL was lowered due to dynamic content
+	 * Check whether the cache TTL was lowered from the site default.
 	 *
 	 * When content is determined by more than hard state (e.g. page edits),
 	 * such as template/file transclusions based on the current timestamp or
 	 * extension tags that generate lists based on queries, this return true.
 	 *
+	 * This method mainly exists to facilitate the logic in
+	 * WikiPage::triggerOpportunisticLinksUpdate. As such, beware that reducing the TTL for
+	 * reasons that do not relate to "dynamic content", may have the side-effect of incurring
+	 * more RefreshLinksJob executions.
+	 *
+	 * @internal For use by Parser and WikiPage
+	 * @since 1.37
+	 * @return bool
+	 */
+	public function hasReducedExpiry(): bool {
+		global $wgParserCacheExpireTime;
+
+		return $this->getCacheExpiry() < $wgParserCacheExpireTime;
+	}
+
+	/**
+	 * @see ParserOutput::hasReducedExpiry
 	 * @return bool
 	 * @since 1.25
 	 */
 	public function hasDynamicContent() {
-		global $wgParserCacheExpireTime;
-
-		return $this->getCacheExpiry() < $wgParserCacheExpireTime;
+		return $this->hasReducedExpiry();
 	}
 
 	/**
@@ -1239,6 +1378,41 @@ class ParserOutput extends CacheTime {
 	public function updateRuntimeAdaptiveExpiry( $ttl ) {
 		$this->mMaxAdaptiveExpiry = min( $ttl, $this->mMaxAdaptiveExpiry );
 		$this->updateCacheExpiry( $ttl );
+	}
+
+	/**
+	 * Add an extra value to Content-Security-Policy default-src directive
+	 *
+	 * Call this if you are including a resource (e.g. image) from a third party domain.
+	 * This is used for all source types except style and script.
+	 *
+	 * @since 1.35
+	 * @param string $src CSP source e.g. example.com
+	 */
+	public function addExtraCSPDefaultSrc( $src ) {
+		$this->mExtraDefaultSrcs[] = $src;
+	}
+
+	/**
+	 * Add an extra value to Content-Security-Policy style-src directive
+	 *
+	 * @since 1.35
+	 * @param string $src CSP source e.g. example.com
+	 */
+	public function addExtraCSPStyleSrc( $src ) {
+		$this->mExtraStyleSrcs[] = $src;
+	}
+
+	/**
+	 * Add an extra value to Content-Security-Policy script-src directive
+	 *
+	 * Call this if you are loading third-party Javascript
+	 *
+	 * @since 1.35
+	 * @param string $src CSP source e.g. example.com
+	 */
+	public function addExtraCSPScriptSrc( $src ) {
+		$this->mExtraScriptSrcs[] = $src;
 	}
 
 	/**
@@ -1267,9 +1441,15 @@ class ParserOutput extends CacheTime {
 	}
 
 	public function __sleep() {
-		return array_diff(
-			array_keys( get_object_vars( $this ) ),
-			[ 'mParseStartTime' ]
+		return array_filter( array_keys( get_object_vars( $this ) ),
+			static function ( $field ) {
+				if ( $field === 'mParseStartTime' ) {
+					return false;
+				}
+				// Unserializing unknown private fields in HHVM causes
+				// member variables with nulls in their names (T229366)
+				return strpos( $field, "\0" ) === false;
+			}
 		);
 	}
 
@@ -1285,25 +1465,20 @@ class ParserOutput extends CacheTime {
 		$this->mWarnings = self::mergeMap( $this->mWarnings, $source->mWarnings ); // don't use getter
 		$this->mTimestamp = $this->useMaxValue( $this->mTimestamp, $source->getTimestamp() );
 
-		if ( $this->mSpeculativeRevId && $source->mSpeculativeRevId
-			&& $this->mSpeculativeRevId !== $source->mSpeculativeRevId
-		) {
-			wfLogWarning(
-				'Inconsistent speculative revision ID encountered while merging parser output!'
-			);
+		foreach ( self::SPECULATIVE_FIELDS as $field ) {
+			if ( $this->$field && $source->$field && $this->$field !== $source->$field ) {
+				wfLogWarning( __METHOD__ . ": inconsistent '$field' properties!" );
+			}
+			$this->$field = $this->useMaxValue( $this->$field, $source->$field );
 		}
 
-		$this->mSpeculativeRevId = $this->useMaxValue(
-			$this->mSpeculativeRevId,
-			$source->getSpeculativeRevIdUsed()
-		);
 		$this->mParseStartTime = $this->useEachMinValue(
 			$this->mParseStartTime,
 			$source->mParseStartTime
 		);
 
 		$this->mFlags = self::mergeMap( $this->mFlags, $source->mFlags );
-		$this->mAccessedOptions = self::mergeMap( $this->mAccessedOptions, $source->mAccessedOptions );
+		$this->mParseUsedOptions = self::mergeMap( $this->mParseUsedOptions, $source->mParseUsedOptions );
 
 		// TODO: maintain per-slot limit reports!
 		if ( empty( $this->mLimitReportData ) ) {
@@ -1328,6 +1503,18 @@ class ParserOutput extends CacheTime {
 		$this->mModuleStyles = self::mergeList( $this->mModuleStyles, $source->getModuleStyles() );
 		$this->mJsConfigVars = self::mergeMap( $this->mJsConfigVars, $source->getJsConfigVars() );
 		$this->mMaxAdaptiveExpiry = min( $this->mMaxAdaptiveExpiry, $source->mMaxAdaptiveExpiry );
+		$this->mExtraStyleSrcs = self::mergeList(
+			$this->mExtraStyleSrcs,
+			$source->getExtraCSPStyleSrcs()
+		);
+		$this->mExtraScriptSrcs = self::mergeList(
+			$this->mExtraScriptSrcs,
+			$source->getExtraCSPScriptSrcs()
+		);
+		$this->mExtraDefaultSrcs = self::mergeList(
+			$this->mExtraDefaultSrcs,
+			$source->getExtraCSPDefaultSrcs()
+		);
 
 		// "noindex" always wins!
 		if ( $this->mIndexPolicy === 'noindex' || $source->mIndexPolicy === 'noindex' ) {
@@ -1478,4 +1665,181 @@ class ParserOutput extends CacheTime {
 		return max( $a, $b );
 	}
 
+	/**
+	 * Returns a JSON serializable structure representing this ParserOutput instance.
+	 * @see newFromJson()
+	 *
+	 * @return array
+	 */
+	protected function toJsonArray(): array {
+		$data = [
+			'Text' => $this->mText,
+			'LanguageLinks' => $this->mLanguageLinks,
+			'Categories' => $this->mCategories,
+			'Indicators' => $this->mIndicators,
+			'TitleText' => $this->mTitleText,
+			'Links' => $this->mLinks,
+			'LinksSpecial' => $this->mLinksSpecial,
+			'Templates' => $this->mTemplates,
+			'TemplateIds' => $this->mTemplateIds,
+			'Images' => $this->mImages,
+			'FileSearchOptions' => $this->mFileSearchOptions,
+			'ExternalLinks' => $this->mExternalLinks,
+			'InterwikiLinks' => $this->mInterwikiLinks,
+			'NewSection' => $this->mNewSection,
+			'HideNewSection' => $this->mHideNewSection,
+			'NoGallery' => $this->mNoGallery,
+			'HeadItems' => $this->mHeadItems,
+			'Modules' => $this->mModules,
+			'ModuleStyles' => $this->mModuleStyles,
+			'JsConfigVars' => $this->mJsConfigVars,
+			'OutputHooks' => $this->mOutputHooks,
+			'Warnings' => $this->mWarnings,
+			'Sections' => $this->mSections,
+			'Properties' => self::detectAndEncodeBinary( $this->mProperties ),
+			'TOCHTML' => $this->mTOCHTML,
+			'Timestamp' => $this->mTimestamp,
+			'EnableOOUI' => $this->mEnableOOUI,
+			'IndexPolicy' => $this->mIndexPolicy,
+			// may contain arbitrary structures!
+			'ExtensionData' => $this->mExtensionData,
+			'LimitReportData' => $this->mLimitReportData,
+			'LimitReportJSData' => $this->mLimitReportJSData,
+			'ParseStartTime' => $this->mParseStartTime,
+			'PreventClickjacking' => $this->mPreventClickjacking,
+			'ExtraScriptSrcs' => $this->mExtraScriptSrcs,
+			'ExtraDefaultSrcs' => $this->mExtraDefaultSrcs,
+			'ExtraStyleSrcs' => $this->mExtraStyleSrcs,
+			'Flags' => $this->mFlags,
+			'SpeculativeRevId' => $this->mSpeculativeRevId,
+			'SpeculativePageIdUsed' => $this->speculativePageIdUsed,
+			'RevisionTimestampUsed' => $this->revisionTimestampUsed,
+			'RevisionUsedSha1Base36' => $this->revisionUsedSha1Base36,
+			'WrapperDivClasses' => $this->mWrapperDivClasses,
+		];
+
+		// Fill in missing fields from parents. Array addition does not override existing fields.
+		$data += parent::toJsonArray();
+
+		// TODO: make more fields optional!
+
+		if ( $this->mMaxAdaptiveExpiry !== INF ) {
+			// NOTE: JSON can't encode infinity!
+			$data['MaxAdaptiveExpiry'] = $this->mMaxAdaptiveExpiry;
+		}
+
+		return $data;
+	}
+
+	public static function newFromJsonArray( JsonUnserializer $unserializer, array $json ) {
+		$parserOutput = new ParserOutput();
+		$parserOutput->initFromJson( $unserializer, $json );
+		return $parserOutput;
+	}
+
+	/**
+	 * Initialize member fields from an array returned by jsonSerialize().
+	 * @param JsonUnserializer $unserializer
+	 * @param array $jsonData
+	 */
+	protected function initFromJson( JsonUnserializer $unserializer, array $jsonData ) {
+		parent::initFromJson( $unserializer, $jsonData );
+
+		$this->mText = $jsonData['Text'];
+		$this->mLanguageLinks = $jsonData['LanguageLinks'];
+		$this->mCategories = $jsonData['Categories'];
+		$this->mIndicators = $jsonData['Indicators'];
+		$this->mTitleText = $jsonData['TitleText'];
+		$this->mLinks = $jsonData['Links'];
+		$this->mLinksSpecial = $jsonData['LinksSpecial'];
+		$this->mTemplates = $jsonData['Templates'];
+		$this->mTemplateIds = $jsonData['TemplateIds'];
+		$this->mImages = $jsonData['Images'];
+		$this->mFileSearchOptions = $jsonData['FileSearchOptions'];
+		$this->mExternalLinks = $jsonData['ExternalLinks'];
+		$this->mInterwikiLinks = $jsonData['InterwikiLinks'];
+		$this->mNewSection = $jsonData['NewSection'];
+		$this->mHideNewSection = $jsonData['HideNewSection'];
+		$this->mNoGallery = $jsonData['NoGallery'];
+		$this->mHeadItems = $jsonData['HeadItems'];
+		$this->mModules = $jsonData['Modules'];
+		$this->mModuleStyles = $jsonData['ModuleStyles'];
+		$this->mJsConfigVars = $jsonData['JsConfigVars'];
+		$this->mOutputHooks = $jsonData['OutputHooks'];
+		$this->mWarnings = $jsonData['Warnings'];
+		$this->mSections = $jsonData['Sections'];
+		$this->mProperties = self::detectAndDecodeBinary( $jsonData['Properties'] );
+		$this->mTOCHTML = $jsonData['TOCHTML'];
+		$this->mTimestamp = $jsonData['Timestamp'];
+		$this->mEnableOOUI = $jsonData['EnableOOUI'];
+		$this->mIndexPolicy = $jsonData['IndexPolicy'];
+		$this->mExtensionData = $unserializer->unserializeArray( $jsonData['ExtensionData'] ?? [] );
+		$this->mLimitReportData = $jsonData['LimitReportData'];
+		$this->mLimitReportJSData = $jsonData['LimitReportJSData'];
+		$this->mParseStartTime = $jsonData['ParseStartTime'];
+		$this->mPreventClickjacking = $jsonData['PreventClickjacking'];
+		$this->mExtraScriptSrcs = $jsonData['ExtraScriptSrcs'];
+		$this->mExtraDefaultSrcs = $jsonData['ExtraDefaultSrcs'];
+		$this->mExtraStyleSrcs = $jsonData['ExtraStyleSrcs'];
+		$this->mFlags = $jsonData['Flags'];
+		$this->mSpeculativeRevId = $jsonData['SpeculativeRevId'];
+		$this->speculativePageIdUsed = $jsonData['SpeculativePageIdUsed'];
+		$this->revisionTimestampUsed = $jsonData['RevisionTimestampUsed'];
+		$this->revisionUsedSha1Base36 = $jsonData['RevisionUsedSha1Base36'];
+		$this->mWrapperDivClasses = $jsonData['WrapperDivClasses'];
+		$this->mMaxAdaptiveExpiry = $jsonData['MaxAdaptiveExpiry'] ?? INF;
+	}
+
+	/**
+	 * Finds any non-utf8 strings in the given array and replaces them with
+	 * an associative array that wraps a base64 encoded version of the data.
+	 * Inverse of detectAndDecodeBinary().
+	 *
+	 * @param array $properties
+	 *
+	 * @return array
+	 */
+	private static function detectAndEncodeBinary( array $properties ) {
+		foreach ( $properties as $key => $value ) {
+			if ( is_string( $value ) ) {
+				if ( !mb_detect_encoding( $value, 'UTF-8', true ) ) {
+					$properties[$key] = [
+						'_type_' => 'string',
+						'_encoding_' => 'base64',
+						'_data_' => base64_encode( $value ),
+					];
+				}
+			}
+		}
+
+		return $properties;
+	}
+
+	/**
+	 * Finds any associative arrays that represent encoded binary strings, and
+	 * replaces them with the decoded binary data.
+	 *
+	 * @param array $properties
+	 *
+	 * @return array
+	 */
+	private static function detectAndDecodeBinary( array $properties ) {
+		foreach ( $properties as $key => $value ) {
+			if ( is_array( $value ) && isset( $value['_encoding_'] ) ) {
+				if ( $value['_encoding_'] === 'base64' ) {
+					$properties[$key] = base64_decode( $value['_data_'] );
+				}
+			}
+		}
+
+		return $properties;
+	}
+
+	public function __wakeup() {
+		// Backwards compatibility, pre 1.36
+		$priorAccessedOptions = $this->getGhostFieldValue( 'mAccessedOptions' );
+		if ( $priorAccessedOptions ) {
+			$this->mParseUsedOptions = $priorAccessedOptions;
+		}
+	}
 }

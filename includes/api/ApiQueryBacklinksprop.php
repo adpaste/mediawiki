@@ -32,7 +32,7 @@
  */
 class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
-	// Data for the various modules implemented by this class
+	/** @var array Data for the various modules implemented by this class */
 	private static $settings = [
 		'redirects' => [
 			'code' => 'rd',
@@ -75,6 +75,10 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		],
 	];
 
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 */
 	public function __construct( ApiQuery $query, $moduleName ) {
 		parent::__construct( $query, $moduleName, self::$settings[$moduleName]['code'] );
 	}
@@ -95,16 +99,16 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
 		$db = $this->getDB();
 		$params = $this->extractRequestParams();
-		$prop = array_flip( $params['prop'] );
+		$prop = array_fill_keys( $params['prop'], true );
 		$emptyString = $db->addQuotes( '' );
 
 		$pageSet = $this->getPageSet();
-		$titles = $pageSet->getGoodAndMissingTitles();
+		$titles = $pageSet->getGoodAndMissingPages();
 		$map = $pageSet->getGoodAndMissingTitlesByNamespace();
 
 		// Add in special pages, they can theoretically have backlinks too.
 		// (although currently they only do for prop=redirects)
-		foreach ( $pageSet->getSpecialTitles() as $id => $title ) {
+		foreach ( $pageSet->getSpecialPages() as $id => $title ) {
 			$titles[] = $title;
 			$map[$title->getNamespace()][$title->getDBkey()] = $id;
 		}
@@ -119,7 +123,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 			$bl_namespace = $settings['to_namespace'];
 			$bl_title = "{$p}_to";
 
-			$titles = array_filter( $titles, function ( $t ) use ( $bl_namespace ) {
+			$titles = array_filter( $titles, static function ( $t ) use ( $bl_namespace ) {
 				return $t->getNamespace() === $bl_namespace;
 			} );
 			$map = array_intersect_key( $map, [ $bl_namespace => true ] );
@@ -172,7 +176,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 		$sortby[$bl_from] = 'int';
 
 		// Now use the $sortby to figure out the continuation
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != count( $sortby ) );
 			$where = '';
@@ -211,7 +215,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
 		$this->addFields( array_keys( $sortby ) );
 		$this->addFields( [ 'bl_namespace' => $bl_namespace, 'bl_title' => $bl_title ] );
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$fld_pageid = isset( $prop['pageid'] );
 			$fld_title = isset( $prop['title'] );
 			$fld_redirect = isset( $prop['redirect'] );
@@ -245,7 +249,7 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
 		if ( $params['show'] !== null ) {
 			// prop=redirects only
-			$show = array_flip( $params['show'] );
+			$show = array_fill_keys( $params['show'], true );
 			if ( isset( $show['fragment'] ) && isset( $show['!fragment'] ) ||
 				isset( $show['redirect'] ) && isset( $show['!redirect'] )
 			) {
@@ -285,7 +289,11 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 
 		$res = $this->select( __METHOD__ );
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
+			if ( $fld_title ) {
+				$this->executeGenderCacheFromResultWrapper( $res, __METHOD__ );
+			}
+
 			$count = 0;
 			foreach ( $res as $row ) {
 				if ( ++$count > $params['limit'] ) {
@@ -334,6 +342,12 @@ class ApiQueryBacklinksprop extends ApiQueryGeneratorBase {
 					$this->setContinue( $row, $sortby );
 					break;
 				}
+
+				if ( $miser_ns !== null && !in_array( $row->page_namespace, $miser_ns ) ) {
+					// Miser mode namespace check
+					continue;
+				}
+
 				$titles[] = Title::makeTitle( $row->page_namespace, $row->page_title );
 			}
 			$resultPageSet->populateFromTitles( $titles );

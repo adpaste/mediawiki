@@ -21,7 +21,12 @@
  * @ingroup JobQueue
  */
 
+use MediaWiki\Cache\CacheKeyHelper;
+use MediaWiki\Linker\LinkTarget;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\PageReference;
+use MediaWiki\Revision\RevisionLookup;
+use MediaWiki\Revision\SlotRecord;
 
 /**
  * Job to fix double redirects after moving a page
@@ -29,10 +34,6 @@ use MediaWiki\MediaWikiServices;
  * @ingroup JobQueue
  */
 class DoubleRedirectJob extends Job {
-	/** @var string Reason for the change, 'maintenance' or 'move'. Suffix fo
-	 *    message key 'double-redirect-fixed-'.
-	 */
-	private $reason;
 
 	/** @var Title The title which has changed, redirects pointing to this
 	 *    title are fixed
@@ -43,12 +44,16 @@ class DoubleRedirectJob extends Job {
 	private static $user;
 
 	/**
-	 * @param Title $title
-	 * @param array $params
+	 * @param PageReference $page
+	 * @param array $params Expected to contain these elements:
+	 * - 'redirTitle' => string The title that changed and should be fixed.
+	 * - 'reason' => string Reason for the change, can be "move" or "maintenance". Used as a suffix
+	 *   for the message keys "double-redirect-fixed-move" and
+	 *   "double-redirect-fixed-maintenance".
+	 * ]
 	 */
-	function __construct( Title $title, array $params ) {
-		parent::__construct( 'fixDoubleRedirect', $title, $params );
-		$this->reason = $params['reason'];
+	public function __construct( PageReference $page, array $params ) {
+		parent::__construct( 'fixDoubleRedirect', $page, $params );
 		$this->redirTitle = Title::newFromText( $params['redirTitle'] );
 	}
 
@@ -56,13 +61,12 @@ class DoubleRedirectJob extends Job {
 	 * Insert jobs into the job queue to fix redirects to the given title
 	 * @param string $reason The reason for the fix, see message
 	 *   "double-redirect-fixed-<reason>"
-	 * @param Title $redirTitle The title which has changed, redirects
+	 * @param LinkTarget $redirTitle The title which has changed, redirects
 	 *   pointing to this title are fixed
-	 * @param bool $destTitle Not used
 	 */
-	public static function fixRedirects( $reason, $redirTitle, $destTitle = false ) {
-		# Need to use the master to get the redirect table updated in the same transaction
-		$dbw = wfGetDB( DB_MASTER );
+	public static function fixRedirects( $reason, $redirTitle ) {
+		# Need to use the primary DB to get the redirect table updated in the same transaction
+		$dbw = wfGetDB( DB_PRIMARY );
 		$res = $dbw->select(
 			[ 'redirect', 'page' ],
 			[ 'page_namespace', 'page_title' ],
@@ -83,7 +87,10 @@ class DoubleRedirectJob extends Job {
 
 			$jobs[] = new self( $title, [
 				'reason' => $reason,
-				'redirTitle' => $redirTitle->getPrefixedDBkey() ] );
+				'redirTitle' => MediaWikiServices::getInstance()
+					->getTitleFormatter()
+					->getPrefixedDBkey( $redirTitle ),
+			] );
 			# Avoid excessive memory usage
 			if ( count( $jobs ) > 10000 ) {
 				JobQueueGroup::singleton()->push( $jobs );
@@ -96,31 +103,33 @@ class DoubleRedirectJob extends Job {
 	/**
 	 * @return bool
 	 */
-	function run() {
+	public function run() {
 		if ( !$this->redirTitle ) {
 			$this->setLastError( 'Invalid title' );
 
 			return false;
 		}
 
-		$targetRev = Revision::newFromTitle( $this->title, false, Revision::READ_LATEST );
+		$services = MediaWikiServices::getInstance();
+		$targetRev = $services->getRevisionLookup()
+			->getRevisionByTitle( $this->title, 0, RevisionLookup::READ_LATEST );
 		if ( !$targetRev ) {
-			wfDebug( __METHOD__ . ": target redirect already deleted, ignoring\n" );
+			wfDebug( __METHOD__ . ": target redirect already deleted, ignoring" );
 
 			return true;
 		}
-		$content = $targetRev->getContent();
+		$content = $targetRev->getContent( SlotRecord::MAIN );
 		$currentDest = $content ? $content->getRedirectTarget() : null;
 		if ( !$currentDest || !$currentDest->equals( $this->redirTitle ) ) {
-			wfDebug( __METHOD__ . ": Redirect has changed since the job was queued\n" );
+			wfDebug( __METHOD__ . ": Redirect has changed since the job was queued" );
 
 			return true;
 		}
 
 		// Check for a suppression tag (used e.g. in periodically archived discussions)
-		$mw = MediaWikiServices::getInstance()->getMagicWordFactory()->get( 'staticredirect' );
+		$mw = $services->getMagicWordFactory()->get( 'staticredirect' );
 		if ( $content->matchMagicWord( $mw ) ) {
-			wfDebug( __METHOD__ . ": skipping: suppressed with __STATICREDIRECT__\n" );
+			wfDebug( __METHOD__ . ": skipping: suppressed with __STATICREDIRECT__" );
 
 			return true;
 		}
@@ -129,14 +138,14 @@ class DoubleRedirectJob extends Job {
 		$newTitle = self::getFinalDestination( $this->redirTitle );
 		if ( !$newTitle ) {
 			wfDebug( __METHOD__ .
-				": skipping: single redirect, circular redirect or invalid redirect destination\n" );
+				": skipping: single redirect, circular redirect or invalid redirect destination" );
 
 			return true;
 		}
 		if ( $newTitle->equals( $this->redirTitle ) ) {
 			// The redirect is already right, no need to change it
 			// This can happen if the page was moved back (say after vandalism)
-			wfDebug( __METHOD__ . " : skipping, already good\n" );
+			wfDebug( __METHOD__ . " : skipping, already good" );
 		}
 
 		// Preserve fragment (T16904)
@@ -160,17 +169,18 @@ class DoubleRedirectJob extends Job {
 		}
 
 		// Save it
+		// phpcs:ignore MediaWiki.Usage.DeprecatedGlobalVariables.Deprecated$wgUser
 		global $wgUser;
 		$oldUser = $wgUser;
 		$wgUser = $user;
-		$article = WikiPage::factory( $this->title );
+		$article = $services->getWikiPageFactory()->newFromTitle( $this->title );
 
 		// Messages: double-redirect-fixed-move, double-redirect-fixed-maintenance
-		$reason = wfMessage( 'double-redirect-fixed-' . $this->reason,
+		$reason = wfMessage( 'double-redirect-fixed-' . $this->params['reason'],
 			$this->redirTitle->getPrefixedText(), $newTitle->getPrefixedText()
 		)->inContentLanguage()->text();
 		$flags = EDIT_UPDATE | EDIT_SUPPRESS_RC | EDIT_INTERNAL;
-		$article->doEditContent( $newContent, $reason, $flags, false, $user );
+		$article->doUserEditContent( $newContent, $user, $reason, $flags );
 		$wgUser = $oldUser;
 
 		return true;
@@ -179,22 +189,22 @@ class DoubleRedirectJob extends Job {
 	/**
 	 * Get the final destination of a redirect
 	 *
-	 * @param Title $title
+	 * @param LinkTarget $title
 	 *
 	 * @return Title|bool The final Title after following all redirects, or false if
 	 *  the page is not a redirect or the redirect loops.
 	 */
 	public static function getFinalDestination( $title ) {
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 
 		// Circular redirect check
 		$seenTitles = [];
 		$dest = false;
 
 		while ( true ) {
-			$titleText = $title->getPrefixedDBkey();
+			$titleText = CacheKeyHelper::getKeyForPage( $title );
 			if ( isset( $seenTitles[$titleText] ) ) {
-				wfDebug( __METHOD__, "Circular redirect detected, aborting\n" );
+				wfDebug( __METHOD__, "Circular redirect detected, aborting" );
 
 				return false;
 			}
@@ -239,12 +249,12 @@ class DoubleRedirectJob extends Job {
 	 *
 	 * @return User|bool
 	 */
-	function getUser() {
+	private function getUser() {
 		if ( !self::$user ) {
 			$username = wfMessage( 'double-redirect-fixer' )->inContentLanguage()->text();
 			self::$user = User::newFromName( $username );
 			# User::newFromName() can return false on a badly configured wiki.
-			if ( self::$user && !self::$user->isLoggedIn() ) {
+			if ( self::$user && !self::$user->isRegistered() ) {
 				self::$user->addToDatabase();
 			}
 		}

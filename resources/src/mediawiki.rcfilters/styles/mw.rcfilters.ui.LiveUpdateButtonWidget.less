@@ -1,4 +1,4 @@
-@import 'mediawiki.mixins';
+@import 'mediawiki.mixins.less';
 
 .mw-rcfilters-ui-liveUpdateButtonWidget {
 	margin: 0;
@@ -10,6 +10,7 @@
 
 		&:after {
 			content: '';
+			/* stylelint-disable-next-line plugin/no-unsupported-browser-features */
 			mix-blend-mode: screen;
 			pointer-events: none;
 			position: absolute;
@@ -19,7 +20,6 @@
 			left: 0.46875em;
 			background: rgba( 51, 102, 204, 0.5 );
 			border-radius: 100%;
-			transform-origin: 50% 50%;
 			opacity: 0;
 			animation: ripple 2.3s ease-out infinite;
 			animation-delay: 1s;

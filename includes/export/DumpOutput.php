@@ -31,45 +31,45 @@ class DumpOutput {
 	/**
 	 * @param string $string
 	 */
-	function writeOpenStream( $string ) {
+	public function writeOpenStream( $string ) {
 		$this->write( $string );
 	}
 
 	/**
 	 * @param string $string
 	 */
-	function writeCloseStream( $string ) {
+	public function writeCloseStream( $string ) {
 		$this->write( $string );
 	}
 
 	/**
-	 * @param object $page
+	 * @param stdClass $page
 	 * @param string $string
 	 */
-	function writeOpenPage( $page, $string ) {
+	public function writeOpenPage( $page, $string ) {
 		$this->write( $string );
 	}
 
 	/**
 	 * @param string $string
 	 */
-	function writeClosePage( $string ) {
+	public function writeClosePage( $string ) {
 		$this->write( $string );
 	}
 
 	/**
-	 * @param object $rev
+	 * @param stdClass $rev
 	 * @param string $string
 	 */
-	function writeRevision( $rev, $string ) {
+	public function writeRevision( $rev, $string ) {
 		$this->write( $string );
 	}
 
 	/**
-	 * @param object $rev
+	 * @param stdClass $rev
 	 * @param string $string
 	 */
-	function writeLogItem( $rev, $string ) {
+	public function writeLogItem( $rev, $string ) {
 		$this->write( $string );
 	}
 
@@ -77,7 +77,7 @@ class DumpOutput {
 	 * Override to write to a different stream type.
 	 * @param string $string
 	 */
-	function write( $string ) {
+	public function write( $string ) {
 		print $string;
 	}
 
@@ -86,20 +86,20 @@ class DumpOutput {
 	 * and reopen new file with the old name. Use this
 	 * for writing out a file in multiple pieces
 	 * at specified checkpoints (e.g. every n hours).
-	 * @param string|array $newname File name. May be a string or an array with one element
+	 * @param string|string[] $newname File name. May be a string or an array with one element
 	 */
-	function closeRenameAndReopen( $newname ) {
+	public function closeRenameAndReopen( $newname ) {
 	}
 
 	/**
 	 * Close the old file, and move it to a specified name.
 	 * Use this for the last piece of a file written out
 	 * at specified checkpoints (e.g. every n hours).
-	 * @param string|array $newname File name. May be a string or an array with one element
+	 * @param string|string[] $newname File name. May be a string or an array with one element
 	 * @param bool $open If true, a new file with the old filename will be opened
 	 *   again for writing (default: false)
 	 */
-	function closeAndRename( $newname, $open = false ) {
+	public function closeAndRename( $newname, $open = false ) {
 	}
 
 	/**
@@ -107,7 +107,7 @@ class DumpOutput {
 	 * being written to, if there are any.
 	 * @return null
 	 */
-	function getFilenames() {
+	public function getFilenames() {
 		return null;
 	}
 }

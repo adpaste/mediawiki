@@ -20,6 +20,7 @@
  * @file
  */
 
+use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthManager;
 
 /**
@@ -32,7 +33,19 @@ class ApiRemoveAuthenticationData extends ApiBase {
 	private $authAction;
 	private $operation;
 
-	public function __construct( ApiMain $main, $action ) {
+	/** @var AuthManager */
+	private $authManager;
+
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param AuthManager $authManager
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		AuthManager $authManager
+	) {
 		parent::__construct( $main, $action );
 
 		$this->authAction = $action === 'unlinkaccount'
@@ -41,29 +54,31 @@ class ApiRemoveAuthenticationData extends ApiBase {
 		$this->operation = $action === 'unlinkaccount'
 			? 'UnlinkAccount'
 			: 'RemoveCredentials';
+
+		$this->authManager = $authManager;
 	}
 
 	public function execute() {
-		if ( !$this->getUser()->isLoggedIn() ) {
+		if ( !$this->getUser()->isRegistered() ) {
 			$this->dieWithError( 'apierror-mustbeloggedin-removeauth', 'notloggedin' );
 		}
 
 		$params = $this->extractRequestParams();
-		$manager = AuthManager::singleton();
 
 		// Check security-sensitive operation status
-		ApiAuthManagerHelper::newForModule( $this )->securitySensitiveOperation( $this->operation );
+		ApiAuthManagerHelper::newForModule( $this, $this->authManager )
+			->securitySensitiveOperation( $this->operation );
 
 		// Fetch the request. No need to load from the request, so don't use
 		// ApiAuthManagerHelper's method.
-		$blacklist = $this->authAction === AuthManager::ACTION_REMOVE
-			? array_flip( $this->getConfig()->get( 'RemoveCredentialsBlacklist' ) )
+		$remove = $this->authAction === AuthManager::ACTION_REMOVE
+			? array_fill_keys( $this->getConfig()->get( 'RemoveCredentialsBlacklist' ), true )
 			: [];
 		$reqs = array_filter(
-			$manager->getAuthenticationRequests( $this->authAction, $this->getUser() ),
-			function ( $req ) use ( $params, $blacklist ) {
+			$this->authManager->getAuthenticationRequests( $this->authAction, $this->getUser() ),
+			static function ( AuthenticationRequest $req ) use ( $params, $remove ) {
 				return $req->getUniqueId() === $params['request'] &&
-					!isset( $blacklist[get_class( $req )] );
+					!isset( $remove[get_class( $req )] );
 			}
 		);
 		if ( count( $reqs ) !== 1 ) {
@@ -72,12 +87,12 @@ class ApiRemoveAuthenticationData extends ApiBase {
 		$req = reset( $reqs );
 
 		// Perform the removal
-		$status = $manager->allowsAuthenticationDataChange( $req, true );
-		Hooks::run( 'ChangeAuthenticationDataAudit', [ $req, $status ] );
+		$status = $this->authManager->allowsAuthenticationDataChange( $req, true );
+		$this->getHookRunner()->onChangeAuthenticationDataAudit( $req, $status );
 		if ( !$status->isGood() ) {
 			$this->dieStatus( $status );
 		}
-		$manager->changeAuthenticationData( $req );
+		$this->authManager->changeAuthenticationData( $req );
 
 		$this->getResult()->addValue( null, $this->getModuleName(), [ 'status' => 'success' ] );
 	}

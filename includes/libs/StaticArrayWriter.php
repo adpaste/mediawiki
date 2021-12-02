@@ -21,24 +21,61 @@ namespace Wikimedia;
 /**
  * Format a static PHP array to be written to a file
  *
+ * @newable
  * @since 1.32
  */
 class StaticArrayWriter {
-
 	/**
 	 * @param array $data Array with keys/values to export
 	 * @param string $header
-	 *
 	 * @return string PHP code
 	 */
 	public function create( array $data, $header = 'Automatically generated' ) {
+		return self::write( $data, $header );
+	}
+
+	/**
+	 * Create a PHP file that returns the array.
+	 *
+	 * @since 1.35
+	 * @param array $data Array with keys/values to export
+	 * @param string $header
+	 * @return string PHP code
+	 */
+	public static function write( array $data, $header ) {
 		$code = "<?php\n"
 			. "// " . implode( "\n// ", explode( "\n", $header ) ) . "\n"
 			. "return [\n";
 		foreach ( $data as $key => $value ) {
-			$code .= $this->encode( $key, $value, 1 );
+			$code .= self::encode( $key, $value, 1 );
 		}
 		$code .= "];\n";
+		return $code;
+	}
+
+	/**
+	 * Create an PHP class file with the array as a class constant.
+	 *
+	 * PHP classes can be autoloaded by name, which allows usage to be decoupled
+	 * from the file path.
+	 *
+	 * @since 1.37
+	 * @param array $data
+	 * @param array{header:string,namespace:string,class:string,const:string} $layout
+	 * @return string PHP code
+	 */
+	public static function writeClass( array $data, array $layout ) {
+		$code = "<?php\n"
+			. "// " . implode( "\n// ", explode( "\n", $layout['header'] ) ) . "\n"
+			. "\n"
+			. "namespace {$layout['namespace']};\n"
+			. "\n"
+			. "class {$layout['class']} {\n"
+			. "\tpublic const {$layout['const']} = [\n";
+		foreach ( $data as $key => $value ) {
+			$code .= self::encode( $key, $value, 2 );
+		}
+		$code .= "\t];\n}\n";
 		return $code;
 	}
 
@@ -46,20 +83,17 @@ class StaticArrayWriter {
 	 * Recursively turn one k/v pair into properly-indented PHP
 	 *
 	 * @param string|int $key
-	 * @param array|mixed $value
+	 * @param mixed $value
 	 * @param int $indent Indentation level
-	 *
-	 * @return string
+	 * @return string PHP code
 	 */
-	private function encode( $key, $value, $indent ) {
+	private static function encode( $key, $value, $indent ) {
 		$tabs = str_repeat( "\t", $indent );
-		$line = $tabs .
-			var_export( $key, true ) .
-			' => ';
+		$line = $tabs . var_export( $key, true ) . ' => ';
 		if ( is_array( $value ) ) {
 			$line .= "[\n";
-			foreach ( $value as $key2 => $value2 ) {
-				$line .= $this->encode( $key2, $value2, $indent + 1 );
+			foreach ( $value as $subkey => $subvalue ) {
+				$line .= self::encode( $subkey, $subvalue, $indent + 1 );
 			}
 			$line .= "$tabs]";
 		} else {

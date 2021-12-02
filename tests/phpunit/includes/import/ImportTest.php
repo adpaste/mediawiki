@@ -1,5 +1,4 @@
 <?php
-use MediaWiki\MediaWikiServices;
 
 /**
  * Test class for Import methods.
@@ -10,10 +9,6 @@ use MediaWiki\MediaWikiServices;
  */
 class ImportTest extends MediaWikiLangTestCase {
 
-	private function getDataSource( $xml ) {
-		return new ImportStringSource( $xml );
-	}
-
 	/**
 	 * @covers WikiImporter
 	 * @dataProvider getUnknownTagsXML
@@ -22,18 +17,19 @@ class ImportTest extends MediaWikiLangTestCase {
 	 * @param string $title
 	 */
 	public function testUnknownXMLTags( $xml, $text, $title ) {
-		$source = $this->getDataSource( $xml );
+		$source = new ImportStringSource( $xml );
+		$services = $this->getServiceContainer();
 
-		$importer = new WikiImporter(
-			$source,
-			MediaWikiServices::getInstance()->getMainConfig()
-		);
+		$importer = $services->getWikiImporterFactory()->getWikiImporter( $source );
 
 		$importer->doImport();
 		$title = Title::newFromText( $title );
 		$this->assertTrue( $title->exists() );
 
-		$this->assertEquals( WikiPage::factory( $title )->getContent()->getText(), $text );
+		$this->assertEquals(
+			$services->getWikiPageFactory()->newFromTitle( $title )->getContent()->getText(),
+			$text
+		);
 	}
 
 	public function getUnknownTagsXML() {
@@ -81,20 +77,19 @@ EOF
 	 * @param string|null $redirectTitle
 	 */
 	public function testHandlePageContainsRedirect( $xml, $redirectTitle ) {
-		$source = $this->getDataSource( $xml );
+		$source = new ImportStringSource( $xml );
 
 		$redirect = null;
-		$callback = function ( Title $title, ForeignTitle $foreignTitle, $revCount,
+		$callback = static function ( Title $title, ForeignTitle $foreignTitle, $revCount,
 			$sRevCount, $pageInfo ) use ( &$redirect ) {
 			if ( array_key_exists( 'redirect', $pageInfo ) ) {
 				$redirect = $pageInfo['redirect'];
 			}
 		};
 
-		$importer = new WikiImporter(
-			$source,
-			MediaWikiServices::getInstance()->getMainConfig()
-		);
+		$importer = $this->getServiceContainer()
+			->getWikiImporterFactory()
+			->getWikiImporter( $source );
 		$importer->setPageOutCallback( $callback );
 		$importer->doImport();
 
@@ -167,17 +162,16 @@ EOF
 	 * @param array|null $namespaces
 	 */
 	public function testSiteInfoContainsNamespaces( $xml, $namespaces ) {
-		$source = $this->getDataSource( $xml );
+		$source = new ImportStringSource( $xml );
 
 		$importNamespaces = null;
-		$callback = function ( array $siteinfo, $innerImporter ) use ( &$importNamespaces ) {
+		$callback = static function ( array $siteinfo, $innerImporter ) use ( &$importNamespaces ) {
 			$importNamespaces = $siteinfo['_namespaces'];
 		};
 
-		$importer = new WikiImporter(
-			$source,
-			MediaWikiServices::getInstance()->getMainConfig()
-		);
+		$importer = $this->getServiceContainer()
+			->getWikiImporterFactory()
+			->getWikiImporter( $source );
 		$importer->setSiteInfoCallback( $callback );
 		$importer->doImport();
 
@@ -252,7 +246,7 @@ EOF
 		$n = ( $assign ? 1 : 0 ) + ( $create ? 2 : 0 );
 
 		// phpcs:disable Generic.Files.LineLength
-		$source = $this->getDataSource( <<<EOF
+		$source = new ImportStringSource( <<<EOF
 <mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mediawiki.org/xml/export-0.10/ http://www.mediawiki.org/xml/export-0.10.xsd" version="0.10" xml:lang="en">
   <page>
     <title>TestImportPage</title>
@@ -288,12 +282,14 @@ EOF
 		);
 		// phpcs:enable
 
-		$importer = new WikiImporter( $source, MediaWikiServices::getInstance()->getMainConfig() );
+		$services = $this->getServiceContainer();
+		$importer = $services->getWikiImporterFactory()->getWikiImporter( $source );
+
 		$importer->setUsernamePrefix( 'Xxx', $assign );
 		$importer->doImport();
 
-		$db = wfGetDB( DB_MASTER );
-		$revQuery = Revision::getQueryInfo();
+		$db = wfGetDB( DB_PRIMARY );
+		$revQuery = $services->getRevisionStore()->getQueryInfo();
 
 		$row = $db->selectRow(
 			$revQuery['tables'],

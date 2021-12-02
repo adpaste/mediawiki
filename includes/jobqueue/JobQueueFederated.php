@@ -88,8 +88,6 @@ class JobQueueFederated extends JobQueue {
 		) {
 			unset( $baseConfig[$o] ); // partition queue doesn't care about this
 		}
-		// The class handles all aggregator calls already
-		unset( $baseConfig['aggregator'] );
 		// Get the partition queue objects
 		foreach ( $partitionMap as $partition => $w ) {
 			if ( !isset( $params['configByPartition'][$partition] ) ) {
@@ -199,7 +197,7 @@ class JobQueueFederated extends JobQueue {
 	 * @param HashRing &$partitionRing
 	 * @param int $flags
 	 * @throws JobQueueError
-	 * @return array List of Job object that could not be inserted
+	 * @return IJobSpecification[] List of Job object that could not be inserted
 	 */
 	protected function tryJobInsertions( array $jobs, HashRing &$partitionRing, $flags ) {
 		$jobsLeft = [];
@@ -238,7 +236,7 @@ class JobQueueFederated extends JobQueue {
 				$this->logException( $e );
 			}
 			if ( !$ok ) {
-				if ( !$partitionRing->ejectFromLiveRing( $partition, 5 ) ) { // blacklist
+				if ( !$partitionRing->ejectFromLiveRing( $partition, 5 ) ) {
 					throw new JobQueueError( "Could not insert job(s), no partitions available." );
 				}
 				$jobsLeft = array_merge( $jobsLeft, $jobBatch ); // not inserted
@@ -257,7 +255,7 @@ class JobQueueFederated extends JobQueue {
 				$this->logException( $e );
 			}
 			if ( !$ok ) {
-				if ( !$partitionRing->ejectFromLiveRing( $partition, 5 ) ) { // blacklist
+				if ( !$partitionRing->ejectFromLiveRing( $partition, 5 ) ) {
 					throw new JobQueueError( "Could not insert job(s), no partitions available." );
 				}
 				$jobsLeft = array_merge( $jobsLeft, $jobBatch ); // not inserted
@@ -291,7 +289,7 @@ class JobQueueFederated extends JobQueue {
 
 				return $job;
 			} else {
-				unset( $partitionsTry[$partition] ); // blacklist partition
+				unset( $partitionsTry[$partition] );
 			}
 		}
 		$this->throwErrorIfAllPartitionsDown( $failed );
@@ -299,7 +297,7 @@ class JobQueueFederated extends JobQueue {
 		return false;
 	}
 
-	protected function doAck( Job $job ) {
+	protected function doAck( RunnableJob $job ) {
 		$partition = $job->getMetadata( 'QueuePartition' );
 		if ( $partition === null ) {
 			throw new MWException( "The given job has no defined partition name." );
@@ -308,7 +306,7 @@ class JobQueueFederated extends JobQueue {
 		$this->partitionQueues[$partition]->ack( $job );
 	}
 
-	protected function doIsRootJobOldDuplicate( Job $job ) {
+	protected function doIsRootJobOldDuplicate( IJobSpecification $job ) {
 		$signature = $job->getRootJobParams()['rootJobSignature'];
 		$partition = $this->partitionRing->getLiveLocation( $signature );
 		try {
@@ -458,7 +456,7 @@ class JobQueueFederated extends JobQueue {
 				$sizes = $queue->doGetSiblingQueueSizes( $types );
 				if ( is_array( $sizes ) ) {
 					foreach ( $sizes as $type => $size ) {
-						$result[$type] = isset( $result[$type] ) ? $result[$type] + $size : $size;
+						$result[$type] = ( $result[$type] ?? 0 ) + $size;
 					}
 				} else {
 					return null; // not supported on all partitions; bail

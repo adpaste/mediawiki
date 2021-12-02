@@ -20,6 +20,9 @@
  * @file
  */
 
+use MediaWiki\Languages\LanguageNameUtils;
+use Wikimedia\Rdbms\ILoadBalancer;
+
 /**
  * API module that facilitates changing the language of a page.
  * The API equivalent of SpecialPageLanguage.
@@ -28,6 +31,30 @@
  * @ingroup API
  */
 class ApiSetPageLanguage extends ApiBase {
+
+	/** @var ILoadBalancer */
+	private $loadBalancer;
+
+	/** @var LanguageNameUtils */
+	private $languageNameUtils;
+
+	/**
+	 * @param ApiMain $mainModule
+	 * @param string $moduleName
+	 * @param ILoadBalancer $loadBalancer
+	 * @param LanguageNameUtils $languageNameUtils
+	 */
+	public function __construct(
+		ApiMain $mainModule,
+		$moduleName,
+		ILoadBalancer $loadBalancer,
+		LanguageNameUtils $languageNameUtils
+	) {
+		parent::__construct( $mainModule, $moduleName );
+		$this->loadBalancer = $loadBalancer;
+		$this->languageNameUtils = $languageNameUtils;
+	}
+
 	// Check if change language feature is enabled
 	protected function getExtendedDescription() {
 		if ( !$this->getConfig()->get( 'PageLanguageUseDB' ) ) {
@@ -57,11 +84,12 @@ class ApiSetPageLanguage extends ApiBase {
 		$params = $this->extractRequestParams();
 
 		$pageObj = $this->getTitleOrPageId( $params, 'fromdbmaster' );
+		$titleObj = $pageObj->getTitle();
+		$this->getErrorFormatter()->setContextTitle( $titleObj );
 		if ( !$pageObj->exists() ) {
 			$this->dieWithError( 'apierror-missingtitle' );
 		}
 
-		$titleObj = $pageObj->getTitle();
 		$user = $this->getUser();
 
 		// Check that the user is allowed to edit the page
@@ -70,7 +98,7 @@ class ApiSetPageLanguage extends ApiBase {
 		// If change tagging was requested, check that the user is allowed to tag,
 		// and the tags are valid
 		if ( $params['tags'] ) {
-			$tagStatus = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $user );
+			$tagStatus = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $this->getAuthority() );
 			if ( !$tagStatus->isOK() ) {
 				$this->dieStatus( $tagStatus );
 			}
@@ -81,7 +109,8 @@ class ApiSetPageLanguage extends ApiBase {
 			$titleObj,
 			$params['lang'],
 			$params['reason'] ?? '',
-			$params['tags'] ?: []
+			$params['tags'] ?: [],
+			$this->loadBalancer->getConnectionRef( ILoadBalancer::DB_PRIMARY )
 		);
 
 		if ( !$status->isOK() ) {
@@ -114,7 +143,7 @@ class ApiSetPageLanguage extends ApiBase {
 			'lang' => [
 				ApiBase::PARAM_TYPE => array_merge(
 					[ 'default' ],
-					array_keys( Language::fetchLanguageNames( null, 'mwfile' ) )
+					array_keys( $this->languageNameUtils->getLanguageNames( null, 'mwfile' ) )
 				),
 				ApiBase::PARAM_REQUIRED => true,
 			],

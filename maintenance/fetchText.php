@@ -26,6 +26,7 @@ require_once __DIR__ . '/Maintenance.php';
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Storage\BlobAccessException;
+use MediaWiki\Storage\BlobStore;
 use MediaWiki\Storage\SqlBlobStore;
 
 /**
@@ -46,7 +47,7 @@ class FetchText extends Maintenance {
 	}
 
 	/**
-	 * @return SqlBlobStore
+	 * @return BlobStore
 	 */
 	private function getBlobStore() {
 		return MediaWikiServices::getInstance()->getBlobStore();
@@ -80,11 +81,7 @@ class FetchText extends Maintenance {
 			try {
 				$text = $this->getBlobStore()->getBlob( $blobAddress );
 				$textLen = strlen( $text );
-			} catch ( BlobAccessException $ex ) {
-				// XXX: log $ex to stderr?
-				$textLen = '-1';
-				$text = '';
-			} catch ( InvalidArgumentException $ex ) {
+			} catch ( BlobAccessException | InvalidArgumentException $ex ) {
 				// XXX: log $ex to stderr?
 				$textLen = '-1';
 				$text = '';

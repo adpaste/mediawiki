@@ -20,6 +20,8 @@
  * @file
  */
 
+use MediaWiki\Cache\LinkBatchFactory;
+
 /**
  * A query module to list all wiki links on a given set of pages.
  *
@@ -27,12 +29,24 @@
  */
 class ApiQueryLinks extends ApiQueryGeneratorBase {
 
-	const LINKS = 'links';
-	const TEMPLATES = 'templates';
+	private const LINKS = 'links';
+	private const TEMPLATES = 'templates';
 
 	private $table, $prefix, $titlesParam, $helpUrl;
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param LinkBatchFactory $linkBatchFactory
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		LinkBatchFactory $linkBatchFactory
+	) {
 		switch ( $moduleName ) {
 			case self::LINKS:
 				$this->table = 'pagelinks';
@@ -51,6 +65,7 @@ class ApiQueryLinks extends ApiQueryGeneratorBase {
 		}
 
 		parent::__construct( $query, $moduleName, $this->prefix );
+		$this->linkBatchFactory = $linkBatchFactory;
 	}
 
 	public function execute() {
@@ -66,7 +81,7 @@ class ApiQueryLinks extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 */
 	private function run( $resultPageSet = null ) {
 		if ( $this->getPageSet()->getGoodTitleCount() == 0 ) {
@@ -88,9 +103,9 @@ class ApiQueryLinks extends ApiQueryGeneratorBase {
 		$multiTitle = true;
 		if ( $params[$this->titlesParam] ) {
 			// Filter the titles in PHP so our ORDER BY bug avoidance below works right.
-			$filterNS = $params['namespace'] ? array_flip( $params['namespace'] ) : false;
+			$filterNS = $params['namespace'] ? array_fill_keys( $params['namespace'], true ) : false;
 
-			$lb = new LinkBatch;
+			$lb = $this->linkBatchFactory->newLinkBatch();
 			foreach ( $params[$this->titlesParam] as $t ) {
 				$title = Title::newFromText( $t );
 				if ( !$title ) {
@@ -113,7 +128,7 @@ class ApiQueryLinks extends ApiQueryGeneratorBase {
 			$multiNS = $params['namespace'] === null || count( $params['namespace'] ) !== 1;
 		}
 
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != 3 );
 			$op = $params['dir'] == 'descending' ? '<' : '>';
@@ -152,7 +167,9 @@ class ApiQueryLinks extends ApiQueryGeneratorBase {
 
 		$res = $this->select( __METHOD__ );
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
+			$this->executeGenderCacheFromResultWrapper( $res, __METHOD__, 'pl' );
+
 			$count = 0;
 			foreach ( $res as $row ) {
 				if ( ++$count > $params['limit'] ) {

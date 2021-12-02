@@ -3,8 +3,11 @@
 /**
  * The parent class to generate form fields.  Any field type should
  * be a subclass of this.
+ *
+ * @stable to extend
  */
 abstract class HTMLFormField {
+	/** @var array|array[] */
 	public $mParams;
 
 	protected $mValidationCallback;
@@ -40,7 +43,7 @@ abstract class HTMLFormField {
 	 * the input object itself.  It should not implement the surrounding
 	 * table cells/rows, or labels/help messages.
 	 *
-	 * @param string $value The value to set the input to; eg a default
+	 * @param mixed $value The value to set the input to; eg a default
 	 *     text for a text input.
 	 *
 	 * @return string Valid HTML.
@@ -50,6 +53,7 @@ abstract class HTMLFormField {
 	/**
 	 * Same as getInputHTML, but returns an OOUI object.
 	 * Defaults to false, which getOOUI will interpret as "use the HTML version"
+	 * @stable to override
 	 *
 	 * @param string $value
 	 * @return OOUI\Widget|false
@@ -61,6 +65,7 @@ abstract class HTMLFormField {
 	/**
 	 * True if this field type is able to display errors; false if validation errors need to be
 	 * displayed in the main HTMLForm error area.
+	 * @stable to override
 	 * @return bool
 	 */
 	public function canDisplayErrors() {
@@ -75,20 +80,21 @@ abstract class HTMLFormField {
 	 *
 	 * Parameters are the same as wfMessage().
 	 *
+	 * @param string|string[]|MessageSpecifier $key
+	 * @param mixed ...$params
 	 * @return Message
 	 */
-	public function msg() {
-		$args = func_get_args();
-
+	public function msg( $key, ...$params ) {
 		if ( $this->mParent ) {
-			return $this->mParent->msg( ...$args );
+			return $this->mParent->msg( $key, ...$params );
 		}
-		return wfMessage( ...$args );
+		return wfMessage( $key, ...$params );
 	}
 
 	/**
 	 * If this field has a user-visible output or not. If not,
 	 * it will not be rendered
+	 * @stable to override
 	 *
 	 * @return bool
 	 */
@@ -244,7 +250,7 @@ abstract class HTMLFormField {
 						case '!==':
 							return ( $value !== $testValue );
 					}
-
+					// fall-through, if $op is not added to both cases
 				default:
 					throw new MWException( "Unknown operation" );
 			}
@@ -277,6 +283,7 @@ abstract class HTMLFormField {
 	 * Override this function if the control can somehow trigger a form
 	 * submission that shouldn't actually submit the HTMLForm.
 	 *
+	 * @stable to override
 	 * @since 1.23
 	 * @param string|array $value The value the field was submitted with
 	 * @param array $alldata The data collected from the form
@@ -291,6 +298,7 @@ abstract class HTMLFormField {
 	 * Override this function to add specific validation checks on the
 	 * field input.  Don't forget to call parent::validate() to ensure
 	 * that the user-defined callback mValidationCallback is still run
+	 * @stable to override
 	 *
 	 * @param string|array $value The value the field was submitted with
 	 * @param array $alldata The data collected from the form
@@ -317,6 +325,14 @@ abstract class HTMLFormField {
 		return true;
 	}
 
+	/**
+	 * @stable to override
+	 *
+	 * @param mixed $value
+	 * @param HTMLFormField[] $alldata
+	 *
+	 * @return mixed
+	 */
 	public function filter( $value, $alldata ) {
 		if ( isset( $this->mFilterCallback ) ) {
 			$value = ( $this->mFilterCallback )( $value, $alldata, $this->mParent );
@@ -328,6 +344,7 @@ abstract class HTMLFormField {
 	/**
 	 * Should this field have a label, or is there no input element with the
 	 * appropriate id for the label to point to?
+	 * @stable to override
 	 *
 	 * @return bool True to output a label, false to suppress
 	 */
@@ -365,9 +382,10 @@ abstract class HTMLFormField {
 	/**
 	 * Get the value that this input has been set to from a posted form,
 	 * or the input's default value if it has not been set.
+	 * @stable to override
 	 *
 	 * @param WebRequest $request
-	 * @return string The value
+	 * @return mixed The value
 	 */
 	public function loadDataFromRequest( $request ) {
 		if ( $request->getCheck( $this->mName ) ) {
@@ -380,6 +398,7 @@ abstract class HTMLFormField {
 	/**
 	 * Initialise the object
 	 *
+	 * @stable to call
 	 * @param array $params Associative Array. See HTMLForm doc for syntax.
 	 *
 	 * @since 1.22 The 'label' attribute no longer accepts raw HTML, use 'label-raw' instead
@@ -466,6 +485,7 @@ abstract class HTMLFormField {
 	/**
 	 * Get the complete table row for the input, including help text,
 	 * labels, and whatever.
+	 * @stable to override
 	 *
 	 * @param string $value The value to set the input to.
 	 *
@@ -474,7 +494,7 @@ abstract class HTMLFormField {
 	public function getTableRow( $value ) {
 		list( $errors, $errorClass ) = $this->getErrorsAndErrorClass( $value );
 		$inputHtml = $this->getInputHTML( $value );
-		$fieldType = static::class;
+		$fieldType = $this->getClassName();
 		$helptext = $this->getHelpTextHtmlTable( $this->getHelpText() );
 		$cellAttributes = [];
 		$rowAttributes = [];
@@ -523,6 +543,7 @@ abstract class HTMLFormField {
 	/**
 	 * Get the complete div for the input, including help text,
 	 * labels, and whatever.
+	 * @stable to override
 	 * @since 1.20
 	 *
 	 * @param string $value The value to set the input to.
@@ -532,7 +553,7 @@ abstract class HTMLFormField {
 	public function getDiv( $value ) {
 		list( $errors, $errorClass ) = $this->getErrorsAndErrorClass( $value );
 		$inputHtml = $this->getInputHTML( $value );
-		$fieldType = static::class;
+		$fieldType = $this->getClassName();
 		$helptext = $this->getHelpTextHtmlDiv( $this->getHelpText() );
 		$cellAttributes = [];
 		$label = $this->getLabelHtml( $cellAttributes );
@@ -549,6 +570,7 @@ abstract class HTMLFormField {
 		} else {
 			$field = Html::rawElement(
 				'div',
+				// @phan-suppress-next-line PhanUselessBinaryAddRight
 				[ 'class' => $outerDivClass ] + $cellAttributes,
 				$inputHtml . "\n$errors"
 			);
@@ -571,6 +593,7 @@ abstract class HTMLFormField {
 
 	/**
 	 * Get the OOUI version of the div. Falls back to getDiv by default.
+	 * @stable to override
 	 * @since 1.26
 	 *
 	 * @param string $value The value to set the input to.
@@ -599,7 +622,7 @@ abstract class HTMLFormField {
 			$infusable = false;
 		}
 
-		$fieldType = static::class;
+		$fieldType = $this->getClassName();
 		$help = $this->getHelpText();
 		$errors = $this->getErrorsRaw( $value );
 		foreach ( $errors as &$error ) {
@@ -619,7 +642,7 @@ abstract class HTMLFormField {
 
 		if ( $infusable && $this->shouldInfuseOOUI() ) {
 			$preloadModules = true;
-			$config['classes'][] = 'mw-htmlform-field-autoinfuse';
+			$config['classes'][] = 'mw-htmlform-autoinfuse';
 		}
 
 		// the element could specify, that the label doesn't need to be added
@@ -644,7 +667,20 @@ abstract class HTMLFormField {
 	}
 
 	/**
+	 * Gets the non namespaced class name
+	 *
+	 * @since 1.36
+	 *
+	 * @return string
+	 */
+	protected function getClassName() {
+		$name = explode( '\\', static::class );
+		return end( $name );
+	}
+
+	/**
 	 * Get label alignment when generating field for OOUI.
+	 * @stable to override
 	 * @return string 'left', 'right', 'top' or 'inline'
 	 */
 	protected function getLabelAlignOOUI() {
@@ -653,9 +689,10 @@ abstract class HTMLFormField {
 
 	/**
 	 * Get a FieldLayout (or subclass thereof) to wrap this field in when using OOUI output.
-	 * @param string $inputField
+	 * @param OOUI\Widget $inputField
 	 * @param array $config
 	 * @return OOUI\FieldLayout|OOUI\ActionFieldLayout
+	 * @suppress PhanUndeclaredProperty Only some subclasses declare mClassWithButton
 	 */
 	protected function getFieldLayoutOOUI( $inputField, $config ) {
 		if ( isset( $this->mClassWithButton ) ) {
@@ -669,6 +706,7 @@ abstract class HTMLFormField {
 	 * Whether the field should be automatically infused. Note that all OOUI HTMLForm fields are
 	 * infusable (you can call OO.ui.infuse() on them), but not all are infused by default, since
 	 * there is no benefit in doing it e.g. for buttons and it's a small performance hit on page load.
+	 * @stable to override
 	 *
 	 * @return bool
 	 */
@@ -680,6 +718,7 @@ abstract class HTMLFormField {
 	/**
 	 * Get the list of extra ResourceLoader modules which must be loaded client-side before it's
 	 * possible to infuse this field's OOUI widget.
+	 * @stable to override
 	 *
 	 * @return string[]
 	 */
@@ -690,6 +729,7 @@ abstract class HTMLFormField {
 	/**
 	 * Get the complete raw fields for the input, including help text,
 	 * labels, and whatever.
+	 * @stable to override
 	 * @since 1.20
 	 *
 	 * @param string $value The value to set the input to.
@@ -715,6 +755,7 @@ abstract class HTMLFormField {
 	 * Get the complete field for the input, including help text,
 	 * labels, and whatever. Fall back from 'vform' to 'div' when not overridden.
 	 *
+	 * @stable to override
 	 * @since 1.25
 	 * @param string $value The value to set the input to.
 	 * @return string Complete HTML field.
@@ -727,6 +768,7 @@ abstract class HTMLFormField {
 
 	/**
 	 * Get the complete field as an inline element.
+	 * @stable to override
 	 * @since 1.25
 	 * @param string $value The value to set the input to.
 	 * @return string Complete HTML inline element
@@ -754,7 +796,7 @@ abstract class HTMLFormField {
 	 * @return string
 	 */
 	public function getHelpTextHtmlTable( $helptext ) {
-		if ( is_null( $helptext ) ) {
+		if ( $helptext === null ) {
 			return '';
 		}
 
@@ -783,7 +825,7 @@ abstract class HTMLFormField {
 	 * @return string
 	 */
 	public function getHelpTextHtmlDiv( $helptext ) {
-		if ( is_null( $helptext ) ) {
+		if ( $helptext === null ) {
 			return '';
 		}
 
@@ -815,6 +857,7 @@ abstract class HTMLFormField {
 
 	/**
 	 * Determine the help text to display
+	 * @stable to override
 	 * @since 1.20
 	 * @return string|null HTML
 	 */
@@ -830,7 +873,7 @@ abstract class HTMLFormField {
 				$msg = $this->getMessage( $msg );
 
 				if ( $msg->exists() ) {
-					if ( is_null( $helptext ) ) {
+					if ( $helptext === null ) {
 						$helptext = '';
 					} else {
 						$helptext .= $this->msg( 'word-separator' )->escaped(); // some space
@@ -866,7 +909,7 @@ abstract class HTMLFormField {
 	 * that return value has no taint.
 	 *
 	 * @param string $value The value of the input
-	 * @return array array( $errors, $errorClass )
+	 * @return array [ $errors, $errorClass ]
 	 * @return-taint none
 	 */
 	public function getErrorsAndErrorClass( $value ) {
@@ -910,12 +953,19 @@ abstract class HTMLFormField {
 	}
 
 	/**
+	 * @stable to override
 	 * @return string HTML
 	 */
 	public function getLabel() {
 		return $this->mLabel ?? '';
 	}
 
+	/**
+	 * @stable to override
+	 * @param array $cellAttributes
+	 *
+	 * @return string
+	 */
 	public function getLabelHtml( $cellAttributes = [] ) {
 		# Don't output a for= attribute for labels with no associated input.
 		# Kind of hacky here, possibly we don't want these to be <label>s at all.
@@ -954,6 +1004,10 @@ abstract class HTMLFormField {
 		return $html;
 	}
 
+	/**
+	 * @stable to override
+	 * @return mixed
+	 */
 	public function getDefault() {
 		return $this->mDefault ?? null;
 	}
@@ -989,6 +1043,7 @@ abstract class HTMLFormField {
 
 	/**
 	 * Returns the given attributes from the parameters
+	 * @stable to override
 	 *
 	 * @param array $list List of attributes to get
 	 * @return array Attributes
@@ -1015,14 +1070,17 @@ abstract class HTMLFormField {
 	 * being the message texts. It also forces values to strings.
 	 *
 	 * @param array $options
+	 * @param bool $needsParse
 	 * @return array
+	 * @return-taint tainted
 	 */
-	private function lookupOptionsKeys( $options ) {
+	private function lookupOptionsKeys( $options, $needsParse ) {
 		$ret = [];
 		foreach ( $options as $key => $value ) {
-			$key = $this->msg( $key )->plain();
+			$msg = $this->msg( $key );
+			$key = $needsParse ? $msg->parse() : $msg->plain();
 			$ret[$key] = is_array( $value )
-				? $this->lookupOptionsKeys( $value )
+				? $this->lookupOptionsKeys( $value, $needsParse )
 				: strval( $value );
 		}
 		return $ret;
@@ -1032,7 +1090,7 @@ abstract class HTMLFormField {
 	 * Recursively forces values in an array to strings, because issues arise
 	 * with integer 0 as a value.
 	 *
-	 * @param array $array
+	 * @param array|string $array
 	 * @return array|string
 	 */
 	public static function forceToStringRecursive( $array ) {
@@ -1047,12 +1105,16 @@ abstract class HTMLFormField {
 	 * Fetch the array of options from the field's parameters. In order, this
 	 * checks 'options-messages', 'options', then 'options-message'.
 	 *
-	 * @return array|null Options array
+	 * @return array|null
 	 */
 	public function getOptions() {
 		if ( $this->mOptions === false ) {
 			if ( array_key_exists( 'options-messages', $this->mParams ) ) {
-				$this->mOptions = $this->lookupOptionsKeys( $this->mParams['options-messages'] );
+				$needsParse = $this->mParams['options-messages-parse'] ?? false;
+				if ( $needsParse ) {
+					$this->mOptionsLabelsNotFromMessage = true;
+				}
+				$this->mOptions = $this->lookupOptionsKeys( $this->mParams['options-messages'], $needsParse );
 			} elseif ( array_key_exists( 'options', $this->mParams ) ) {
 				$this->mOptionsLabelsNotFromMessage = true;
 				$this->mOptions = self::forceToStringRecursive( $this->mParams['options'] );
@@ -1069,6 +1131,7 @@ abstract class HTMLFormField {
 
 	/**
 	 * Get options and make them into arrays suitable for OOUI.
+	 * @stable to override
 	 * @return array Options for inclusion in a select or whatever.
 	 */
 	public function getOptionsOOUI() {
@@ -1116,9 +1179,6 @@ abstract class HTMLFormField {
 	 * @since 1.18
 	 */
 	protected static function formatErrors( $errors ) {
-		// Note: If you change the logic in this method, change
-		// htmlform.Checker.js to match.
-
 		if ( is_array( $errors ) && count( $errors ) === 1 ) {
 			$errors = array_shift( $errors );
 		}
@@ -1133,14 +1193,14 @@ abstract class HTMLFormField {
 				}
 			}
 
-			return Html::rawElement( 'ul', [ 'class' => 'error' ], implode( "\n", $lines ) );
+			$errors = Html::rawElement( 'ul', [], implode( "\n", $lines ) );
 		} else {
 			if ( $errors instanceof Message ) {
 				$errors = $errors->parse();
 			}
-
-			return Html::rawElement( 'span', [ 'class' => 'error' ], $errors );
 		}
+
+		return Html::rawElement( 'div', [ 'class' => 'errorbox' ], $errors );
 	}
 
 	/**
@@ -1161,6 +1221,7 @@ abstract class HTMLFormField {
 
 	/**
 	 * Skip this field when collecting data.
+	 * @stable to override
 	 * @param WebRequest $request
 	 * @return bool
 	 * @since 1.27

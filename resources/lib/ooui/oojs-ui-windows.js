@@ -1,12 +1,12 @@
 /*!
- * OOUI v0.31.3
+ * OOUI v0.42.0
  * https://www.mediawiki.org/wiki/OOUI
  *
- * Copyright 2011–2019 OOUI Team and other contributors.
+ * Copyright 2011–2021 OOUI Team and other contributors.
  * Released under the MIT license
  * http://oojs.mit-license.org
  *
- * Date: 2019-04-04T19:10:48Z
+ * Date: 2021-08-19T04:44:48Z
  */
 ( function ( OO ) {
 
@@ -40,7 +40,7 @@ OO.ui.ActionWidget = function OoUiActionWidget( config ) {
 	config = $.extend( { framed: false }, config );
 
 	// Parent constructor
-	OO.ui.ActionWidget.parent.call( this, config );
+	OO.ui.ActionWidget.super.call( this, config );
 
 	// Mixin constructors
 	OO.ui.mixin.PendingElement.call( this, config );
@@ -113,24 +113,26 @@ OO.ui.ActionWidget.prototype.getModes = function () {
  *     @example
  *     // Example: An action set used in a process dialog
  *     function MyProcessDialog( config ) {
- *         MyProcessDialog.parent.call( this, config );
+ *         MyProcessDialog.super.call( this, config );
  *     }
  *     OO.inheritClass( MyProcessDialog, OO.ui.ProcessDialog );
  *     MyProcessDialog.static.title = 'An action set in a process dialog';
  *     MyProcessDialog.static.name = 'myProcessDialog';
  *     // An action set that uses modes ('edit' and 'help' mode, in this example).
  *     MyProcessDialog.static.actions = [
- *         { action: 'continue', modes: 'edit', label: 'Continue',
- *           flags: [
- *               'primary', 'progressive'
- *         ] },
+ *         {
+ *           action: 'continue',
+ *           modes: 'edit',
+ *           label: 'Continue',
+ *           flags: [ 'primary', 'progressive' ]
+ *         },
  *         { action: 'help', modes: 'edit', label: 'Help' },
  *         { modes: 'edit', label: 'Cancel', flags: 'safe' },
  *         { action: 'back', modes: 'help', label: 'Back', flags: 'safe' }
  *     ];
  *
  *     MyProcessDialog.prototype.initialize = function () {
- *         MyProcessDialog.parent.prototype.initialize.apply( this, arguments );
+ *         MyProcessDialog.super.prototype.initialize.apply( this, arguments );
  *         this.panel1 = new OO.ui.PanelLayout( { padded: true, expanded: false } );
  *         this.panel1.$element.append( '<p>This dialog uses an action set (continue, help, ' +
  *             'cancel, back) configured with modes. This is edit mode. Click \'help\' to see ' +
@@ -145,7 +147,7 @@ OO.ui.ActionWidget.prototype.getModes = function () {
  *         this.$body.append( this.stackLayout.$element );
  *     };
  *     MyProcessDialog.prototype.getSetupProcess = function ( data ) {
- *         return MyProcessDialog.parent.prototype.getSetupProcess.call( this, data )
+ *         return MyProcessDialog.super.prototype.getSetupProcess.call( this, data )
  *             .next( function () {
  *                 this.actions.setMode( 'edit' );
  *             }, this );
@@ -163,7 +165,7 @@ OO.ui.ActionWidget.prototype.getModes = function () {
  *                 dialog.close();
  *             } );
  *         }
- *         return MyProcessDialog.parent.prototype.getActionProcess.call( this, action );
+ *         return MyProcessDialog.super.prototype.getActionProcess.call( this, action );
  *     };
  *     MyProcessDialog.prototype.getBodyHeight = function () {
  *         return this.panel1.$element.outerHeight( true );
@@ -186,9 +188,6 @@ OO.ui.ActionWidget.prototype.getModes = function () {
  * @param {Object} [config] Configuration options
  */
 OO.ui.ActionSet = function OoUiActionSet( config ) {
-	// Configuration initialization
-	config = config || {};
-
 	// Mixin constructors
 	OO.EventEmitter.call( this );
 
@@ -307,8 +306,10 @@ OO.ui.ActionSet.prototype.isSpecial = function ( action ) {
  * @param {string|string[]} [filters.actions] Actions that action widgets must have
  * @param {string|string[]} [filters.flags] Flags that action widgets must have (e.g., 'safe')
  * @param {string|string[]} [filters.modes] Modes that action widgets must have
- * @param {boolean} [filters.visible] Action widgets must be visible
- * @param {boolean} [filters.disabled] Action widgets must be disabled
+ * @param {boolean} [filters.visible] Visibility that action widgets must have, omit to get both
+ *  visible and invisible
+ * @param {boolean} [filters.disabled] Disabled state that action widgets must have, omit to get
+ *  both enabled and disabled
  * @return {OO.ui.ActionWidget[]} Action widgets matching all criteria
  */
 OO.ui.ActionSet.prototype.get = function ( filters ) {
@@ -317,7 +318,7 @@ OO.ui.ActionSet.prototype.get = function ( filters ) {
 	if ( filters ) {
 		this.organize();
 
-		// Collect category candidates
+		// Collect candidates for the 3 categories "actions", "flags" and "modes"
 		matches = [];
 		for ( category in this.categorized ) {
 			list = filters[ category ];
@@ -573,24 +574,30 @@ OO.ui.ActionSet.prototype.organize = function () {
 		this.others = [];
 		for ( i = 0, iLen = this.list.length; i < iLen; i++ ) {
 			action = this.list[ i ];
-			if ( action.isVisible() ) {
-				// Populate categories
-				for ( category in this.categories ) {
-					if ( !this.categorized[ category ] ) {
-						this.categorized[ category ] = {};
-					}
-					list = action[ this.categories[ category ] ]();
-					if ( !Array.isArray( list ) ) {
-						list = [ list ];
-					}
-					for ( j = 0, jLen = list.length; j < jLen; j++ ) {
-						item = list[ j ];
-						if ( !this.categorized[ category ][ item ] ) {
-							this.categorized[ category ][ item ] = [];
-						}
-						this.categorized[ category ][ item ].push( action );
-					}
+			// Populate the 3 categories "actions", "flags" and "modes"
+			for ( category in this.categories ) {
+				if ( !this.categorized[ category ] ) {
+					this.categorized[ category ] = {};
 				}
+				/**
+				 * This calls one of these getters. All return strings or arrays of strings.
+				 * {@see OO.ui.ActionWidget.getAction}
+				 * {@see OO.ui.FlaggedElement.getFlags}
+				 * {@see OO.ui.ActionWidget.getModes}
+				 */
+				list = action[ this.categories[ category ] ]();
+				if ( !Array.isArray( list ) ) {
+					list = [ list ];
+				}
+				for ( j = 0, jLen = list.length; j < jLen; j++ ) {
+					item = list[ j ];
+					if ( !this.categorized[ category ][ item ] ) {
+						this.categorized[ category ][ item ] = [];
+					}
+					this.categorized[ category ][ item ].push( action );
+				}
+			}
+			if ( action.isVisible() ) {
 				// Populate special/others
 				special = false;
 				for ( j = 0, jLen = specialFlags.length; j < jLen; j++ ) {
@@ -707,7 +714,7 @@ OO.ui.Error.prototype.getMessageText = function () {
 
 /**
  * A Process is a list of steps that are called in sequence. The step can be a number, a
- * jQuery promise, or a function:
+ * promise (jQuery, native, or any other “thenable”), or a function:
  *
  * - **number**: the process will wait for the specified number of milliseconds before proceeding.
  * - **promise**: the process will continue to the next step when the promise is successfully
@@ -790,9 +797,9 @@ OO.ui.Process.prototype.execute = function () {
 				return $.Deferred().reject( result ).promise();
 			}
 			// Duck-type the object to see if it can produce a promise
-			if ( result && typeof result.promise === 'function' ) {
+			if ( result && typeof result.then === 'function' ) {
 				// Use a promise generated from the result
-				return result.promise();
+				return $.when( result ).promise();
 			}
 			// Use resolved promise for other results
 			return $.Deferred().resolve().promise();
@@ -831,7 +838,7 @@ OO.ui.Process.prototype.execute = function () {
  * @return {Object} Step object, with `callback` and `context` properties
  */
 OO.ui.Process.prototype.createStep = function ( step, context ) {
-	if ( typeof step === 'number' || typeof step.promise === 'function' ) {
+	if ( typeof step === 'number' || typeof step.then === 'function' ) {
 		return {
 			callback: function () {
 				return step;
@@ -1033,7 +1040,7 @@ OO.ui.WindowManager = function OoUiWindowManager( config ) {
 	config = config || {};
 
 	// Parent constructor
-	OO.ui.WindowManager.parent.call( this, config );
+	OO.ui.WindowManager.super.call( this, config );
 
 	// Mixin constructors
 	OO.EventEmitter.call( this );
@@ -1321,7 +1328,6 @@ OO.ui.WindowManager.prototype.getCurrentWindow = function () {
 	return this.currentWindow;
 };
 
-/* eslint-disable valid-jsdoc */
 /**
  * Open a window.
  *
@@ -1329,6 +1335,8 @@ OO.ui.WindowManager.prototype.getCurrentWindow = function () {
  * @param {Object} [data] Window opening data
  * @param {jQuery|null} [data.$returnFocusTo] Element to which the window will return focus when
  *  closed. Defaults the current activeElement. If set to null, focus isn't changed on close.
+ * @param {OO.ui.WindowInstance} [lifecycle] Used internally
+ * @param {jQuery.Deferred} [compatOpening] Used internally
  * @return {OO.ui.WindowInstance} A lifecycle object representing this particular
  *  opening of the window. For backwards-compatibility, then object is also a Thenable that is
  *  resolved when the window is done opening, with nested promise for when closing starts. This
@@ -1336,7 +1344,6 @@ OO.ui.WindowManager.prototype.getCurrentWindow = function () {
  * @fires opening
  */
 OO.ui.WindowManager.prototype.openWindow = function ( win, data, lifecycle, compatOpening ) {
-	/* eslint-enable valid-jsdoc */
 	var error,
 		manager = this;
 	data = data || {};
@@ -1363,8 +1370,8 @@ OO.ui.WindowManager.prototype.openWindow = function ( win, data, lifecycle, comp
 	// Argument handling
 	if ( typeof win === 'string' ) {
 		this.getWindow( win ).then(
-			function ( win ) {
-				manager.openWindow( win, data, lifecycle, compatOpening );
+			function ( w ) {
+				manager.openWindow( w, data, lifecycle, compatOpening );
 			},
 			function ( err ) {
 				lifecycle.deferreds.opening.reject( err );
@@ -1413,16 +1420,27 @@ OO.ui.WindowManager.prototype.openWindow = function ( win, data, lifecycle, comp
 						compatOpening.notify( { state: 'ready' } );
 						lifecycle.deferreds.opened.resolve( data );
 						compatOpening.resolve( manager.compatOpened.promise(), data );
-					}, function () {
+						manager.togglePreventIosScrolling( true );
+					}, function ( dataOrErr ) {
 						lifecycle.deferreds.opened.reject();
 						compatOpening.reject();
 						manager.closeWindow( win );
+						if ( dataOrErr instanceof Error ) {
+							setTimeout( function () {
+								throw dataOrErr;
+							} );
+						}
 					} );
 				}, manager.getReadyDelay() );
-			}, function () {
+			}, function ( dataOrErr ) {
 				lifecycle.deferreds.opened.reject();
 				compatOpening.reject();
 				manager.closeWindow( win );
+				if ( dataOrErr instanceof Error ) {
+					setTimeout( function () {
+						throw dataOrErr;
+					} );
+				}
 			} );
 		}, manager.getSetupDelay() );
 	} );
@@ -1503,6 +1521,7 @@ OO.ui.WindowManager.prototype.closeWindow = function ( win, data ) {
 		compatOpened = manager.compatOpened;
 		manager.compatOpened = null;
 		compatOpened.resolve( compatClosing.promise(), data );
+		manager.togglePreventIosScrolling( false );
 		setTimeout( function () {
 			win.hold( data ).then( function () {
 				compatClosing.notify( { state: 'hold' } );
@@ -1614,23 +1633,23 @@ OO.ui.WindowManager.prototype.addWindows = function ( windows ) {
  * @throws {Error} An error is thrown if the named windows are not managed by the window manager.
  */
 OO.ui.WindowManager.prototype.removeWindows = function ( names ) {
-	var i, len, win, name, cleanupWindow,
-		manager = this,
-		promises = [],
-		cleanup = function ( name, win ) {
-			delete manager.windows[ name ];
-			win.$element.detach();
-		};
+	var promises,
+		manager = this;
 
-	for ( i = 0, len = names.length; i < len; i++ ) {
-		name = names[ i ];
-		win = this.windows[ name ];
+	function cleanup( name, win ) {
+		delete manager.windows[ name ];
+		win.$element.detach();
+	}
+
+	promises = names.map( function ( name ) {
+		var cleanupWindow,
+			win = manager.windows[ name ];
 		if ( !win ) {
 			throw new Error( 'Cannot remove window' );
 		}
 		cleanupWindow = cleanup.bind( null, name, win );
-		promises.push( this.closeWindow( name ).closed.then( cleanupWindow, cleanupWindow ) );
-	}
+		return manager.closeWindow( name ).closed.then( cleanupWindow, cleanupWindow );
+	} );
 
 	return $.when.apply( $, promises );
 };
@@ -1673,6 +1692,47 @@ OO.ui.WindowManager.prototype.updateWindowSize = function ( win ) {
 
 	this.emit( 'resize', win );
 
+	return this;
+};
+
+/**
+ * Prevent scrolling of the document on iOS devices that don't respect `body { overflow: hidden; }`.
+ *
+ * This function is called when the window is opened (ready), and so the background is covered up,
+ * and the user won't see that we're doing weird things to the scroll position.
+ *
+ * @private
+ * @param {boolean} on
+ * @chainable
+ * @return {OO.ui.WindowManager} The manager, for chaining
+ */
+OO.ui.WindowManager.prototype.togglePreventIosScrolling = function ( on ) {
+	var
+		isIos = /ipad|iphone|ipod/i.test( navigator.userAgent ),
+		$body = $( this.getElementDocument().body ),
+		scrollableRoot = OO.ui.Element.static.getRootScrollableElement( $body[ 0 ] ),
+		stackDepth = $body.data( 'windowManagerGlobalEvents' ) || 0;
+
+	// Only if this is the first/last WindowManager (see #toggleGlobalEvents)
+	if ( !isIos || stackDepth !== 1 ) {
+		return this;
+	}
+
+	if ( on ) {
+		// We can't apply this workaround for non-fullscreen dialogs, because the user would see the
+		// scroll position change. If they have content that needs scrolling, you're out of luck…
+		// Always remember the scroll position in case dialog is closed with different size.
+		this.iosOrigScrollPosition = scrollableRoot.scrollTop;
+		if ( this.getCurrentWindow().getSize() === 'full' ) {
+			$body.add( $body.parent() ).addClass( 'oo-ui-windowManager-ios-modal-ready' );
+		}
+	} else {
+		// Always restore ability to scroll in case dialog was opened with different size.
+		$body.add( $body.parent() ).removeClass( 'oo-ui-windowManager-ios-modal-ready' );
+		if ( this.getCurrentWindow().getSize() === 'full' ) {
+			scrollableRoot.scrollTop = this.iosOrigScrollPosition;
+		}
+	}
 	return this;
 };
 
@@ -1832,7 +1892,7 @@ OO.ui.Window = function OoUiWindow( config ) {
 	config = config || {};
 
 	// Parent constructor
-	OO.ui.Window.parent.call( this, config );
+	OO.ui.Window.super.call( this, config );
 
 	// Mixin constructors
 	OO.EventEmitter.call( this );
@@ -1872,7 +1932,7 @@ OO.ui.Window = function OoUiWindow( config ) {
 	this.$overlay.addClass( 'oo-ui-window-overlay' );
 	this.$content
 		.addClass( 'oo-ui-window-content' )
-		.attr( 'tabindex', 0 );
+		.attr( 'tabindex', -1 );
 	this.$frame
 		.addClass( 'oo-ui-window-frame' )
 		.append( this.$focusTrapBefore, this.$content, this.$focusTrapAfter );
@@ -2488,12 +2548,12 @@ OO.ui.Window.prototype.teardown = function ( data ) {
  *     @example
  *     // A simple dialog window.
  *     function MyDialog( config ) {
- *         MyDialog.parent.call( this, config );
+ *         MyDialog.super.call( this, config );
  *     }
  *     OO.inheritClass( MyDialog, OO.ui.Dialog );
  *     MyDialog.static.name = 'myDialog';
  *     MyDialog.prototype.initialize = function () {
- *         MyDialog.parent.prototype.initialize.call( this );
+ *         MyDialog.super.prototype.initialize.call( this );
  *         this.content = new OO.ui.PanelLayout( { padded: true, expanded: false } );
  *         this.content.$element.append( '<p>A simple dialog window. Press Escape key to ' +
  *             'close.</p>' );
@@ -2524,7 +2584,7 @@ OO.ui.Window.prototype.teardown = function ( data ) {
  */
 OO.ui.Dialog = function OoUiDialog( config ) {
 	// Parent constructor
-	OO.ui.Dialog.parent.call( this, config );
+	OO.ui.Dialog.super.call( this, config );
 
 	// Mixin constructors
 	OO.ui.mixin.PendingElement.call( this );
@@ -2704,13 +2764,13 @@ OO.ui.Dialog.prototype.getSetupProcess = function ( data ) {
 	data = data || {};
 
 	// Parent method
-	return OO.ui.Dialog.parent.prototype.getSetupProcess.call( this, data )
+	return OO.ui.Dialog.super.prototype.getSetupProcess.call( this, data )
 		.next( function () {
 			var config = this.constructor.static,
 				actions = data.actions !== undefined ? data.actions : config.actions,
 				title = data.title !== undefined ? data.title : config.title;
 
-			this.title.setLabel( title ).setTitle( title );
+			this.title.setLabel( title );
 			this.actions.add( this.getActionWidgets( actions ) );
 
 			this.$element.on( 'keydown', this.onDialogKeyDownHandler );
@@ -2722,7 +2782,7 @@ OO.ui.Dialog.prototype.getSetupProcess = function ( data ) {
  */
 OO.ui.Dialog.prototype.getTeardownProcess = function ( data ) {
 	// Parent method
-	return OO.ui.Dialog.parent.prototype.getTeardownProcess.call( this, data )
+	return OO.ui.Dialog.super.prototype.getTeardownProcess.call( this, data )
 		.first( function () {
 			this.$element.off( 'keydown', this.onDialogKeyDownHandler );
 
@@ -2736,7 +2796,7 @@ OO.ui.Dialog.prototype.getTeardownProcess = function ( data ) {
  */
 OO.ui.Dialog.prototype.initialize = function () {
 	// Parent method
-	OO.ui.Dialog.parent.prototype.initialize.call( this );
+	OO.ui.Dialog.super.prototype.initialize.call( this );
 
 	// Properties
 	this.title = new OO.ui.LabelWidget();
@@ -2870,7 +2930,7 @@ OO.ui.Dialog.prototype.executeAction = function ( action ) {
  */
 OO.ui.MessageDialog = function OoUiMessageDialog( config ) {
 	// Parent constructor
-	OO.ui.MessageDialog.parent.call( this, config );
+	OO.ui.MessageDialog.super.call( this, config );
 
 	// Properties
 	this.verticalActionLayout = null;
@@ -2963,7 +3023,7 @@ OO.ui.MessageDialog.prototype.getActionProcess = function ( action ) {
 			this.close( { action: action } );
 		}, this );
 	}
-	return OO.ui.MessageDialog.parent.prototype.getActionProcess.call( this, action );
+	return OO.ui.MessageDialog.super.prototype.getActionProcess.call( this, action );
 };
 
 /**
@@ -2980,7 +3040,7 @@ OO.ui.MessageDialog.prototype.getSetupProcess = function ( data ) {
 	data = data || {};
 
 	// Parent method
-	return OO.ui.MessageDialog.parent.prototype.getSetupProcess.call( this, data )
+	return OO.ui.MessageDialog.super.prototype.getSetupProcess.call( this, data )
 		.next( function () {
 			this.title.setLabel(
 				data.title !== undefined ? data.title : this.constructor.static.title
@@ -2999,7 +3059,7 @@ OO.ui.MessageDialog.prototype.getReadyProcess = function ( data ) {
 	data = data || {};
 
 	// Parent method
-	return OO.ui.MessageDialog.parent.prototype.getReadyProcess.call( this, data )
+	return OO.ui.MessageDialog.super.prototype.getReadyProcess.call( this, data )
 		.next( function () {
 			// Focus the primary action button
 			var actions = this.actions.get();
@@ -3037,7 +3097,7 @@ OO.ui.MessageDialog.prototype.setDimensions = function ( dim ) {
 	var
 		dialog = this,
 		$scrollable = this.container.$element;
-	OO.ui.MessageDialog.parent.prototype.setDimensions.call( this, dim );
+	OO.ui.MessageDialog.super.prototype.setDimensions.call( this, dim );
 
 	// Twiddle the overflow property, otherwise an unnecessary scrollbar will be produced.
 	// Need to do it after transition completes (250ms), add 50ms just in case.
@@ -3072,7 +3132,7 @@ OO.ui.MessageDialog.prototype.setDimensions = function ( dim ) {
  */
 OO.ui.MessageDialog.prototype.initialize = function () {
 	// Parent method
-	OO.ui.MessageDialog.parent.prototype.initialize.call( this );
+	OO.ui.MessageDialog.super.prototype.initialize.call( this );
 
 	// Properties
 	this.$actions = $( '<div>' );
@@ -3111,7 +3171,7 @@ OO.ui.MessageDialog.prototype.attachActions = function () {
 	var i, len, special, others;
 
 	// Parent method
-	OO.ui.MessageDialog.parent.prototype.attachActions.call( this );
+	OO.ui.MessageDialog.super.prototype.attachActions.call( this );
 
 	special = this.actions.getSpecial();
 	others = this.actions.getOthers();
@@ -3180,7 +3240,7 @@ OO.ui.MessageDialog.prototype.fitActions = function () {
  *     @example
  *     // Example: Creating and opening a process dialog window.
  *     function MyProcessDialog( config ) {
- *         MyProcessDialog.parent.call( this, config );
+ *         MyProcessDialog.super.call( this, config );
  *     }
  *     OO.inheritClass( MyProcessDialog, OO.ui.ProcessDialog );
  *
@@ -3192,7 +3252,7 @@ OO.ui.MessageDialog.prototype.fitActions = function () {
  *     ];
  *
  *     MyProcessDialog.prototype.initialize = function () {
- *         MyProcessDialog.parent.prototype.initialize.apply( this, arguments );
+ *         MyProcessDialog.super.prototype.initialize.apply( this, arguments );
  *         this.content = new OO.ui.PanelLayout( { padded: true, expanded: false } );
  *         this.content.$element.append( '<p>This is a process dialog window. The header ' +
  *             'contains the title and two buttons: \'Cancel\' (a safe action) on the left and ' +
@@ -3206,7 +3266,7 @@ OO.ui.MessageDialog.prototype.fitActions = function () {
  *                 dialog.close( { action: action } );
  *             } );
  *         }
- *         return MyProcessDialog.parent.prototype.getActionProcess.call( this, action );
+ *         return MyProcessDialog.super.prototype.getActionProcess.call( this, action );
  *     };
  *
  *     var windowManager = new OO.ui.WindowManager();
@@ -3227,13 +3287,16 @@ OO.ui.MessageDialog.prototype.fitActions = function () {
  */
 OO.ui.ProcessDialog = function OoUiProcessDialog( config ) {
 	// Parent constructor
-	OO.ui.ProcessDialog.parent.call( this, config );
+	OO.ui.ProcessDialog.super.call( this, config );
 
 	// Properties
 	this.fitOnOpen = false;
 
 	// Initialization
 	this.$element.addClass( 'oo-ui-processDialog' );
+	if ( OO.ui.isMobile() ) {
+		this.$element.addClass( 'oo-ui-isMobile' );
+	}
 };
 
 /* Setup */
@@ -3270,7 +3333,7 @@ OO.ui.ProcessDialog.prototype.onRetryButtonClick = function () {
  */
 OO.ui.ProcessDialog.prototype.initialize = function () {
 	// Parent method
-	OO.ui.ProcessDialog.parent.prototype.initialize.call( this );
+	OO.ui.ProcessDialog.super.prototype.initialize.call( this );
 
 	// Properties
 	this.$navigation = $( '<div>' );
@@ -3309,7 +3372,12 @@ OO.ui.ProcessDialog.prototype.initialize = function () {
 		.text( OO.ui.msg( 'ooui-dialog-process-error' ) );
 	this.$errors
 		.addClass( 'oo-ui-processDialog-errors oo-ui-element-hidden' )
-		.append( this.$errorsTitle, this.dismissButton.$element, this.retryButton.$element );
+		.append(
+			this.$errorsTitle,
+			$( '<div>' ).addClass( 'oo-ui-processDialog-errors-actions' ).append(
+				this.dismissButton.$element, this.retryButton.$element
+			)
+		);
 	this.$content
 		.addClass( 'oo-ui-processDialog-content' )
 		.append( this.$errors );
@@ -3328,21 +3396,23 @@ OO.ui.ProcessDialog.prototype.initialize = function () {
  * @inheritdoc
  */
 OO.ui.ProcessDialog.prototype.getActionWidgetConfig = function ( config ) {
-	var isMobile = OO.ui.isMobile();
+	function checkFlag( flag ) {
+		return config.flags === flag ||
+			( Array.isArray( config.flags ) && config.flags.indexOf( flag ) !== -1 );
+	}
 
-	// Default to unframed on mobile
-	config = $.extend( { framed: !isMobile }, config );
-	// Change back buttons to icon only on mobile
-	if (
-		isMobile &&
-		(
-			config.flags === 'back' ||
-			( Array.isArray( config.flags ) && config.flags.indexOf( 'back' ) !== -1 )
-		)
-	) {
+	config = $.extend( { framed: true }, config );
+	if ( checkFlag( 'close' ) ) {
+		// Change close buttons to icon only.
+		$.extend( config, {
+			icon: 'close',
+			invisibleLabel: true
+		} );
+	} else if ( checkFlag( 'back' ) ) {
+		// Change back buttons to icon only.
 		$.extend( config, {
 			icon: 'previous',
-			label: ''
+			invisibleLabel: true
 		} );
 	}
 
@@ -3356,7 +3426,7 @@ OO.ui.ProcessDialog.prototype.attachActions = function () {
 	var i, len, other, special, others;
 
 	// Parent method
-	OO.ui.ProcessDialog.parent.prototype.attachActions.call( this );
+	OO.ui.ProcessDialog.super.prototype.attachActions.call( this );
 
 	special = this.actions.getSpecial();
 	others = this.actions.getOthers();
@@ -3376,10 +3446,10 @@ OO.ui.ProcessDialog.prototype.attachActions = function () {
  * @inheritdoc
  */
 OO.ui.ProcessDialog.prototype.executeAction = function ( action ) {
-	var process = this;
-	return OO.ui.ProcessDialog.parent.prototype.executeAction.call( this, action )
+	var dialog = this;
+	return OO.ui.ProcessDialog.super.prototype.executeAction.call( this, action )
 		.fail( function ( errors ) {
-			process.showErrors( errors || [] );
+			dialog.showErrors( errors || [] );
 		} );
 };
 
@@ -3390,7 +3460,7 @@ OO.ui.ProcessDialog.prototype.setDimensions = function () {
 	var dialog = this;
 
 	// Parent method
-	OO.ui.ProcessDialog.parent.prototype.setDimensions.apply( this, arguments );
+	OO.ui.ProcessDialog.super.prototype.setDimensions.apply( this, arguments );
 
 	this.fitLabel();
 
@@ -3433,13 +3503,13 @@ OO.ui.ProcessDialog.prototype.fitLabel = function () {
 		navigationWidth = size.width - 20;
 	}
 
-	safeWidth = this.$safeActions.is( ':visible' ) ? this.$safeActions.width() : 0;
-	primaryWidth = this.$primaryActions.is( ':visible' ) ? this.$primaryActions.width() : 0;
+	safeWidth = this.$safeActions.width();
+	primaryWidth = this.$primaryActions.width();
 	biggerWidth = Math.max( safeWidth, primaryWidth );
 
 	labelWidth = this.title.$element.width();
 
-	if ( 2 * biggerWidth + labelWidth < navigationWidth ) {
+	if ( !OO.ui.isMobile() && 2 * biggerWidth + labelWidth < navigationWidth ) {
 		// We have enough space to center the label
 		leftWidth = rightWidth = biggerWidth;
 	} else {
@@ -3466,7 +3536,7 @@ OO.ui.ProcessDialog.prototype.fitLabel = function () {
  * @param {OO.ui.Error[]|OO.ui.Error} errors Errors to be handled
  */
 OO.ui.ProcessDialog.prototype.showErrors = function ( errors ) {
-	var i, len, $item, actions,
+	var i, len, actions,
 		items = [],
 		abilities = {},
 		recoverable = true,
@@ -3483,10 +3553,10 @@ OO.ui.ProcessDialog.prototype.showErrors = function ( errors ) {
 		if ( errors[ i ].isWarning() ) {
 			warning = true;
 		}
-		$item = $( '<div>' )
-			.addClass( 'oo-ui-processDialog-error' )
-			.append( errors[ i ].getMessage() );
-		items.push( $item[ 0 ] );
+		items.push( new OO.ui.MessageWidget( {
+			type: 'error',
+			label: errors[ i ].getMessage()
+		} ).$element[ 0 ] );
 	}
 	this.$errorItems = $( items );
 	if ( recoverable ) {
@@ -3528,7 +3598,7 @@ OO.ui.ProcessDialog.prototype.hideErrors = function () {
  */
 OO.ui.ProcessDialog.prototype.getTeardownProcess = function ( data ) {
 	// Parent method
-	return OO.ui.ProcessDialog.parent.prototype.getTeardownProcess.call( this, data )
+	return OO.ui.ProcessDialog.super.prototype.getTeardownProcess.call( this, data )
 		.first( function () {
 			// Make sure to hide errors.
 			this.hideErrors();

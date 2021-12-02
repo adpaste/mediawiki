@@ -9,7 +9,7 @@
  * @covers BatchRowIterator
  * @covers BatchRowWriter
  */
-class BatchRowUpdateTest extends MediaWikiTestCase {
+class BatchRowUpdateTest extends MediaWikiIntegrationTestCase {
 
 	public function testWriterBasicFunctionality() {
 		$db = $this->mockDb( [ 'update' ] );
@@ -49,7 +49,7 @@ class BatchRowUpdateTest extends MediaWikiTestCase {
 			$this->assertEquals( $response[$pos], $rows, "Testing row in position $pos" );
 			$pos++;
 		}
-		// -1 is because the final array() marks the end and isnt included
+		// -1 is because the final [] marks the end and isn't included
 		$this->assertEquals( count( $response ) - 1, $pos );
 	}
 
@@ -131,7 +131,7 @@ class BatchRowUpdateTest extends MediaWikiTestCase {
 			->method( 'select' )
 			// only testing second parameter of Database::select
 			->with( 'some_table', $columns )
-			->will( $this->returnValue( new ArrayIterator( [] ) ) );
+			->willReturn( new ArrayIterator( [] ) );
 
 		$reader = new BatchRowIterator( $db, 'some_table', $primaryKeys, 22 );
 		$reader->setFetchColumns( $fetchColumns );
@@ -199,12 +199,10 @@ class BatchRowUpdateTest extends MediaWikiTestCase {
 
 	protected function mockDbConsecutiveSelect( array $retvals ) {
 		$db = $this->mockDb( [ 'select', 'addQuotes' ] );
-		$db->expects( $this->any() )
-			->method( 'select' )
+		$db->method( 'select' )
 			->will( $this->consecutivelyReturnFromSelect( $retvals ) );
-		$db->expects( $this->any() )
-			->method( 'addQuotes' )
-			->will( $this->returnCallback( function ( $value ) {
+		$db->method( 'addQuotes' )
+			->will( $this->returnCallback( static function ( $value ) {
 				return "'$value'"; // not real quoting: doesn't matter in test
 			} ) );
 
@@ -218,7 +216,7 @@ class BatchRowUpdateTest extends MediaWikiTestCase {
 			$retvals[] = $this->returnValue( new ArrayIterator( $rows ) );
 		}
 
-		return call_user_func_array( [ $this, 'onConsecutiveCalls' ], $retvals );
+		return $this->onConsecutiveCalls( ...$retvals );
 	}
 
 	protected function genSelectResult( $batchSize, $numRows, $rowGenerator ) {
@@ -226,7 +224,7 @@ class BatchRowUpdateTest extends MediaWikiTestCase {
 		for ( $i = 0; $i < $numRows; $i += $batchSize ) {
 			$rows = [];
 			for ( $j = 0; $j < $batchSize && $i + $j < $numRows; $j++ ) {
-				$rows [] = (object)call_user_func( $rowGenerator );
+				$rows[] = (object)$rowGenerator();
 			}
 			$res[] = $rows;
 		}
@@ -239,14 +237,12 @@ class BatchRowUpdateTest extends MediaWikiTestCase {
 		// FIXME: the constructor normally sets mAtomicLevels and mSrvCache
 		$databaseMysql = $this->getMockBuilder( Wikimedia\Rdbms\DatabaseMysqli::class )
 			->disableOriginalConstructor()
-			->setMethods( array_merge( [ 'isOpen', 'getApproximateLagStatus' ], $methods ) )
+			->onlyMethods( array_merge( [ 'isOpen', 'getApproximateLagStatus' ], $methods ) )
 			->getMock();
-		$databaseMysql->expects( $this->any() )
-			->method( 'isOpen' )
-			->will( $this->returnValue( true ) );
-		$databaseMysql->expects( $this->any() )
-			->method( 'getApproximateLagStatus' )
-			->will( $this->returnValue( [ 'lag' => 0, 'since' => 0 ] ) );
+		$databaseMysql->method( 'isOpen' )
+			->willReturn( true );
+		$databaseMysql->method( 'getApproximateLagStatus' )
+			->willReturn( [ 'lag' => 0, 'since' => 0 ] );
 		return $databaseMysql;
 	}
 }

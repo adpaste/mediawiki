@@ -1,7 +1,5 @@
 <?php
 /**
- * ResourceLoader module for generated and embedded images.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -20,16 +18,17 @@
  * @file
  * @author Trevor Parscal
  */
+use Wikimedia\Minify\CSSMin;
 
 /**
- * ResourceLoader module for generated and embedded images.
+ * Module for generated and embedded images.
  *
+ * @ingroup ResourceLoader
  * @since 1.25
  */
 class ResourceLoaderImageModule extends ResourceLoaderModule {
-
-	/** @var array|null */
-	protected $definition = null;
+	/** @var array */
+	protected $definition;
 
 	/**
 	 * Local base path, see __construct()
@@ -39,7 +38,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 
 	protected $origin = self::ORIGIN_CORE_SITEWIDE;
 
-	/** @var ResourceLoaderImage[]|null */
+	/** @var ResourceLoaderImage[][]|null */
 	protected $imageObjects = null;
 	/** @var array */
 	protected $images = [];
@@ -112,8 +111,8 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	 * @endcode
 	 * @throws InvalidArgumentException
 	 */
-	public function __construct( $options = [], $localBasePath = null ) {
-		$this->localBasePath = self::extractLocalBasePath( $options, $localBasePath );
+	public function __construct( array $options = [], $localBasePath = null ) {
+		$this->localBasePath = static::extractLocalBasePath( $options, $localBasePath );
 
 		$this->definition = $options;
 	}
@@ -130,7 +129,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 		$this->definition = null;
 
 		if ( isset( $options['data'] ) ) {
-			$dataPath = $this->localBasePath . '/' . $options['data'];
+			$dataPath = $this->getLocalPath( $options['data'] );
 			$data = json_decode( file_get_contents( $dataPath ), true );
 			$options = array_merge( $data, $options );
 		}
@@ -236,7 +235,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	 * @param ResourceLoaderContext $context
 	 * @return ResourceLoaderImage|null
 	 */
-	public function getImage( $name, ResourceLoaderContext $context ) {
+	public function getImage( $name, ResourceLoaderContext $context ): ?ResourceLoaderImage {
 		$this->loadFromDefinition();
 		$images = $this->getImages( $context );
 		return $images[$name] ?? null;
@@ -247,7 +246,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	 * @param ResourceLoaderContext $context
 	 * @return ResourceLoaderImage[] Array keyed by image name
 	 */
-	public function getImages( ResourceLoaderContext $context ) {
+	public function getImages( ResourceLoaderContext $context ): array {
 		$skin = $context->getSkin();
 		if ( $this->imageObjects === null ) {
 			$this->loadFromDefinition();
@@ -259,7 +258,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 				$this->images[$skin] = $this->images['default'] ?? [];
 			}
 			foreach ( $this->images[$skin] as $name => $options ) {
-				$fileDescriptor = is_string( $options ) ? $options : $options['file'];
+				$fileDescriptor = is_array( $options ) ? $options['file'] : $options;
 
 				$allowedVariants = array_merge(
 					( is_array( $options ) && isset( $options['variants'] ) ) ? $options['variants'] : [],
@@ -295,7 +294,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	 * @param ResourceLoaderContext $context
 	 * @return string[]
 	 */
-	public function getGlobalVariants( ResourceLoaderContext $context ) {
+	public function getGlobalVariants( ResourceLoaderContext $context ): array {
 		$skin = $context->getSkin();
 		if ( $this->globalVariants === null ) {
 			$this->loadFromDefinition();
@@ -307,7 +306,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 				$this->variants[$skin] = $this->variants['default'] ?? [];
 			}
 			foreach ( $this->variants[$skin] as $name => $config ) {
-				if ( isset( $config['global'] ) && $config['global'] ) {
+				if ( $config['global'] ?? false ) {
 					$this->globalVariants[$skin][] = $name;
 				}
 			}
@@ -320,7 +319,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	 * @param ResourceLoaderContext $context
 	 * @return array
 	 */
-	public function getStyles( ResourceLoaderContext $context ) {
+	public function getStyles( ResourceLoaderContext $context ): array {
 		$this->loadFromDefinition();
 
 		// Build CSS rules
@@ -359,6 +358,10 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	}
 
 	/**
+	 * This method must not be used by getDefinitionSummary as doing so would cause
+	 * an infinite loop (we use ResourceLoaderImage::getUrl below which calls
+	 * Module:getVersionHash, which calls Module::getDefinitionSummary).
+	 *
 	 * @param ResourceLoaderContext $context
 	 * @param ResourceLoaderImage $image Image to get the style for
 	 * @param string $script URL to load.php
@@ -392,7 +395,7 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	 * @param string $fallback Fallback URI
 	 * @return string[] CSS declarations to use given URIs as background-image
 	 */
-	protected function getCssDeclarations( $primary, $fallback ) {
+	protected function getCssDeclarations( $primary, $fallback ): array {
 		$primaryUrl = CSSMin::buildUrlValue( $primary );
 		$fallbackUrl = CSSMin::buildUrlValue( $fallback );
 		return [
@@ -453,14 +456,26 @@ class ResourceLoaderImageModule extends ResourceLoaderModule {
 	}
 
 	/**
+	 * @param string|ResourceLoaderFilePath $path
+	 * @return string
+	 */
+	protected function getLocalPath( $path ) {
+		if ( $path instanceof ResourceLoaderFilePath ) {
+			return $path->getLocalPath();
+		}
+
+		return "{$this->localBasePath}/$path";
+	}
+
+	/**
 	 * Extract a local base path from module definition information.
 	 *
 	 * @param array $options Module definition
 	 * @param string|null $localBasePath Path to use if not provided in module definition. Defaults
-	 *     to $IP
+	 *  to $IP.
 	 * @return string Local base path
 	 */
-	public static function extractLocalBasePath( $options, $localBasePath = null ) {
+	public static function extractLocalBasePath( array $options, $localBasePath = null ) {
 		global $IP;
 
 		if ( $localBasePath === null ) {

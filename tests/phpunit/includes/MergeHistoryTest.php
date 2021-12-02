@@ -1,9 +1,13 @@
 <?php
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Tests\Unit\Permissions\MockAuthorityTrait;
+
 /**
  * @group Database
  */
-class MergeHistoryTest extends MediaWikiTestCase {
+class MergeHistoryTest extends MediaWikiIntegrationTestCase {
+	use MockAuthorityTrait;
 
 	/**
 	 * Make some pages to work with
@@ -16,6 +20,10 @@ class MergeHistoryTest extends MediaWikiTestCase {
 		// Pages that will be merged
 		$this->insertPage( 'Merge1' );
 		$this->insertPage( 'Merge2' );
+
+		// Exclusive for testSourceUpdateForNoRedirectSupport()
+		$this->insertPage( 'Merge3' );
+		$this->insertPage( 'Merge4' );
 	}
 
 	/**
@@ -27,14 +35,14 @@ class MergeHistoryTest extends MediaWikiTestCase {
 	 * @param string|bool $error Expected error for test (or true for no error)
 	 */
 	public function testIsValidMerge( $source, $dest, $timestamp, $error ) {
-		$this->setMwGlobals( 'wgContentHandlerUseDB', false );
 		if ( $timestamp === true ) {
 			// Although this timestamp is after the latest timestamp of both pages,
 			// MergeHistory should select the latest source timestamp up to this which should
 			// still work for the merge.
 			$timestamp = time() + ( 24 * 3600 );
 		}
-		$mh = new MergeHistory(
+		$factory = MediaWikiServices::getInstance()->getMergeHistoryFactory();
+		$mh = $factory->newMergeHistory(
 			Title::newFromText( $source ),
 			Title::newFromText( $dest ),
 			$timestamp
@@ -71,17 +79,26 @@ class MergeHistoryTest extends MediaWikiTestCase {
 	 */
 	public function testIsValidMergeRevisionLimit() {
 		$limit = MergeHistory::REVISION_LIMIT;
-
 		$mh = $this->getMockBuilder( MergeHistory::class )
-			->setMethods( [ 'getRevisionCount' ] )
+			->onlyMethods( [ 'getRevisionCount' ] )
 			->setConstructorArgs( [
 				Title::newFromText( 'Test' ),
 				Title::newFromText( 'Test2' ),
+				null,
+				$this->getServiceContainer()->getDBLoadBalancer(),
+				$this->getServiceContainer()->getContentHandlerFactory(),
+				$this->getServiceContainer()->getRevisionStore(),
+				$this->getServiceContainer()->getWatchedItemStore(),
+				$this->getServiceContainer()->getSpamChecker(),
+				$this->getServiceContainer()->getHookContainer(),
+				$this->getServiceContainer()->getWikiPageFactory(),
+				$this->getServiceContainer()->getTitleFormatter(),
+				$this->getServiceContainer()->getTitleFactory(),
 			] )
 			->getMock();
 		$mh->expects( $this->once() )
 			->method( 'getRevisionCount' )
-			->will( $this->returnValue( $limit + 1 ) );
+			->willReturn( $limit + 1 );
 
 		$status = $mh->isValidMerge();
 		$this->assertTrue( $status->hasMessage( 'mergehistory-fail-toobig' ) );
@@ -92,23 +109,30 @@ class MergeHistoryTest extends MediaWikiTestCase {
 
 	/**
 	 * Test user permission checking
-	 * @covers MergeHistory::checkPermissions
+	 * @covers MergeHistory::authorizeMerge
+	 * @covers MergeHistory::probablyCanMerge
 	 */
 	public function testCheckPermissions() {
-		$mh = new MergeHistory(
+		$factory = MediaWikiServices::getInstance()->getMergeHistoryFactory();
+		$mh = $factory->newMergeHistory(
 			Title::newFromText( 'Test' ),
 			Title::newFromText( 'Test2' )
 		);
 
-		// Sysop with mergehistory permission
-		$sysop = static::getTestSysop()->getUser();
-		$status = $mh->checkPermissions( $sysop, '' );
-		$this->assertTrue( $status->isOK() );
+		foreach ( [ 'authorizeMerge', 'probablyCanMerge' ] as $method ) {
+			// Sysop with mergehistory permission
+			$status = $mh->$method(
+				$this->mockRegisteredUltimateAuthority(),
+				''
+			);
+			$this->assertTrue( $status->isOK() );
 
-		// Normal user
-		$notSysop = static::getTestUser()->getUser();
-		$status = $mh->checkPermissions( $notSysop, '' );
-		$this->assertTrue( $status->hasMessage( 'mergehistory-fail-permission' ) );
+			$status = $mh->$method(
+				$this->mockRegisteredAuthorityWithoutPermissions( [ 'mergehistory' ] ),
+				''
+			);
+			$this->assertTrue( $status->hasMessage( 'mergehistory-fail-permission' ) );
+		}
 	}
 
 	/**
@@ -116,13 +140,73 @@ class MergeHistoryTest extends MediaWikiTestCase {
 	 * @covers MergeHistory::getMergedRevisionCount
 	 */
 	public function testGetMergedRevisionCount() {
-		$mh = new MergeHistory(
+		$factory = MediaWikiServices::getInstance()->getMergeHistoryFactory();
+		$mh = $factory->newMergeHistory(
 			Title::newFromText( 'Merge1' ),
 			Title::newFromText( 'Merge2' )
 		);
 
 		$sysop = static::getTestSysop()->getUser();
 		$mh->merge( $sysop );
-		$this->assertEquals( $mh->getMergedRevisionCount(), 1 );
+		$this->assertSame( 1, $mh->getMergedRevisionCount() );
+	}
+
+	/**
+	 * Test update to source page for pages with
+	 * content model that supports redirects
+	 *
+	 * @covers MergeHistory::merge
+	 */
+	public function testSourceUpdateWithRedirectSupport() {
+		$title = Title::newFromText( 'Merge1' );
+		$title2 = Title::newFromText( 'Merge2' );
+
+		$factory = MediaWikiServices::getInstance()->getMergeHistoryFactory();
+		$mh = $factory->newMergeHistory( $title, $title2 );
+
+		$this->assertTrue( $title->exists() );
+
+		$status = $mh->merge( static::getTestSysop()->getUser() );
+
+		$this->assertTrue( $title->exists() );
+	}
+
+	/**
+	 * Test update to source page for pages with
+	 * content model that does not support redirects
+	 *
+	 * @covers MergeHistory::merge
+	 */
+	public function testSourceUpdateForNoRedirectSupport() {
+		$this->setMwGlobals( [
+			'wgExtraNamespaces' => [
+				2030 => 'NoRedirect',
+				2030 => 'NoRedirect_talk'
+			],
+
+			'wgNamespaceContentModels' => [
+				2030 => 'testing'
+			],
+			'wgContentHandlers' => [
+				// Relies on the DummyContentHandlerForTesting not
+				// supporting redirects by default. If this ever gets
+				// changed this test has to be fixed.
+				'testing' => DummyContentHandlerForTesting::class
+			]
+		] );
+
+		$title = Title::newFromText( 'Merge3' );
+		$title->setContentModel( 'testing' );
+		$title2 = Title::newFromText( 'Merge4' );
+		$title2->setContentModel( 'testing' );
+
+		$factory = MediaWikiServices::getInstance()->getMergeHistoryFactory();
+		$mh = $factory->newMergeHistory( $title, $title2 );
+
+		$this->assertTrue( $title->exists() );
+
+		$status = $mh->merge( static::getTestSysop()->getUser() );
+
+		$this->assertFalse( $title->exists() );
 	}
 }

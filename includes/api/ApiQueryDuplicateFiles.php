@@ -27,8 +27,21 @@
  */
 class ApiQueryDuplicateFiles extends ApiQueryGeneratorBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var RepoGroup */
+	private $repoGroup;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param RepoGroup $repoGroup
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		RepoGroup $repoGroup
+	) {
 		parent::__construct( $query, $moduleName, 'df' );
+		$this->repoGroup = $repoGroup;
 	}
 
 	public function execute() {
@@ -44,7 +57,7 @@ class ApiQueryDuplicateFiles extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 */
 	private function run( $resultPageSet = null ) {
 		$params = $this->extractRequestParams();
@@ -76,9 +89,9 @@ class ApiQueryDuplicateFiles extends ApiQueryGeneratorBase {
 
 		$filesToFind = array_keys( $images );
 		if ( $params['localonly'] ) {
-			$files = RepoGroup::singleton()->getLocalRepo()->findFiles( $filesToFind );
+			$files = $this->repoGroup->getLocalRepo()->findFiles( $filesToFind );
 		} else {
-			$files = RepoGroup::singleton()->findFiles( $filesToFind );
+			$files = $this->repoGroup->findFiles( $filesToFind );
 		}
 
 		$fit = true;
@@ -95,9 +108,9 @@ class ApiQueryDuplicateFiles extends ApiQueryGeneratorBase {
 		// [ hash => [ dup1, dup2 ], hash1 => ... ]
 		$filesToFindBySha1s = array_unique( array_values( $sha1s ) );
 		if ( $params['localonly'] ) {
-			$filesBySha1s = RepoGroup::singleton()->getLocalRepo()->findBySha1s( $filesToFindBySha1s );
+			$filesBySha1s = $this->repoGroup->getLocalRepo()->findBySha1s( $filesToFindBySha1s );
 		} else {
-			$filesBySha1s = RepoGroup::singleton()->findBySha1s( $filesToFindBySha1s );
+			$filesBySha1s = $this->repoGroup->findBySha1s( $filesToFindBySha1s );
 		}
 
 		// iterate over $images to handle continue param correct
@@ -127,15 +140,18 @@ class ApiQueryDuplicateFiles extends ApiQueryGeneratorBase {
 					$this->setContinueEnumParameter( 'continue', $image . '|' . $dupName );
 					break;
 				}
-				if ( !is_null( $resultPageSet ) ) {
+				if ( $resultPageSet !== null ) {
 					$titles[] = $dupFile->getTitle();
 				} else {
 					$r = [
 						'name' => $dupName,
-						'user' => $dupFile->getUser( 'text' ),
 						'timestamp' => wfTimestamp( TS_ISO_8601, $dupFile->getTimestamp() ),
 						'shared' => !$dupFile->isLocal(),
 					];
+					$uploader = $dupFile->getUploader( File::FOR_PUBLIC );
+					if ( $uploader ) {
+						$r['user'] = $uploader->getName();
+					}
 					$fit = $this->addPageSubItem( $pageId, $r );
 					if ( !$fit ) {
 						$this->setContinueEnumParameter( 'continue', $image . '|' . $dupName );
@@ -147,7 +163,7 @@ class ApiQueryDuplicateFiles extends ApiQueryGeneratorBase {
 				break;
 			}
 		}
-		if ( !is_null( $resultPageSet ) ) {
+		if ( $resultPageSet !== null ) {
 			$resultPageSet->populateFromTitles( $titles );
 		}
 	}

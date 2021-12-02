@@ -1,5 +1,7 @@
 <?php
 
+use MediaWiki\Revision\RevisionRecord;
+
 /**
  * @covers CategoryMembershipChangeJob
  *
@@ -9,32 +11,25 @@
  * @license GPL-2.0-or-later
  * @author Addshore
  */
-class CategoryMembershipChangeJobTest extends MediaWikiTestCase {
+class CategoryMembershipChangeJobTest extends MediaWikiIntegrationTestCase {
 
-	const TITLE_STRING = 'UTCatChangeJobPage';
+	private const TITLE_STRING = 'UTCatChangeJobPage';
 
 	/**
 	 * @var Title
 	 */
 	private $title;
 
-	public function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 		$this->setMwGlobals( 'wgRCWatchCategoryMembership', true );
 		$this->setContentLang( 'qqx' );
 	}
 
-	public function addDBDataOnce() {
-		parent::addDBDataOnce();
+	public function addDBData() {
+		parent::addDBData();
 		$insertResult = $this->insertPage( self::TITLE_STRING, 'UT Content' );
 		$this->title = $insertResult['title'];
-	}
-
-	private function runJobs() {
-		JobQueueGroup::destroySingletons();
-		$jobs = new RunJobs;
-		$jobs->loadParamsAndArgs( null, [ 'quiet' => true ], null );
-		$jobs->execute();
 	}
 
 	/**
@@ -44,15 +39,16 @@ class CategoryMembershipChangeJobTest extends MediaWikiTestCase {
 	 */
 	private function editPageText( $text ) {
 		$page = WikiPage::factory( $this->title );
-		$editResult = $page->doEditContent(
+		$editResult = $page->doUserEditContent(
 			ContentHandler::makeContent( $text, $this->title ),
+			$this->getTestSysop()->getUser(),
 			__METHOD__
 		);
-		/** @var Revision $revision */
-		$revision = $editResult->value['revision'];
+		/** @var RevisionRecord $revisionRecord */
+		$revisionRecord = $editResult->value['revision-record'];
 		$this->runJobs();
 
-		return $revision->getId();
+		return $revisionRecord->getId();
 	}
 
 	/**
@@ -69,7 +65,7 @@ class CategoryMembershipChangeJobTest extends MediaWikiTestCase {
 			__METHOD__
 		);
 
-		$this->assertNotNull( $rc, 'rev__id = ' . $revId );
+		$this->assertNotNull( $rc, 'rev_id = ' . $revId );
 		return $rc;
 	}
 
@@ -87,4 +83,20 @@ class CategoryMembershipChangeJobTest extends MediaWikiTestCase {
 		);
 	}
 
+	public function testJobSpecRemovesDuplicates() {
+		$jobSpec = CategoryMembershipChangeJob::newSpec( $this->title, MWTimestamp::now() );
+		$job = new CategoryMembershipChangeJob(
+			$this->title,
+			$jobSpec->getParams()
+		);
+		$this->assertTrue( $job->ignoreDuplicates() );
+		$this->assertTrue( $jobSpec->ignoreDuplicates() );
+		$this->assertEquals( $job->getDeduplicationInfo(), $jobSpec->getDeduplicationInfo() );
+	}
+
+	public function testJobSpecDeduplicationIgnoresRevTimestamp() {
+		$jobSpec1 = CategoryMembershipChangeJob::newSpec( $this->title, '20191008204617' );
+		$jobSpec2 = CategoryMembershipChangeJob::newSpec( $this->title, '20201008204617' );
+		$this->assertArrayEquals( $jobSpec1->getDeduplicationInfo(), $jobSpec2->getDeduplicationInfo() );
+	}
 }

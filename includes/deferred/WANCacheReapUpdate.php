@@ -1,7 +1,7 @@
 <?php
 
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MediaWikiServices;
 use Psr\Log\LoggerInterface;
 use Wikimedia\Rdbms\IDatabase;
 
@@ -38,7 +38,7 @@ class WANCacheReapUpdate implements DeferrableUpdate {
 		$this->logger = $logger;
 	}
 
-	function doUpdate() {
+	public function doUpdate() {
 		$reaper = new WANObjectCacheReaper(
 			MediaWikiServices::getInstance()->getMainWANObjectCache(),
 			ObjectCache::getLocalClusterInstance(),
@@ -79,7 +79,7 @@ class WANCacheReapUpdate implements DeferrableUpdate {
 				"rc_timestamp < $encEnd"
 			],
 			__METHOD__,
-			[ 'ORDER BY' => 'rc_timestamp ASC, rc_id ASC', 'LIMIT' => $limit ]
+			[ 'ORDER BY' => [ 'rc_timestamp ASC', 'rc_id ASC' ], 'LIMIT' => $limit ]
 		);
 
 		$events = [];
@@ -110,11 +110,13 @@ class WANCacheReapUpdate implements DeferrableUpdate {
 		// namespaces, but special pages do appear in RC sometimes, e.g. for logs
 		// of AbuseFilter filter changes.
 		if ( $t->getNamespace() >= 0 ) {
-			$entities[] = WikiPage::factory( Title::newFromLinkTarget( $t ) );
+			$entities[] = MediaWikiServices::getInstance()->getWikiPageFactory()
+				->newFromLinkTarget( $t );
 		}
 
 		if ( $t->inNamespace( NS_FILE ) ) {
-			$entities[] = wfLocalFile( $t->getText() );
+			$entities[] = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo()
+				->newFile( $t->getText() );
 		}
 		if ( $t->inNamespace( NS_USER ) ) {
 			$entities[] = User::newFromName( $t->getText(), false );

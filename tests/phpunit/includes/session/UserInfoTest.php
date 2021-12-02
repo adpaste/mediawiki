@@ -2,7 +2,7 @@
 
 namespace MediaWiki\Session;
 
-use MediaWikiTestCase;
+use MediaWikiIntegrationTestCase;
 use User;
 
 /**
@@ -10,7 +10,7 @@ use User;
  * @group Database
  * @covers MediaWiki\Session\UserInfo
  */
-class UserInfoTest extends MediaWikiTestCase {
+class UserInfoTest extends MediaWikiIntegrationTestCase {
 
 	public function testNewAnonymous() {
 		$userinfo = UserInfo::newAnonymous();
@@ -26,7 +26,7 @@ class UserInfoTest extends MediaWikiTestCase {
 	}
 
 	public function testNewFromId() {
-		$id = wfGetDB( DB_MASTER )->selectField( 'user', 'MAX(user_id)' ) + 1;
+		$id = wfGetDB( DB_PRIMARY )->selectField( 'user', 'MAX(user_id)' ) + 1;
 		try {
 			UserInfo::newFromId( $id );
 			$this->fail( 'Expected exception not thrown' );

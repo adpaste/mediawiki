@@ -19,6 +19,8 @@
  * @ingroup Change tagging
  */
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Permissions\Authority;
 use Wikimedia\Rdbms\IDatabase;
 
 /**
@@ -36,12 +38,14 @@ class ChangeTagsRevisionList extends ChangeTagsList {
 	 */
 	public function doQuery( $db ) {
 		$ids = array_map( 'intval', $this->ids );
-		$revQuery = Revision::getQueryInfo( [ 'user' ] );
+		$revQuery = MediaWikiServices::getInstance()
+			->getRevisionStore()
+			->getQueryInfo( [ 'user' ] );
 		$queryInfo = [
 			'tables' => $revQuery['tables'],
 			'fields' => $revQuery['fields'],
 			'conds' => [
-				'rev_page' => $this->title->getArticleID(),
+				'rev_page' => $this->title->getId(),
 				'rev_id' => $ids,
 			],
 			'options' => [ 'ORDER BY' => 'rev_id DESC' ],
@@ -72,18 +76,19 @@ class ChangeTagsRevisionList extends ChangeTagsList {
 	/**
 	 * Add/remove change tags from all the revisions in the list.
 	 *
-	 * @param array $tagsToAdd
-	 * @param array $tagsToRemove
-	 * @param array $params
+	 * @param string[] $tagsToAdd
+	 * @param string[] $tagsToRemove
+	 * @param string|null $params
 	 * @param string $reason
-	 * @param User $user
+	 * @param Authority $performer
 	 * @return Status
 	 */
-	public function updateChangeTagsOnAll( $tagsToAdd, $tagsToRemove, $params, $reason, $user ) {
+	public function updateChangeTagsOnAll( $tagsToAdd, $tagsToRemove, $params, $reason, Authority $performer ) {
+		$status = Status::newGood();
 		for ( $this->reset(); $this->current(); $this->next() ) {
 			$item = $this->current();
 			$status = ChangeTags::updateTagsWithChecks( $tagsToAdd, $tagsToRemove,
-				null, $item->getId(), null, $params, $reason, $user );
+				null, $item->getId(), null, $params, $reason, $performer );
 			// Should only fail on second and subsequent times if the user trips
 			// the rate limiter
 			if ( !$status->isOK() ) {

@@ -5,13 +5,13 @@ namespace MediaWiki\Tests\Block\Restriction;
 /**
  * @group Blocking
  */
-abstract class RestrictionTestCase extends \MediaWikiTestCase {
+abstract class RestrictionTestCase extends \MediaWikiIntegrationTestCase {
 	public function testConstruct() {
 		$class = $this->getClass();
 		$restriction = new $class( 1, 2 );
 
-		$this->assertSame( $restriction->getBlockId(), 1 );
-		$this->assertSame( $restriction->getValue(), 2 );
+		$this->assertSame( 1, $restriction->getBlockId() );
+		$this->assertSame( 2, $restriction->getValue() );
 	}
 
 	public function testSetBlockId() {
@@ -19,7 +19,7 @@ abstract class RestrictionTestCase extends \MediaWikiTestCase {
 		$restriction = new $class( 1, 2 );
 
 		$restriction->setBlockId( 10 );
-		$this->assertSame( $restriction->getBlockId(), 10 );
+		$this->assertSame( 10, $restriction->getBlockId() );
 	}
 
 	public function testEquals() {

@@ -20,17 +20,21 @@
  * @author Roan Kattouw
  */
 
+use MediaWiki\MediaWikiServices;
+
 /**
- * Module for user customizations scripts
+ * Module for user customizations scripts.
+ *
+ * @ingroup ResourceLoader
+ * @internal
  */
 class ResourceLoaderUserModule extends ResourceLoaderWikiModule {
-
 	protected $origin = self::ORIGIN_USER_INDIVIDUAL;
 	protected $targets = [ 'desktop', 'mobile' ];
 
 	/**
 	 * @param ResourceLoaderContext $context
-	 * @return array List of pages
+	 * @return array[]
 	 */
 	protected function getPages( ResourceLoaderContext $context ) {
 		$config = $this->getConfig();
@@ -50,7 +54,8 @@ class ResourceLoaderUserModule extends ResourceLoaderWikiModule {
 
 		// User group pages are maintained site-wide and enabled with site JS/CSS.
 		if ( $config->get( 'UseSiteJs' ) ) {
-			foreach ( $user->getEffectiveGroups() as $group ) {
+			$userGroupManager = MediaWikiServices::getInstance()->getUserGroupManager();
+			foreach ( $userGroupManager->getUserEffectiveGroups( $user ) as $group ) {
 				if ( $group == '*' ) {
 					continue;
 				}
@@ -62,9 +67,7 @@ class ResourceLoaderUserModule extends ResourceLoaderWikiModule {
 		// OutputPage to implement previewing of user CSS and JS.
 		// @todo: Remove it once we're sure nothing else is using the parameter
 		$excludepage = $context->getRequest()->getVal( 'excludepage' );
-		if ( isset( $pages[$excludepage] ) ) {
-			unset( $pages[$excludepage] );
-		}
+		unset( $pages[$excludepage] );
 
 		return $pages;
 	}

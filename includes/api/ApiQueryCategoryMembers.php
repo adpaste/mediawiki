@@ -20,6 +20,8 @@
  * @file
  */
 
+use MediaWiki\Collation\CollationFactory;
+
 /**
  * A query module to enumerate pages that belong to a category.
  *
@@ -27,8 +29,21 @@
  */
 class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var Collation */
+	private $collation;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param CollationFactory $collationFactory
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		CollationFactory $collationFactory
+	) {
 		parent::__construct( $query, $moduleName, 'cm' );
+		$this->collation = $collationFactory->getCategoryCollation();
 	}
 
 	public function execute() {
@@ -53,18 +68,18 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 * @return void
 	 */
 	private function run( $resultPageSet = null ) {
 		$params = $this->extractRequestParams();
 
 		$categoryTitle = $this->getTitleOrPageId( $params )->getTitle();
-		if ( $categoryTitle->getNamespace() != NS_CATEGORY ) {
+		if ( $categoryTitle->getNamespace() !== NS_CATEGORY ) {
 			$this->dieWithError( 'apierror-invalidcategory' );
 		}
 
-		$prop = array_flip( $params['prop'] );
+		$prop = array_fill_keys( $params['prop'], true );
 		$fld_ids = isset( $prop['ids'] );
 		$fld_title = isset( $prop['title'] );
 		$fld_sortkey = isset( $prop['sortkey'] );
@@ -72,7 +87,7 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 		$fld_timestamp = isset( $prop['timestamp'] );
 		$fld_type = isset( $prop['type'] );
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$this->addFields( [ 'cl_from', 'cl_sortkey', 'cl_type', 'page_namespace', 'page_title' ] );
 			$this->addFieldsIf( 'page_id', $fld_ids );
 			$this->addFieldsIf( 'cl_sortkey_prefix', $fld_sortkeyprefix );
@@ -108,7 +123,7 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 			// Include in ORDER BY for uniqueness
 			$this->addWhereRange( 'cl_from', $dir, null, null );
 
-			if ( !is_null( $params['continue'] ) ) {
+			if ( $params['continue'] !== null ) {
 				$cont = explode( '|', $params['continue'] );
 				$this->dieContinueUsageIf( count( $cont ) != 2 );
 				$op = ( $dir === 'newer' ? '>' : '<' );
@@ -146,7 +161,7 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 				$this->addWhereRange( 'cl_from', $dir, null, null );
 			} else {
 				if ( $params['startsortkeyprefix'] !== null ) {
-					$startsortkey = Collation::singleton()->getSortKey( $params['startsortkeyprefix'] );
+					$startsortkey = $this->collation->getSortKey( $params['startsortkeyprefix'] );
 				} elseif ( $params['starthexsortkey'] !== null ) {
 					if ( !$this->validateHexSortkey( $params['starthexsortkey'] ) ) {
 						$encParamName = $this->encodeParamName( 'starthexsortkey' );
@@ -157,7 +172,7 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 					$startsortkey = $params['startsortkey'];
 				}
 				if ( $params['endsortkeyprefix'] !== null ) {
-					$endsortkey = Collation::singleton()->getSortKey( $params['endsortkeyprefix'] );
+					$endsortkey = $this->collation->getSortKey( $params['endsortkeyprefix'] );
 				} elseif ( $params['endhexsortkey'] !== null ) {
 					if ( !$this->validateHexSortkey( $params['endhexsortkey'] ) ) {
 						$encParamName = $this->encodeParamName( 'endhexsortkey' );
@@ -199,6 +214,9 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 					$extraConds[] = $contWhere;
 				}
 				$res = $this->select( __METHOD__, [ 'where' => $extraConds ] );
+				if ( $type === 'page' && $resultPageSet === null ) {
+					$this->executeGenderCacheFromResultWrapper( $res, __METHOD__ );
+				}
 				$rows = array_merge( $rows, iterator_to_array( $res ) );
 				if ( count( $rows ) >= $limit + 1 ) {
 					break;
@@ -210,6 +228,9 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 			// No need to worry about per-type queries because we
 			// aren't sorting or filtering by type anyway
 			$res = $this->select( __METHOD__ );
+			if ( $resultPageSet === null ) {
+				$this->executeGenderCacheFromResultWrapper( $res, __METHOD__ );
+			}
 			$rows = iterator_to_array( $res );
 		}
 
@@ -240,7 +261,7 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 				continue;
 			}
 
-			if ( is_null( $resultPageSet ) ) {
+			if ( $resultPageSet === null ) {
 				$vals = [
 					ApiResult::META_TYPE => 'assoc',
 				];
@@ -281,7 +302,7 @@ class ApiQueryCategoryMembers extends ApiQueryGeneratorBase {
 			}
 		}
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$result->addIndexedTagName(
 				[ 'query', $this->getModuleName() ], 'cm' );
 		}

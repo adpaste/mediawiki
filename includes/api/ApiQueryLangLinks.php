@@ -20,7 +20,7 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Languages\LanguageNameUtils;
 
 /**
  * A query module to list all langlinks (links to corresponding foreign language pages).
@@ -29,8 +29,21 @@ use MediaWiki\MediaWikiServices;
  */
 class ApiQueryLangLinks extends ApiQueryBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var LanguageNameUtils */
+	private $languageNameUtils;
+
+	/** @var Language */
+	private $contentLanguage;
+
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		LanguageNameUtils $languageNameUtils,
+		Language $contentLanguage
+	) {
 		parent::__construct( $query, $moduleName, 'll' );
+		$this->languageNameUtils = $languageNameUtils;
+		$this->contentLanguage = $contentLanguage;
 	}
 
 	public function execute() {
@@ -39,7 +52,7 @@ class ApiQueryLangLinks extends ApiQueryBase {
 		}
 
 		$params = $this->extractRequestParams();
-		$prop = array_flip( (array)$params['prop'] );
+		$prop = array_fill_keys( (array)$params['prop'], true );
 
 		if ( isset( $params['title'] ) && !isset( $params['lang'] ) ) {
 			$this->dieWithError(
@@ -66,7 +79,7 @@ class ApiQueryLangLinks extends ApiQueryBase {
 
 		$this->addTables( 'langlinks' );
 		$this->addWhereFld( 'll_from', array_keys( $this->getPageSet()->getGoodTitles() ) );
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != 2 );
 			$op = $params['dir'] == 'descending' ? '<' : '>';
@@ -115,18 +128,25 @@ class ApiQueryLangLinks extends ApiQueryBase {
 				$this->setContinueEnumParameter( 'continue', "{$row->ll_from}|{$row->ll_lang}" );
 				break;
 			}
-			$entry = [ 'lang' => $row->ll_lang ];
+
+			$languageNameMap = $this->getConfig()->get( 'InterlanguageLinkCodeMap' );
+			$displayLanguageCode = $languageNameMap[ $row->ll_lang ] ?? $row->ll_lang;
+
+			// This is potentially risky and confusing (request `no`, but get `nb` in the result).
+			$entry = [ 'lang' => $displayLanguageCode ];
 			if ( isset( $prop['url'] ) ) {
 				$title = Title::newFromText( "{$row->ll_lang}:{$row->ll_title}" );
 				if ( $title ) {
 					$entry['url'] = wfExpandUrl( $title->getFullURL(), PROTO_CURRENT );
 				}
 			}
+
 			if ( isset( $prop['langname'] ) ) {
-				$entry['langname'] = Language::fetchLanguageName( $row->ll_lang, $params['inlanguagecode'] );
+				$entry['langname'] = $this->languageNameUtils
+					->getLanguageName( $displayLanguageCode, $params['inlanguagecode'] );
 			}
 			if ( isset( $prop['autonym'] ) ) {
-				$entry['autonym'] = Language::fetchLanguageName( $row->ll_lang );
+				$entry['autonym'] = $this->languageNameUtils->getLanguageName( $displayLanguageCode );
 			}
 			ApiResult::setContentValue( $entry, 'title', $row->ll_title );
 			$fit = $this->addPageSubItem( $row->ll_from, $entry );
@@ -161,7 +181,7 @@ class ApiQueryLangLinks extends ApiQueryBase {
 					'descending'
 				]
 			],
-			'inlanguagecode' => MediaWikiServices::getInstance()->getContentLanguage()->getCode(),
+			'inlanguagecode' => $this->contentLanguage->getCode(),
 			'limit' => [
 				ApiBase::PARAM_DFLT => 10,
 				ApiBase::PARAM_TYPE => 'limit',

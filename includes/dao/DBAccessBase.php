@@ -2,11 +2,15 @@
 
 use MediaWiki\MediaWikiServices;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\LoadBalancer;
+use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * Base class for objects that allow access to other wiki's databases using
  * the foreign database access mechanism implemented by LBFactoryMulti.
+ *
+ * Avoid extending this class; instead, inject a load balancer (factory) and,
+ * if needed, DB domain into your class as constructor arguments,
+ * then call {@link ILoadBalancer::getConnectionRef()} directly.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,6 +28,7 @@ use Wikimedia\Rdbms\LoadBalancer;
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @since 1.21
+ * @deprecated since 1.37
  *
  * @file
  * @ingroup Database
@@ -32,24 +37,26 @@ use Wikimedia\Rdbms\LoadBalancer;
  * @author Daniel Kinzler
  */
 abstract class DBAccessBase implements IDBAccessObject {
-	/**
-	 * @var string|bool $wiki The target wiki's name. This must be an ID
-	 * that LBFactory can understand.
-	 */
-	protected $wiki = false;
+	/** @var ILoadBalancer */
+	private $lb;
+
+	/** @var string|bool The target wiki's DB domain */
+	protected $dbDomain = false;
 
 	/**
-	 * @param string|bool $wiki The target wiki's name. This must be an ID
-	 * that LBFactory can understand.
+	 * @param string|bool $dbDomain The target wiki's DB domain
 	 */
-	public function __construct( $wiki = false ) {
-		$this->wiki = $wiki;
+	public function __construct( $dbDomain = false ) {
+		wfDeprecated( __CLASS__, '1.37' );
+
+		$this->dbDomain = $dbDomain;
+		$this->lb = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()
+			->getMainLB( $dbDomain );
 	}
 
 	/**
 	 * Returns a database connection.
 	 *
-	 * @see wfGetDB()
 	 * @see LoadBalancer::getConnection()
 	 *
 	 * @since 1.21
@@ -60,9 +67,7 @@ abstract class DBAccessBase implements IDBAccessObject {
 	 * @return IDatabase
 	 */
 	protected function getConnection( $id, array $groups = [] ) {
-		$loadBalancer = $this->getLoadBalancer();
-
-		return $loadBalancer->getConnection( $id, $groups, $this->wiki );
+		return $this->getLoadBalancer()->getConnectionRef( $id, $groups, $this->dbDomain );
 	}
 
 	/**
@@ -73,12 +78,10 @@ abstract class DBAccessBase implements IDBAccessObject {
 	 * @since 1.21
 	 *
 	 * @param IDatabase $db The database connection to release.
+	 * @deprecated Since 1.34
 	 */
 	protected function releaseConnection( IDatabase $db ) {
-		if ( $this->wiki !== false ) {
-			$loadBalancer = $this->getLoadBalancer();
-			$loadBalancer->reuseConnection( $db );
-		}
+		// no-op
 	}
 
 	/**
@@ -88,10 +91,9 @@ abstract class DBAccessBase implements IDBAccessObject {
 	 *
 	 * @since 1.21
 	 *
-	 * @return LoadBalancer The database load balancer object
+	 * @return ILoadBalancer The database load balancer object
 	 */
-	public function getLoadBalancer() {
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
-		return $lbFactory->getMainLB( $this->wiki );
+	protected function getLoadBalancer() {
+		return $this->lb;
 	}
 }

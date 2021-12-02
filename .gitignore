@@ -27,6 +27,7 @@ sftp-config.json
 /cache
 /docs/coverage
 /docs/js
+/docs/latex
 /images/[0-9a-f]
 /images/archive
 /images/cache
@@ -44,24 +45,26 @@ sftp-config.json
 /maintenance/.mweval_history
 /maintenance/.mwsql_history
 /maintenance/dev/data
-/AdminSettings.php
 /LocalSettings.php
+/includes/PlatformSettings.php
 
 # Building & testing
 npm-debug.log
 node_modules/
 /resources/lib/.foreign
 /tests/phpunit/phpunit.phar
+.phpunit.result.cache
+/tests/phpunit/.phpunit.result.cache
+phpunit.xml
 /tests/selenium/log
 .eslintcache
+.api-testing.config.json
+.phan/local-config.php
 
 # Composer
 /composer.lock
 /composer.local.json
 /composer.phar
-
-# MediaWiki UI documentation
-/docs/kss/static
 
 # Operating systems
 ## Mac OS X
@@ -81,5 +84,8 @@ Thumbs.db
 /tags
 /.htaccess
 /.htpasswd
-/tests/phan/issues
 *.rej
+
+# Docker
+docker-compose.override.yml
+.env

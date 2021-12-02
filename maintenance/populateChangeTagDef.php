@@ -75,7 +75,7 @@ class PopulateChangeTagDef extends LoggedUpdateMaintenance {
 		$dbr = $this->lbFactory->getMainLB()->getConnection( DB_REPLICA );
 
 		$userTags = null;
-		if ( $dbr->tableExists( 'valid_tag' ) ) {
+		if ( $dbr->tableExists( 'valid_tag', __METHOD__ ) ) {
 			$userTags = $dbr->selectFieldValues(
 				'valid_tag',
 				'vt_tag',
@@ -96,7 +96,7 @@ class PopulateChangeTagDef extends LoggedUpdateMaintenance {
 			return;
 		}
 
-		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_MASTER );
+		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_PRIMARY );
 
 		$dbw->update(
 			'change_tag_def',
@@ -120,7 +120,7 @@ class PopulateChangeTagDef extends LoggedUpdateMaintenance {
 			[ 'GROUP BY' => 'ct_tag_id' ]
 		);
 
-		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_MASTER );
+		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_PRIMARY );
 
 		foreach ( $res as $row ) {
 			if ( !$row->ct_tag_id ) {
@@ -154,7 +154,7 @@ class PopulateChangeTagDef extends LoggedUpdateMaintenance {
 			[ 'GROUP BY' => 'ct_tag' ]
 		);
 
-		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_MASTER );
+		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_PRIMARY );
 
 		foreach ( $res as $row ) {
 			// Hygiene check
@@ -174,7 +174,7 @@ class PopulateChangeTagDef extends LoggedUpdateMaintenance {
 					'ctd_user_defined' => 0,
 					'ctd_count' => $row->hitcount
 				],
-				[ 'ctd_name' ],
+				'ctd_name',
 				[ 'ctd_count' => $row->hitcount ],
 				__METHOD__
 			);
@@ -199,7 +199,7 @@ class PopulateChangeTagDef extends LoggedUpdateMaintenance {
 
 	private function backpopulateChangeTagPerTag( $tagName, $tagId ) {
 		$dbr = $this->lbFactory->getMainLB()->getConnection( DB_REPLICA );
-		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_MASTER );
+		$dbw = $this->lbFactory->getMainLB()->getConnection( DB_PRIMARY );
 		$sleep = (int)$this->getOption( 'sleep', 0 );
 		$lastId = 0;
 		$this->output( "Starting to add ct_tag_id = {$tagId} for ct_tag = {$tagName}\n" );

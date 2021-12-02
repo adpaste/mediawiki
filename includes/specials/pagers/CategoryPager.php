@@ -18,37 +18,46 @@
  * @file
  * @ingroup Pager
  */
+
+use MediaWiki\Cache\LinkBatchFactory;
 use MediaWiki\Linker\LinkRenderer;
+use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * @ingroup Pager
  */
 class CategoryPager extends AlphabeticPager {
 
-	/**
-	 * @var LinkRenderer
-	 */
-	protected $linkRenderer;
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
 
 	/**
 	 * @param IContextSource $context
 	 * @param string $from
 	 * @param LinkRenderer $linkRenderer
+	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param ILoadBalancer $loadBalancer
 	 */
-	public function __construct( IContextSource $context, $from, LinkRenderer $linkRenderer
+	public function __construct(
+		IContextSource $context,
+		$from,
+		LinkRenderer $linkRenderer,
+		LinkBatchFactory $linkBatchFactory,
+		ILoadBalancer $loadBalancer
 	) {
-		parent::__construct( $context );
+		// Set database before parent constructor to avoid setting it there with wfGetDB
+		$this->mDb = $loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
+		parent::__construct( $context, $linkRenderer );
 		$from = str_replace( ' ', '_', $from );
 		if ( $from !== '' ) {
 			$from = Title::capitalize( $from, NS_CATEGORY );
 			$this->setOffset( $from );
 			$this->setIncludeOffset( true );
 		}
-
-		$this->linkRenderer = $linkRenderer;
+		$this->linkBatchFactory = $linkBatchFactory;
 	}
 
-	function getQueryInfo() {
+	public function getQueryInfo() {
 		return [
 			'tables' => [ 'category' ],
 			'fields' => [ 'cat_title', 'cat_pages' ],
@@ -56,11 +65,11 @@ class CategoryPager extends AlphabeticPager {
 		];
 	}
 
-	function getIndexField() {
+	public function getIndexField() {
 		return 'cat_title';
 	}
 
-	function getDefaultQuery() {
+	public function getDefaultQuery() {
 		parent::getDefaultQuery();
 		unset( $this->mDefaultQuery['from'] );
 
@@ -69,12 +78,12 @@ class CategoryPager extends AlphabeticPager {
 
 	/* Override getBody to apply LinksBatch on resultset before actually outputting anything. */
 	public function getBody() {
-		$batch = new LinkBatch;
+		$batch = $this->linkBatchFactory->newLinkBatch();
 
 		$this->mResult->rewind();
 
 		foreach ( $this->mResult as $row ) {
-			$batch->addObj( new TitleValue( NS_CATEGORY, $row->cat_title ) );
+			$batch->add( NS_CATEGORY, $row->cat_title );
 		}
 		$batch->execute();
 		$this->mResult->rewind();
@@ -82,10 +91,10 @@ class CategoryPager extends AlphabeticPager {
 		return parent::getBody();
 	}
 
-	function formatRow( $result ) {
+	public function formatRow( $result ) {
 		$title = new TitleValue( NS_CATEGORY, $result->cat_title );
 		$text = $title->getText();
-		$link = $this->linkRenderer->makeLink( $title, $text );
+		$link = $this->getLinkRenderer()->makeLink( $title, $text );
 
 		$count = $this->msg( 'nmembers' )->numParams( $result->cat_pages )->escaped();
 		return Html::rawElement( 'li', null, $this->getLanguage()->specialList( $link, $count ) ) . "\n";

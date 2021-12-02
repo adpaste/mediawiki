@@ -24,9 +24,12 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\ExistingPageRecord;
+use MediaWiki\Page\PageIdentity;
+use MediaWiki\Page\PageStore;
 
 /**
- * Database independant search index updater
+ * Database independent search index updater
  *
  * @ingroup Search
  */
@@ -34,41 +37,33 @@ class SearchUpdate implements DeferrableUpdate {
 	/** @var int Page id being updated */
 	private $id = 0;
 
-	/** @var Title Title we're updating */
-	private $title;
+	/** @var PageIdentity The page we're updating */
+	private $page;
 
-	/** @var Content|bool Content of the page (not text) */
+	/** @var Content|null Content of the page (not text) */
 	private $content;
 
-	/** @var WikiPage **/
-	private $page;
+	/** @var ExistingPageRecord|null */
+	private $latestPage = null;
 
 	/**
 	 * @param int $id Page id to update
-	 * @param Title|string $title Title of page to update
-	 * @param Content|string|bool $c Content of the page to update. Default: false.
-	 *  If a Content object, text will be gotten from it. String is for back-compat.
-	 *  Passing false tells the backend to just update the title, not the content
+	 * @param PageIdentity $page Page to update
+	 * @param Content|null $c Content of the page to update.
 	 */
-	public function __construct( $id, $title, $c = false ) {
-		if ( is_string( $title ) ) {
-			$nt = Title::newFromText( $title );
-		} else {
-			$nt = $title;
-		}
+	public function __construct( $id, $page, $c = null ) {
+		$this->page = $page;
 
-		if ( $nt ) {
-			$this->id = $id;
-			// is_string() check is back-compat for ApprovedRevs
-			if ( is_string( $c ) ) {
-				$this->content = new TextContent( $c );
-			} else {
-				$this->content = $c ?: false;
-			}
-			$this->title = $nt;
-		} else {
-			wfDebug( "SearchUpdate object created with invalid title '$title'\n" );
+		$this->id = $id;
+		// is_string() check is back-compat for ApprovedRevs
+		if ( is_string( $c ) ) {
+			wfDeprecated( __METHOD__ . " with a string for the content", '1.34' );
+			$c = new TextContent( $c );
+		} elseif ( is_bool( $c ) ) {
+			wfDeprecated( __METHOD__ . " with a boolean for the content", '1.34' );
+			$c = null;
 		}
+		$this->content = $c;
 	}
 
 	/**
@@ -94,15 +89,13 @@ class SearchUpdate implements DeferrableUpdate {
 			if ( $this->getLatestPage() === null ) {
 				$search->delete( $this->id, $normalTitle );
 				continue;
-			} elseif ( $this->content === false ) {
+			} elseif ( $this->content === null ) {
 				$search->updateTitle( $this->id, $normalTitle );
 				continue;
 			}
 
-			$text = $search->getTextFromContent( $this->title, $this->content );
-			if ( !$search->textAlreadyUpdatedForIndex() ) {
-				$text = $this->updateText( $text, $search );
-			}
+			$text = $this->content !== null ? $this->content->getTextForSearchIndex() : '';
+			$text = $this->updateText( $text, $search );
 
 			# Perform the actual update
 			$search->update( $this->id, $normalTitle, $search->normalizeText( $text ) );
@@ -178,20 +171,21 @@ class SearchUpdate implements DeferrableUpdate {
 	}
 
 	/**
-	 * Get WikiPage for the SearchUpdate $id using WikiPage::READ_LATEST
-	 * and ensure using the same WikiPage object if there are multiple
+	 * Get ExistingPageRecord for the SearchUpdate $id using PageStore::READ_LATEST
+	 * and ensure using the same ExistingPageRecord object if there are multiple
 	 * SearchEngine types.
 	 *
 	 * Returns null if a page has been deleted or is not found.
 	 *
-	 * @return WikiPage|null
+	 * @return ExistingPageRecord|null
 	 */
 	private function getLatestPage() {
-		if ( !isset( $this->page ) ) {
-			$this->page = WikiPage::newFromID( $this->id, WikiPage::READ_LATEST );
+		if ( !isset( $this->latestPage ) ) {
+			$this->latestPage = MediaWikiServices::getInstance()->getPageStore()
+				->getPageById( $this->id, PageStore::READ_LATEST );
 		}
 
-		return $this->page;
+		return $this->latestPage;
 	}
 
 	/**
@@ -203,8 +197,8 @@ class SearchUpdate implements DeferrableUpdate {
 	 */
 	private function getNormalizedTitle( SearchEngine $search ) {
 		$contLang = MediaWikiServices::getInstance()->getContentLanguage();
-		$ns = $this->title->getNamespace();
-		$title = $this->title->getText();
+		$ns = $this->page->getNamespace();
+		$title = str_replace( '_', ' ', $this->page->getDBkey() );
 
 		$lc = $search->legalSearchChars() . '&#;';
 		$t = $contLang->normalizeForSearch( $title );
@@ -217,7 +211,7 @@ class SearchUpdate implements DeferrableUpdate {
 
 		$t = preg_replace( "/\\s+/", ' ', $t );
 
-		if ( $ns == NS_FILE ) {
+		if ( $ns === NS_FILE ) {
 			$t = preg_replace( "/ (png|gif|jpg|jpeg|ogg)$/", "", $t );
 		}
 

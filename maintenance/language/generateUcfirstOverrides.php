@@ -32,6 +32,8 @@
  * @ingroup MaintenanceLanguage
  */
 
+use Wikimedia\StaticArrayWriter;
+
 require_once __DIR__ . '/../Maintenance.php';
 
 class GenerateUcfirstOverrides extends Maintenance {
@@ -54,7 +56,7 @@ class GenerateUcfirstOverrides extends Maintenance {
 		foreach ( $from as $lc => $uc ) {
 			$ref = $to[$lc] ?? null;
 			if ( $ref !== null && $ref !== $uc ) {
-				$overrides[$lc] = $uc;
+				$overrides[$lc] = $ref;
 			}
 		}
 		$writer = new StaticArrayWriter();
@@ -70,8 +72,8 @@ class GenerateUcfirstOverrides extends Maintenance {
 			$msg = sprintf( "Could not load data from file '%s'\n", $filename );
 			$this->fatalError( $msg );
 		}
-		$json = json_decode( $data );
-		if ( $result === null ) {
+		$json = json_decode( $data, true );
+		if ( $json === null ) {
 			$msg = sprintf( "Invalid json in the data file %s\n", $filename );
 			$this->fatalError( $msg, 2 );
 		}

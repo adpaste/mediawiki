@@ -1,14 +1,15 @@
 <?php
+
+use MediaWiki\MediaWikiServices;
+
 /**
  * @covers MediaWiki\Interwiki\ClassicInterwikiLookup
- *
- * @group MediaWiki
  * @group Database
  */
-class ClassicInterwikiLookupTest extends MediaWikiTestCase {
+class ClassicInterwikiLookupTest extends MediaWikiIntegrationTestCase {
 
 	private function populateDB( $iwrows ) {
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->delete( 'interwiki', '*', __METHOD__ );
 		$dbw->insert( 'interwiki', array_values( $iwrows ), __METHOD__ );
 		$this->tablesUsed[] = 'interwiki';
@@ -37,8 +38,10 @@ class ClassicInterwikiLookupTest extends MediaWikiTestCase {
 
 		$this->populateDB( [ $dewiki, $zzwiki ] );
 		$lookup = new \MediaWiki\Interwiki\ClassicInterwikiLookup(
-			Language::factory( 'en' ),
+			MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' ),
 			WANObjectCache::newEmpty(),
+			MediaWikiServices::getInstance()->getHookContainer(),
+			MediaWikiServices::getInstance()->getDBLoadBalancer(),
 			60 * 60,
 			false,
 			3,
@@ -116,7 +119,7 @@ class ClassicInterwikiLookupTest extends MediaWikiTestCase {
 	}
 
 	private function populateCDB( $thisSite, $local, $global ) {
-		$cdbFile = tempnam( wfTempDir(), 'MW-ClassicInterwikiLookupTest-' ) . '.cdb';
+		$cdbFile = $this->getNewTempFile();
 		$cdb = \Cdb\Writer::open( $cdbFile );
 
 		$hash = $this->populateHash( $thisSite, $local, $global );
@@ -151,8 +154,10 @@ class ClassicInterwikiLookupTest extends MediaWikiTestCase {
 			[ $zzwiki ]
 		);
 		$lookup = new \MediaWiki\Interwiki\ClassicInterwikiLookup(
-			Language::factory( 'en' ),
+			MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' ),
 			WANObjectCache::newEmpty(),
+			MediaWikiServices::getInstance()->getHookContainer(),
+			MediaWikiServices::getInstance()->getDBLoadBalancer(),
 			60 * 60,
 			$cdbFile,
 			3,
@@ -202,8 +207,10 @@ class ClassicInterwikiLookupTest extends MediaWikiTestCase {
 			[ $zzwiki ]
 		);
 		$lookup = new \MediaWiki\Interwiki\ClassicInterwikiLookup(
-			Language::factory( 'en' ),
+			MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' ),
 			WANObjectCache::newEmpty(),
+			MediaWikiServices::getInstance()->getHookContainer(),
+			MediaWikiServices::getInstance()->getDBLoadBalancer(),
 			60 * 60,
 			$hash,
 			3,
@@ -255,8 +262,10 @@ class ClassicInterwikiLookupTest extends MediaWikiTestCase {
 			[ $zz, $de, $azz ]
 		);
 		$lookup = new \MediaWiki\Interwiki\ClassicInterwikiLookup(
-			Language::factory( 'en' ),
+			MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( 'en' ),
 			WANObjectCache::newEmpty(),
+			MediaWikiServices::getInstance()->getHookContainer(),
+			MediaWikiServices::getInstance()->getDBLoadBalancer(),
 			60 * 60,
 			$hash,
 			3,

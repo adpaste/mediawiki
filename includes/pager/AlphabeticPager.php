@@ -23,6 +23,7 @@
 
 /**
  * IndexPager with an alphabetic list and a formatted navigation bar
+ * @stable to extend
  * @ingroup Pager
  */
 abstract class AlphabeticPager extends IndexPager {
@@ -31,9 +32,11 @@ abstract class AlphabeticPager extends IndexPager {
 	 * Shamelessly stolen bits from ReverseChronologicalPager,
 	 * didn't want to do class magic as may be still revamped
 	 *
+	 * @stable to override
+	 *
 	 * @return string HTML
 	 */
-	function getNavigationBar() {
+	public function getNavigationBar() {
 		if ( !$this->isNavigationBarShown() ) {
 			return '';
 		}
@@ -67,20 +70,17 @@ abstract class AlphabeticPager extends IndexPager {
 		}
 
 		$extra = '';
-		$first = true;
 		$msgs = $this->getOrderTypeMessages();
-		foreach ( array_keys( $msgs ) as $order ) {
-			if ( $first ) {
-				$first = false;
-			} else {
+		foreach ( $msgs as $order => $msg ) {
+			if ( $extra !== '' ) {
 				$extra .= $this->msg( 'pipe-separator' )->escaped();
 			}
 
 			if ( $order == $this->mOrderType ) {
-				$extra .= $this->msg( $msgs[$order] )->escaped();
+				$extra .= $this->msg( $msg )->escaped();
 			} else {
 				$extra .= $this->makeLink(
-					$this->msg( $msgs[$order] )->escaped(),
+					$this->msg( $msg )->escaped(),
 					[ 'order' => $order ]
 				);
 			}
@@ -99,6 +99,8 @@ abstract class AlphabeticPager extends IndexPager {
 	 * enabling each one in getNavigationBar.  The return type is an associative
 	 * array whose keys must exactly match the keys of the array returned
 	 * by getIndexField(), and whose values are message keys.
+	 *
+	 * @stable to override
 	 *
 	 * @return array
 	 */

@@ -1,4 +1,9 @@
 <?php
+
+// phpcs:disable MediaWiki.Commenting.FunctionComment.ObjectTypeHintParam
+
+use MediaWiki\Block\DatabaseBlock;
+
 /**
  * Factory for handling the special page list and generating SpecialPage objects.
  *
@@ -28,16 +33,18 @@ abstract class FormSpecialPageTestCase extends SpecialPageTestBase {
 		$special = $this->newSpecialPage();
 		$checkExecutePermissions = $this->getMethod( $special, 'checkExecutePermissions' );
 
-		$user = clone $this->getTestUser()->getUser();
-		$user->mBlockedby = $user->getName();
-		$user->mBlock = new Block( [
-			'address' => '127.0.8.1',
-			'by' => $user->getId(),
-			'reason' => 'sitewide block',
-			'timestamp' => time(),
-			'sitewide' => true,
-			'expiry' => 10,
-		] );
+		$user = $this->getMockBuilder( User::class )
+			->onlyMethods( [ 'getBlock' ] )
+			->getMock();
+		$user->method( 'getBlock' )
+			->willReturn( new DatabaseBlock( [
+				'address' => '127.0.8.1',
+				'by' => $user,
+				'reason' => 'sitewide block',
+				'timestamp' => time(),
+				'sitewide' => true,
+				'expiry' => 10,
+			] ) );
 
 		$this->expectException( UserBlockedError::class );
 		$checkExecutePermissions( $user );
@@ -50,16 +57,18 @@ abstract class FormSpecialPageTestCase extends SpecialPageTestBase {
 		$special = $this->newSpecialPage();
 		$checkExecutePermissions = $this->getMethod( $special, 'checkExecutePermissions' );
 
-		$user = clone $this->getTestUser()->getUser();
-		$user->mBlockedby = $user->getName();
-		$user->mBlock = new Block( [
-			'address' => '127.0.8.1',
-			'by' => $user->getId(),
-			'reason' => 'partial block',
-			'timestamp' => time(),
-			'sitewide' => false,
-			'expiry' => 10,
-		] );
+		$user = $this->getMockBuilder( User::class )
+			->onlyMethods( [ 'getBlock' ] )
+			->getMock();
+		$user->method( 'getBlock' )
+			->willReturn( new DatabaseBlock( [
+				'address' => '127.0.8.1',
+				'by' => $user,
+				'reason' => 'partial block',
+				'timestamp' => time(),
+				'sitewide' => false,
+				'expiry' => 10,
+			] ) );
 
 		$this->assertNull( $checkExecutePermissions( $user ) );
 	}
@@ -71,7 +80,7 @@ abstract class FormSpecialPageTestCase extends SpecialPageTestBase {
 	 * @param string $name
 	 * @return callable
 	 */
-	protected function getMethod( $obj, $name ) {
+	protected function getMethod( object $obj, $name ) {
 		$method = new ReflectionMethod( $obj, $name );
 		$method->setAccessible( true );
 		return $method->getClosure( $obj );

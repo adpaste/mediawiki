@@ -23,6 +23,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Maintenance script that cleans up invalid titles in various tables.
  *
@@ -87,7 +89,8 @@ TEXT
 
 		$this->outputStatus( 'Done!' );
 		if ( $this->hasOption( 'fix' ) ) {
-			$this->outputStatus( ' Cleaned up invalid DB keys on ' . wfWikiID() . "!\n" );
+			$dbDomain = WikiMap::getCurrentWikiDbDomain()->getId();
+			$this->outputStatus( " Cleaned up invalid DB keys on $dbDomain!\n" );
 		}
 	}
 
@@ -136,7 +139,7 @@ TEXT
 		$dbr = $this->getDB( DB_REPLICA, 'vslow' );
 
 		// Find all TitleValue-invalid titles.
-		$percent = $dbr->anyString(); // DBMS-agnostic equivalent of '%' LIKE wildcard
+		$percent = $dbr->anyString();
 		$res = $dbr->select(
 			$table,
 			[
@@ -191,8 +194,11 @@ TEXT
 			return;
 		}
 
+		$services = MediaWikiServices::getInstance();
+		$lbFactory = $services->getDBLoadBalancerFactory();
+
 		// Fix the bad data, using different logic for the various tables
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		switch ( $table ) {
 			case 'page':
 			case 'redirect':
@@ -228,7 +234,7 @@ TEXT
 						__METHOD__ );
 					$affectedRowCount += $dbw->affectedRows();
 				}
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 				$this->outputStatus( "Updated $affectedRowCount rows on $table.\n" );
 
 				break;
@@ -241,7 +247,7 @@ TEXT
 				// recently, so we can just remove these rows.
 				$this->outputStatus( "Deleting invalid $table rows...\n" );
 				$dbw->delete( $table, [ $idField => $ids ], __METHOD__ );
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 				$this->outputStatus( 'Deleted ' . $dbw->affectedRows() . " rows from $table.\n" );
 				break;
 
@@ -257,7 +263,7 @@ TEXT
 						__METHOD__ );
 					$affectedRowCount += $dbw->affectedRows();
 				}
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 				$this->outputStatus( "Deleted $affectedRowCount rows from $table.\n" );
 				break;
 
@@ -268,8 +274,9 @@ TEXT
 				// located. If the invalid rows don't go away after these jobs go through,
 				// they're probably being added by a buggy hook.
 				$this->outputStatus( "Queueing link update jobs for the pages in $idField...\n" );
+				$wikiPageFactory = $services->getWikiPageFactory();
 				foreach ( $res as $row ) {
-					$wp = WikiPage::newFromID( $row->id );
+					$wp = $wikiPageFactory->newFromID( $row->id );
 					if ( $wp ) {
 						RefreshLinks::fixLinksFromArticle( $row->id );
 					} else {
@@ -279,7 +286,7 @@ TEXT
 							__METHOD__ );
 					}
 				}
-				wfWaitForSlaves();
+				$lbFactory->waitForReplication();
 				$this->outputStatus( "Link update jobs have been added to the job queue.\n" );
 				break;
 		}

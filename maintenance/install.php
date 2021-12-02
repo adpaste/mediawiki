@@ -21,6 +21,8 @@
  * @ingroup Maintenance
  */
 
+// NO_AUTOLOAD -- file-scope define() used to modify behaviour
+
 require_once __DIR__ . '/Maintenance.php';
 
 define( 'MW_CONFIG_CALLBACK', 'Installer::overrideConfig' );
@@ -36,7 +38,7 @@ define( 'MEDIAWIKI_INSTALL', true );
  * @ingroup Maintenance
  */
 class CommandLineInstaller extends Maintenance {
-	function __construct() {
+	public function __construct() {
 		parent::__construct();
 		global $IP;
 
@@ -57,6 +59,12 @@ class CommandLineInstaller extends Maintenance {
 		$this->addOption(
 			'scriptpath',
 			'The relative path of the wiki in the web server (/wiki)',
+			false,
+			true
+		);
+		$this->addOption(
+			'server',
+			'The base URL of the web server the wiki will be on (http://localhost)',
 			false,
 			true
 		);
@@ -103,7 +111,7 @@ class CommandLineInstaller extends Maintenance {
 		return parent::getDbType();
 	}
 
-	function execute() {
+	public function execute() {
 		global $IP;
 
 		$siteName = $this->getArg( 0, 'MediaWiki' ); // Will not be set if used with --env-checks
@@ -115,7 +123,12 @@ class CommandLineInstaller extends Maintenance {
 			$this->setPassOption();
 		}
 
-		$installer = InstallerOverrides::getCliInstaller( $siteName, $adminName, $this->mOptions );
+		try {
+			$installer = InstallerOverrides::getCliInstaller( $siteName, $adminName, $this->mOptions );
+		} catch ( \MediaWiki\Installer\InstallException $e ) {
+			$this->output( $e->getStatus()->getMessage( false, false, 'en' )->text() . "\n" );
+			return false;
+		}
 
 		$status = $installer->doEnvironmentChecks();
 		if ( $status->isGood() ) {
@@ -123,17 +136,23 @@ class CommandLineInstaller extends Maintenance {
 		} else {
 			$installer->showStatusMessage( $status );
 
-			return;
+			return false;
 		}
 		if ( !$envChecksOnly ) {
-			$installer->execute();
+			$status = $installer->execute();
+			if ( !$status->isGood() ) {
+				$installer->showStatusMessage( $status );
+
+				return false;
+			}
 			$installer->writeConfigurationFile( $this->getOption( 'confpath', $IP ) );
+			$installer->showMessage(
+				'config-install-success',
+				$installer->getVar( 'wgServer' ),
+				$installer->getVar( 'wgScriptPath' )
+			);
 		}
-		$installer->showMessage(
-			'config-install-success',
-			$installer->getVar( 'wgServer' ),
-			$installer->getVar( 'wgScriptPath' )
-		);
+		return true;
 	}
 
 	private function setDbPassOption() {
@@ -172,7 +191,7 @@ class CommandLineInstaller extends Maintenance {
 		}
 	}
 
-	function validateParamsAndArgs() {
+	public function validateParamsAndArgs() {
 		if ( !$this->hasOption( 'env-checks' ) ) {
 			parent::validateParamsAndArgs();
 		}

@@ -37,7 +37,7 @@ class IPTC {
 	 * @param string $rawData The app13 block from jpeg containing iptc/iim data
 	 * @return array IPTC metadata array
 	 */
-	static function parse( $rawData ) {
+	public static function parse( $rawData ) {
 		$parsed = iptcparse( $rawData );
 		$data = [];
 		if ( !is_array( $parsed ) ) {
@@ -459,7 +459,7 @@ class IPTC {
 	 * all iso 2022 escape codes. In practise, the code for utf-8 is the
 	 * only code that seems to have wide use. It does detect that code.
 	 */
-	static function getCharset( $tag ) {
+	public static function getCharset( $tag ) {
 		// According to iim standard, charset is defined by the tag 1:90.
 		// in which there are iso 2022 escape sequences to specify the character set.
 		// the iim standard seems to encourage that all necessary escape sequences are
@@ -576,7 +576,7 @@ class IPTC {
 				$c = 'CSN_369103';
 				break;
 			default:
-				wfDebugLog( 'iptc', __METHOD__ . 'Unknown charset in iptc 1:90: ' . bin2hex( $tag ) );
+				wfDebugLog( 'iptc', __METHOD__ . ': Unknown charset in iptc 1:90: ' . bin2hex( $tag ) );
 				// at this point just give up and refuse to parse iptc?
 				$c = false;
 		}

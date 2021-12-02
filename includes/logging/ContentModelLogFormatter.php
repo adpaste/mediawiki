@@ -12,7 +12,7 @@ class ContentModelLogFormatter extends LogFormatter {
 	public function getActionLinks() {
 		if ( $this->entry->isDeleted( LogPage::DELETED_ACTION ) // Action is hidden
 			|| $this->entry->getSubtype() !== 'change'
-			|| !$this->context->getUser()->isAllowed( 'editcontentmodel' )
+			|| !$this->context->getAuthority()->isAllowed( 'editcontentmodel' )
 		) {
 			return '';
 		}

@@ -27,13 +27,13 @@
 
 class XmlTypeCheck {
 	/**
-	 * Will be set to true or false to indicate whether the file is
+	 * @var bool|null Will be set to true or false to indicate whether the file is
 	 * well-formed XML. Note that this doesn't check schema validity.
 	 */
 	public $wellFormed = null;
 
 	/**
-	 * Will be set to true if the optional element filter returned
+	 * @var bool Will be set to true if the optional element filter returned
 	 * a match at some point.
 	 */
 	public $filterMatch = false;
@@ -46,30 +46,33 @@ class XmlTypeCheck {
 	public $filterMatchType = false;
 
 	/**
-	 * Name of the document's root element, including any namespace
+	 * @var string Name of the document's root element, including any namespace
 	 * as an expanded URL.
 	 */
 	public $rootElement = '';
 
 	/**
-	 * A stack of strings containing the data of each xml element as it's processed. Append
-	 * data to the top string of the stack, then pop off the string and process it when the
+	 * @var string[] A stack of strings containing the data of each xml element as it's processed.
+	 * Append data to the top string of the stack, then pop off the string and process it when the
 	 * element is closed.
 	 */
 	protected $elementData = [];
 
 	/**
-	 * A stack of element names and attributes, as we process them.
+	 * @var array A stack of element names and attributes, as we process them.
 	 */
 	protected $elementDataContext = [];
 
 	/**
-	 * Current depth of the data stack.
+	 * @var int Current depth of the data stack.
 	 */
 	protected $stackDepth = 0;
 
+	/** @var callable|null */
+	protected $filterCallback;
+
 	/**
-	 * Additional parsing options
+	 * @var array Additional parsing options
 	 */
 	private $parserOptions = [
 		'processing_instruction_handler' => null,
@@ -104,7 +107,7 @@ class XmlTypeCheck {
 	 *        dtd_handler: Callback given the full text of the <!DOCTYPE declaration.
 	 *        require_safe_dtd: Only allow non-recursive entities in internal dtd (default true)
 	 */
-	function __construct( $input, $filterCallback = null, $isFile = true, $options = [] ) {
+	public function __construct( $input, $filterCallback = null, $isFile = true, $options = [] ) {
 		$this->filterCallback = $filterCallback;
 		$this->parserOptions = array_merge( $this->parserOptions, $options );
 		$this->validateFromInput( $input, $isFile );
@@ -150,7 +153,8 @@ class XmlTypeCheck {
 	}
 
 	/**
-	 * @param string $fname the filename
+	 * @param string $xml
+	 * @param bool $isFile
 	 */
 	private function validateFromInput( $xml, $isFile ) {
 		$reader = new XMLReader();
@@ -181,14 +185,12 @@ class XmlTypeCheck {
 	}
 
 	private function readNext( XMLReader $reader ) {
-		set_error_handler( [ $this, 'XmlErrorHandler' ] );
+		set_error_handler( function ( $line, $file ) {
+			$this->wellFormed = false;
+		} );
 		$ret = $reader->read();
 		restore_error_handler();
 		return $ret;
-	}
-
-	public function XmlErrorHandler( $errno, $errstr ) {
-		$this->wellFormed = false;
 	}
 
 	private function validate( $reader ) {
@@ -204,7 +206,7 @@ class XmlTypeCheck {
 				$this->processingInstructionHandler( $reader->name, $reader->value );
 			}
 			if ( $reader->nodeType === XMLReader::DOC_TYPE ) {
-				$this->DTDHandler( $reader );
+				$this->dtdHandler( $reader );
 			}
 		} while ( $reader->nodeType != XMLReader::ELEMENT );
 
@@ -308,7 +310,7 @@ class XmlTypeCheck {
 
 	/**
 	 * @param string $name
-	 * @param string $attribs
+	 * @param array $attribs
 	 */
 	private function elementOpen( $name, $attribs ) {
 		$this->elementDataContext[] = [ $name, $attribs ];
@@ -323,12 +325,7 @@ class XmlTypeCheck {
 		$callbackReturn = false;
 
 		if ( is_callable( $this->filterCallback ) ) {
-			$callbackReturn = call_user_func(
-				$this->filterCallback,
-				$name,
-				$attribs,
-				$data
-			);
+			$callbackReturn = ( $this->filterCallback )( $name, $attribs, $data );
 		}
 		if ( $callbackReturn ) {
 			// Filter hit!
@@ -352,8 +349,8 @@ class XmlTypeCheck {
 	private function processingInstructionHandler( $target, $data ) {
 		$callbackReturn = false;
 		if ( $this->parserOptions['processing_instruction_handler'] ) {
-			$callbackReturn = call_user_func(
-				$this->parserOptions['processing_instruction_handler'],
+			// @phan-suppress-next-line PhanTypeInvalidCallable false positive
+			$callbackReturn = $this->parserOptions['processing_instruction_handler'](
 				$target,
 				$data
 			);
@@ -370,7 +367,7 @@ class XmlTypeCheck {
 	 *
 	 * @param XMLReader $reader Reader currently pointing at DOCTYPE node.
 	 */
-	private function DTDHandler( XMLReader $reader ) {
+	private function dtdHandler( XMLReader $reader ) {
 		$externalCallback = $this->parserOptions['external_dtd_handler'];
 		$generalCallback = $this->parserOptions['dtd_handler'];
 		$checkIfSafe = $this->parserOptions['require_safe_dtd'];
@@ -381,7 +378,7 @@ class XmlTypeCheck {
 		$callbackReturn = false;
 
 		if ( $generalCallback ) {
-			$callbackReturn = call_user_func( $generalCallback, $dtd );
+			$callbackReturn = $generalCallback( $dtd );
 		}
 		if ( $callbackReturn ) {
 			// Filter hit!
@@ -392,8 +389,7 @@ class XmlTypeCheck {
 
 		$parsedDTD = $this->parseDTD( $dtd );
 		if ( $externalCallback && isset( $parsedDTD['type'] ) ) {
-			$callbackReturn = call_user_func(
-				$externalCallback,
+			$callbackReturn = $externalCallback(
 				$parsedDTD['type'],
 				$parsedDTD['publicid'] ?? null,
 				$parsedDTD['systemid'] ?? null
@@ -403,7 +399,6 @@ class XmlTypeCheck {
 			// Filter hit!
 			$this->filterMatch = true;
 			$this->filterMatchType = $callbackReturn;
-			$callbackReturn = false;
 		}
 
 		if ( $checkIfSafe && isset( $parsedDTD['internal'] ) &&
@@ -422,7 +417,7 @@ class XmlTypeCheck {
 	 *  * Only contains entity definitions (e.g. No <!ATLIST )
 	 *  * Entity definitions are not "system" entities
 	 *  * Entity definitions are not "parameter" (i.e. %) entities
-	 *  * Entity definitions do not reference other entites except &amp;
+	 *  * Entity definitions do not reference other entities except &amp;
 	 *    and quotes. Entity aliases (where the entity contains only
 	 *    another entity are allowed)
 	 *  * Entity references aren't overly long (>255 bytes).
@@ -434,7 +429,6 @@ class XmlTypeCheck {
 	 * @return bool true if safe.
 	 */
 	private function checkDTDIsSafe( $internalSubset ) {
-		$offset = 0;
 		$res = preg_match(
 			'/^(?:\s*<!ENTITY\s+\S+\s+' .
 				'(?:"(?:&[^"%&;]{1,64};|(?:[^"%&]|&amp;|&quot;){0,255})"' .

@@ -21,6 +21,8 @@
  * @ingroup Maintenance
  */
 
+use MediaWiki\MediaWikiServices;
+
 require_once __DIR__ . '/Maintenance.php';
 
 /**
@@ -46,10 +48,15 @@ class SyncFileBackend extends Maintenance {
 	}
 
 	public function execute() {
-		$src = FileBackendGroup::singleton()->get( $this->getOption( 'src' ) );
+		$backendGroup = MediaWikiServices::getInstance()->getFileBackendGroup();
+		$src = $backendGroup->get( $this->getOption( 'src' ) );
 
 		$posDir = $this->getOption( 'posdir' );
-		$posFile = $posDir ? $posDir . '/' . wfWikiID() : false;
+		if ( $posDir != '' ) {
+			$posFile = "$posDir/" . rawurlencode( $src->getDomainId() );
+		} else {
+			$posFile = false;
+		}
 
 		if ( $this->hasOption( 'posdump' ) ) {
 			// Just dump the current position into the specified position dir
@@ -78,7 +85,7 @@ class SyncFileBackend extends Maintenance {
 		if ( !$this->hasOption( 'dst' ) ) {
 			$this->fatalError( "Param dst required!" );
 		}
-		$dst = FileBackendGroup::singleton()->get( $this->getOption( 'dst' ) );
+		$dst = $backendGroup->get( $this->getOption( 'dst' ) );
 
 		$start = $this->getOption( 'start', 0 );
 		if ( !$start && $posFile && is_dir( $posDir ) ) {
@@ -105,7 +112,7 @@ class SyncFileBackend extends Maintenance {
 		}
 
 		// Periodically update the position file
-		$callback = function ( $pos ) use ( $startFromPosFile, $posFile, $start ) {
+		$callback = static function ( $pos ) use ( $startFromPosFile, $posFile, $start ) {
 			if ( $startFromPosFile && $pos >= $start ) { // successfully advanced
 				file_put_contents( $posFile, $pos, LOCK_EX );
 			}
@@ -274,7 +281,7 @@ class SyncFileBackend extends Maintenance {
 				implode( "\n", $dPaths ) . "\n" );
 		}
 
-		return $status;
+		return Status::wrap( $status );
 	}
 
 	/**

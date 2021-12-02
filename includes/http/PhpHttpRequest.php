@@ -23,6 +23,20 @@ class PhpHttpRequest extends MWHttpRequest {
 	private $fopenErrors = [];
 
 	/**
+	 * @internal Use HttpRequestFactory
+	 */
+	public function __construct() {
+		if ( !wfIniGetBool( 'allow_url_fopen' ) ) {
+			throw new RuntimeException( __METHOD__ . ': allow_url_fopen needs to be enabled for ' .
+				'pure PHP http requests to work. If possible, curl should be used instead. See ' .
+				'https://www.php.net/curl.'
+			);
+		}
+
+		parent::__construct( ...func_get_args() );
+	}
+
+	/**
 	 * @param string $url
 	 * @return string
 	 */
@@ -182,7 +196,7 @@ class PhpHttpRequest extends MWHttpRequest {
 			$url = $this->getResponseHeader( "Location" );
 
 			if ( !Http::isValidURI( $url ) ) {
-				$this->logger->debug( __METHOD__ . ": insecure redirection\n" );
+				$this->logger->debug( __METHOD__ . ": insecure redirection" );
 				break;
 			}
 		} while ( true );

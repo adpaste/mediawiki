@@ -21,6 +21,9 @@
  * @ingroup SpecialPage
  */
 
+use MediaWiki\Cache\LinkBatchFactory;
+use Wikimedia\Rdbms\ILoadBalancer;
+
 /**
  * A special page that lists protected pages
  *
@@ -30,14 +33,42 @@ class SpecialProtectedpages extends SpecialPage {
 	protected $IdLevel = 'level';
 	protected $IdType = 'type';
 
-	public function __construct() {
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
+
+	/** @var ILoadBalancer */
+	private $loadBalancer;
+
+	/** @var CommentStore */
+	private $commentStore;
+
+	/** @var UserCache */
+	private $userCache;
+
+	/**
+	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param ILoadBalancer $loadBalancer
+	 * @param CommentStore $commentStore
+	 * @param UserCache $userCache
+	 */
+	public function __construct(
+		LinkBatchFactory $linkBatchFactory,
+		ILoadBalancer $loadBalancer,
+		CommentStore $commentStore,
+		UserCache $userCache
+	) {
 		parent::__construct( 'Protectedpages' );
+		$this->linkBatchFactory = $linkBatchFactory;
+		$this->loadBalancer = $loadBalancer;
+		$this->commentStore = $commentStore;
+		$this->userCache = $userCache;
 	}
 
 	public function execute( $par ) {
 		$this->setHeaders();
 		$this->outputHeader();
 		$this->getOutput()->addModuleStyles( 'mediawiki.special' );
+		$this->addHelpLink( 'Help:Protected_pages' );
 
 		$request = $this->getRequest();
 		$type = $request->getVal( $this->IdType );
@@ -62,7 +93,11 @@ class SpecialProtectedpages extends SpecialPage {
 			$indefOnly,
 			$cascadeOnly,
 			$noRedirect,
-			$this->getLinkRenderer()
+			$this->getLinkRenderer(),
+			$this->linkBatchFactory,
+			$this->loadBalancer,
+			$this->commentStore,
+			$this->userCache
 		);
 
 		$this->getOutput()->addHTML( $this->showOptions(
@@ -106,7 +141,7 @@ class SpecialProtectedpages extends SpecialPage {
 			'typemenu' => $this->getTypeMenu( $type ),
 			'levelmenu' => $this->getLevelMenu( $level ),
 			'filters' => [
-				'class' => 'HTMLMultiSelectField',
+				'class' => HTMLMultiSelectField::class,
 				'label' => $this->msg( 'protectedpages-filters' )->text(),
 				'flatlist' => true,
 				'options-messages' => [
@@ -121,11 +156,10 @@ class SpecialProtectedpages extends SpecialPage {
 				'name' => 'size',
 			]
 		];
-		$htmlForm = HTMLForm::factory( 'ooui', $formDescriptor, $this->getContext() );
-		$htmlForm
+		$htmlForm = HTMLForm::factory( 'ooui', $formDescriptor, $this->getContext() )
 			->setMethod( 'get' )
 			->setWrapperLegendMsg( 'protectedpages' )
-			->setSubmitText( $this->msg( 'protectedpages-submit' )->text() );
+			->setSubmitTextMsg( 'protectedpages-submit' );
 
 		return $htmlForm->prepareForm()->getHTML( false );
 	}

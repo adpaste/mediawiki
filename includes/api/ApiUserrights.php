@@ -23,12 +23,35 @@
  * @file
  */
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
+use MediaWiki\Permissions\Authority;
+use MediaWiki\User\UserGroupManager;
+
 /**
  * @ingroup API
  */
 class ApiUserrights extends ApiBase {
 
 	private $mUser = null;
+
+	/** @var UserGroupManager */
+	private $userGroupManager;
+
+	/**
+	 * @param ApiMain $mainModule
+	 * @param string $moduleName
+	 * @param UserGroupManager|null $userGroupManager
+	 */
+	public function __construct(
+		ApiMain $mainModule,
+		$moduleName,
+		UserGroupManager $userGroupManager = null
+	) {
+		parent::__construct( $mainModule, $moduleName );
+		// This class is extended and therefor fallback to global state - T285797
+		$this->userGroupManager = $userGroupManager ?? MediaWikiServices::getInstance()->getUserGroupManager();
+	}
 
 	/**
 	 * Get a UserrightsPage object, or subclass.
@@ -43,7 +66,7 @@ class ApiUserrights extends ApiBase {
 	 * @return array
 	 */
 	protected function getAllGroups() {
-		return User::getAllGroups();
+		return $this->userGroupManager->listAllGroups();
 	}
 
 	public function execute() {
@@ -51,8 +74,11 @@ class ApiUserrights extends ApiBase {
 
 		// Deny if the user is blocked and doesn't have the full 'userrights' permission.
 		// This matches what Special:UserRights does for the web UI.
-		if ( $pUser->isBlocked() && !$pUser->isAllowed( 'userrights' ) ) {
-			$this->dieBlocked( $pUser->getBlock() );
+		if ( !$this->getAuthority()->isAllowed( 'userrights' ) ) {
+			$block = $pUser->getBlock( Authority::READ_LATEST );
+			if ( $block && $block->isSitewide() ) {
+				$this->dieBlocked( $block );
+			}
 		}
 
 		$params = $this->extractRequestParams();
@@ -101,7 +127,7 @@ class ApiUserrights extends ApiBase {
 
 		// Check if user can add tags
 		if ( $tags !== null ) {
-			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $tags, $pUser );
+			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $tags, $this->getAuthority() );
 			if ( !$ableToTag->isOK() ) {
 				$this->dieStatus( $ableToTag );
 			}
@@ -109,11 +135,12 @@ class ApiUserrights extends ApiBase {
 
 		$form = $this->getUserRightsPage();
 		$form->setContext( $this->getContext() );
+		$r = [];
 		$r['user'] = $user->getName();
 		$r['userid'] = $user->getId();
 		list( $r['added'], $r['removed'] ) = $form->doSaveUserGroups(
 			// Don't pass null to doSaveUserGroups() for array params, cast to empty array
-			$user, (array)$add, (array)$params['remove'],
+			$user, $add, (array)$params['remove'],
 			$params['reason'], (array)$tags, $groupExpiries
 		);
 
@@ -156,16 +183,24 @@ class ApiUserrights extends ApiBase {
 		return true;
 	}
 
-	public function getAllowedParams() {
+	public function getAllowedParams( $flags = 0 ) {
+		$allGroups = $this->getAllGroups();
+
+		if ( $flags & ApiBase::GET_VALUES_FOR_HELP ) {
+			sort( $allGroups );
+		}
+
 		$a = [
 			'user' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'id' ],
 			],
 			'userid' => [
 				ApiBase::PARAM_TYPE => 'integer',
+				ApiBase::PARAM_DEPRECATED => true,
 			],
 			'add' => [
-				ApiBase::PARAM_TYPE => $this->getAllGroups(),
+				ApiBase::PARAM_TYPE => $allGroups,
 				ApiBase::PARAM_ISMULTI => true
 			],
 			'expiry' => [
@@ -174,7 +209,7 @@ class ApiUserrights extends ApiBase {
 				ApiBase::PARAM_DFLT => 'infinite',
 			],
 			'remove' => [
-				ApiBase::PARAM_TYPE => $this->getAllGroups(),
+				ApiBase::PARAM_TYPE => $allGroups,
 				ApiBase::PARAM_ISMULTI => true
 			],
 			'reason' => [

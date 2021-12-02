@@ -24,17 +24,17 @@ namespace MediaWiki\Revision;
 
 use Html;
 use InvalidArgumentException;
+use MediaWiki\Permissions\Authority;
 use ParserOptions;
 use ParserOutput;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Title;
-use User;
 use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * The RevisionRenderer service provides access to rendered output for revisions.
- * It does so be acting as a factory for RenderedRevision instances, which in turn
+ * It does so by acting as a factory for RenderedRevision instances, which in turn
  * provide lazy access to ParserOutput objects.
  *
  * One key responsibility of RevisionRenderer is implementing the layout used to combine
@@ -54,22 +54,21 @@ class RevisionRenderer {
 	private $roleRegistery;
 
 	/** @var string|bool */
-	private $wikiId;
+	private $dbDomain;
 
 	/**
 	 * @param ILoadBalancer $loadBalancer
 	 * @param SlotRoleRegistry $roleRegistry
-	 * @param bool|string $wikiId
+	 * @param bool|string $dbDomain DB domain of the relevant wiki or false for the current one
 	 */
 	public function __construct(
 		ILoadBalancer $loadBalancer,
 		SlotRoleRegistry $roleRegistry,
-		$wikiId = false
+		$dbDomain = false
 	) {
 		$this->loadBalancer = $loadBalancer;
 		$this->roleRegistery = $roleRegistry;
-		$this->wikiId = $wikiId;
-
+		$this->dbDomain = $dbDomain;
 		$this->saveParseLogger = new NullLogger();
 	}
 
@@ -83,10 +82,10 @@ class RevisionRenderer {
 	/**
 	 * @param RevisionRecord $rev
 	 * @param ParserOptions|null $options
-	 * @param User|null $forUser User for privileged access. Default is unprivileged (public)
-	 *        access, unless the 'audience' hint is set to something else RevisionRecord::RAW.
+	 * @param Authority|null $forPerformer User for privileged access. Default is unprivileged
+	 *        (public) access, unless the 'audience' hint is set to something else RevisionRecord::RAW.
 	 * @param array $hints Hints given as an associative array. Known keys:
-	 *      - 'use-master' Use master when rendering for the parser cache during save.
+	 *      - 'use-master' Use primary DB when rendering for the parser cache during save.
 	 *        Default is to use a replica.
 	 *      - 'audience' the audience to use for content access. Default is
 	 *        RevisionRecord::FOR_PUBLIC if $forUser is not set, RevisionRecord::FOR_THIS_USER
@@ -96,41 +95,54 @@ class RevisionRenderer {
 	 *        matched the $rev and $options. This mechanism is intended as a temporary stop-gap,
 	 *        for the time until caches have been changed to store RenderedRevision states instead
 	 *        of ParserOutput objects.
+	 * @phan-param array{use-master?:bool,audience?:int,known-revision-output?:ParserOutput} $hints
 	 *
 	 * @return RenderedRevision|null The rendered revision, or null if the audience checks fails.
 	 */
 	public function getRenderedRevision(
 		RevisionRecord $rev,
 		ParserOptions $options = null,
-		User $forUser = null,
+		Authority $forPerformer = null,
 		array $hints = []
 	) {
-		if ( $rev->getWikiId() !== $this->wikiId ) {
+		if ( $rev->getWikiId() !== $this->dbDomain ) {
 			throw new InvalidArgumentException( 'Mismatching wiki ID ' . $rev->getWikiId() );
 		}
 
 		$audience = $hints['audience']
-			?? ( $forUser ? RevisionRecord::FOR_THIS_USER : RevisionRecord::FOR_PUBLIC );
+			?? ( $forPerformer ? RevisionRecord::FOR_THIS_USER : RevisionRecord::FOR_PUBLIC );
 
-		if ( !$rev->audienceCan( RevisionRecord::DELETED_TEXT, $audience, $forUser ) ) {
-			// Returning null here is awkward, but consist with the signature of
-			// Revision::getContent() and RevisionRecord::getContent().
+		if ( !$rev->audienceCan( RevisionRecord::DELETED_TEXT, $audience, $forPerformer ) ) {
+			// Returning null here is awkward, but consistent with the signature of
+			// RevisionRecord::getContent().
 			return null;
 		}
 
 		if ( !$options ) {
-			$options = ParserOptions::newCanonical( $forUser ?: 'canonical' );
+			$options = ParserOptions::newCanonical(
+				$forPerformer ? $forPerformer->getUser() : 'canonical'
+			);
 		}
 
-		$useMaster = $hints['use-master'] ?? false;
+		$usePrimary = $hints['use-master'] ?? false;
 
-		$dbIndex = $useMaster
-			? DB_MASTER // use latest values
+		$dbIndex = $usePrimary
+			? DB_PRIMARY // use latest values
 			: DB_REPLICA; // T154554
 
 		$options->setSpeculativeRevIdCallback( function () use ( $dbIndex ) {
 			return $this->getSpeculativeRevId( $dbIndex );
 		} );
+		$options->setSpeculativePageIdCallback( function () use ( $dbIndex ) {
+			return $this->getSpeculativePageId( $dbIndex );
+		} );
+
+		if ( !$rev->getId() && $rev->getTimestamp() ) {
+			// This is an unsaved revision with an already determined timestamp.
+			// Make the "current" time used during parsing match that of the revision.
+			// Any REVISION* parser variables will match up if the revision is saved.
+			$options->setTimestamp( $rev->getTimestamp() );
+		}
 
 		$title = Title::newFromLinkTarget( $rev->getPageAsLinkTarget() );
 
@@ -142,7 +154,7 @@ class RevisionRenderer {
 				return $this->combineSlotOutput( $rrev, $hints );
 			},
 			$audience,
-			$forUser
+			$forPerformer
 		);
 
 		$renderedRevision->setSaveParseLogger( $this->saveParseLogger );
@@ -155,18 +167,30 @@ class RevisionRenderer {
 	}
 
 	private function getSpeculativeRevId( $dbIndex ) {
-		// Use a fresh master connection in order to see the latest data, by avoiding
+		// Use a separate primary DB connection in order to see the latest data, by avoiding
 		// stale data from REPEATABLE-READ snapshots.
-		// HACK: But don't use a fresh connection in unit tests, since it would not have
-		// the fake tables. This should be handled by the LoadBalancer!
-		$flags = defined( 'MW_PHPUNIT_TEST' ) || $dbIndex === DB_REPLICA
-			? 0 : ILoadBalancer::CONN_TRX_AUTOCOMMIT;
+		$flags = ILoadBalancer::CONN_TRX_AUTOCOMMIT;
 
-		$db = $this->loadBalancer->getConnectionRef( $dbIndex, [], $this->wikiId, $flags );
+		$db = $this->loadBalancer->getConnectionRef( $dbIndex, [], $this->dbDomain, $flags );
 
 		return 1 + (int)$db->selectField(
 			'revision',
 			'MAX(rev_id)',
+			[],
+			__METHOD__
+		);
+	}
+
+	private function getSpeculativePageId( $dbIndex ) {
+		// Use a separate primary DB connection in order to see the latest data, by avoiding
+		// stale data from REPEATABLE-READ snapshots.
+		$flags = ILoadBalancer::CONN_TRX_AUTOCOMMIT;
+
+		$db = $this->loadBalancer->getConnectionRef( $dbIndex, [], $this->dbDomain, $flags );
+
+		return 1 + (int)$db->selectField(
+			'page',
+			'MAX(page_id)',
 			[],
 			__METHOD__
 		);
@@ -190,7 +214,7 @@ class RevisionRenderer {
 
 		// short circuit if there is only the main slot
 		if ( array_keys( $slots ) === [ SlotRecord::MAIN ] ) {
-			return $rrev->getSlotParserOutput( SlotRecord::MAIN );
+			return $rrev->getSlotParserOutput( SlotRecord::MAIN, $hints );
 		}
 
 		// move main slot to front
@@ -209,7 +233,7 @@ class RevisionRenderer {
 			$slotOutput[$role] = $out;
 
 			// XXX: should the SlotRoleHandler be able to intervene here?
-			$combinedOutput->mergeInternalMetaDataFrom( $out, $role );
+			$combinedOutput->mergeInternalMetaDataFrom( $out );
 			$combinedOutput->mergeTrackingMetaDataFrom( $out );
 		}
 

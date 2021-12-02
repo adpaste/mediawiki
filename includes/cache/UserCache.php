@@ -21,6 +21,11 @@
  * @ingroup Cache
  */
 
+use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\MediaWikiServices;
+use Psr\Log\LoggerInterface;
+use Wikimedia\Rdbms\ILoadBalancer;
+
 /**
  * @since 1.20
  */
@@ -28,19 +33,37 @@ class UserCache {
 	protected $cache = []; // (uid => property => value)
 	protected $typesCached = []; // (uid => cache type => 1)
 
+	/** @var LoggerInterface */
+	private $logger;
+
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
+
+	/** @var ILoadBalancer */
+	private $loadBalancer;
+
 	/**
 	 * @return UserCache
 	 */
 	public static function singleton() {
-		static $instance = null;
-		if ( $instance === null ) {
-			$instance = new self();
-		}
-
-		return $instance;
+		return MediaWikiServices::getInstance()->getUserCache();
 	}
 
-	protected function __construct() {
+	/**
+	 * Uses dependency injection since 1.36
+	 *
+	 * @param LoggerInterface $logger
+	 * @param ILoadBalancer $loadBalancer
+	 * @param LinkBatchFactory $linkBatchFactory
+	 */
+	public function __construct(
+		LoggerInterface $logger,
+		ILoadBalancer $loadBalancer,
+		LinkBatchFactory $linkBatchFactory
+	) {
+		$this->logger = $logger;
+		$this->loadBalancer = $loadBalancer;
+		$this->linkBatchFactory = $linkBatchFactory;
 	}
 
 	/**
@@ -52,7 +75,13 @@ class UserCache {
 	 */
 	public function getProp( $userId, $prop ) {
 		if ( !isset( $this->cache[$userId][$prop] ) ) {
-			wfDebug( __METHOD__ . ": querying DB for prop '$prop' for user ID '$userId'.\n" );
+			$this->logger->debug(
+				'Querying DB for prop {prop} for user ID {userId}',
+				[
+					'prop' => $prop,
+					'userId' => $userId,
+				]
+			);
 			$this->doQuery( [ $userId ] ); // cache miss
 		}
 
@@ -78,8 +107,6 @@ class UserCache {
 	 * @param string $caller The calling method
 	 */
 	public function doQuery( array $userIds, $options = [], $caller = '' ) {
-		global $wgActorTableSchemaMigrationStage;
-
 		$usersToCheck = [];
 		$usersToQuery = [];
 
@@ -99,22 +126,13 @@ class UserCache {
 
 		// Lookup basic info for users not yet loaded...
 		if ( count( $usersToQuery ) ) {
-			$dbr = wfGetDB( DB_REPLICA );
-			$tables = [ 'user' ];
+			$dbr = $this->loadBalancer->getConnection( DB_REPLICA );
+			$tables = [ 'user', 'actor' ];
 			$conds = [ 'user_id' => $usersToQuery ];
-			$fields = [ 'user_name', 'user_real_name', 'user_registration', 'user_id' ];
-			$joinConds = [];
-
-			// Technically we shouldn't allow this without SCHEMA_COMPAT_READ_NEW,
-			// but it does little harm and might be needed for write callers loading a User.
-			if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_NEW ) {
-				$tables[] = 'actor';
-				$fields[] = 'actor_id';
-				$joinConds['actor'] = [
-					( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_READ_NEW ) ? 'JOIN' : 'LEFT JOIN',
-					[ 'actor_user = user_id' ]
-				];
-			}
+			$fields = [ 'user_name', 'user_real_name', 'user_registration', 'user_id', 'actor_id' ];
+			$joinConds = [
+				'actor' => [ 'JOIN', 'actor_user = user_id' ],
+			];
 
 			$comment = __METHOD__;
 			if ( strval( $caller ) !== '' ) {
@@ -127,14 +145,12 @@ class UserCache {
 				$this->cache[$userId]['name'] = $row->user_name;
 				$this->cache[$userId]['real_name'] = $row->user_real_name;
 				$this->cache[$userId]['registration'] = $row->user_registration;
-				if ( $wgActorTableSchemaMigrationStage & SCHEMA_COMPAT_NEW ) {
-					$this->cache[$userId]['actor'] = $row->actor_id;
-				}
+				$this->cache[$userId]['actor'] = $row->actor_id;
 				$usersToCheck[$userId] = $row->user_name;
 			}
 		}
 
-		$lb = new LinkBatch();
+		$lb = $this->linkBatchFactory->newLinkBatch();
 		foreach ( $usersToCheck as $userId => $name ) {
 			if ( $this->queryNeeded( $userId, 'userpage', $options ) ) {
 				$lb->add( NS_USER, $name );

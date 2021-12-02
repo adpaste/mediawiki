@@ -2,63 +2,52 @@
 
 namespace Wikimedia\Rdbms;
 
+use RuntimeException;
 use stdClass;
 
 /**
- * Overloads the relevant methods of the real ResultsWrapper so it
+ * Overloads the relevant methods of the real ResultWrapper so it
  * doesn't go anywhere near an actual database.
  */
 class FakeResultWrapper extends ResultWrapper {
-	/** @var stdClass[] $result */
+	/** @var stdClass[]|array[] */
+	protected $result;
 
 	/**
-	 * @param stdClass[] $rows
+	 * @param stdClass[]|array[]|FakeResultWrapper $result
 	 */
-	function __construct( array $rows ) {
-		parent::__construct( null, $rows );
+	public function __construct( $result ) {
+		if ( $result instanceof self ) {
+			$this->result = $result->result;
+		} else {
+			$this->result = $result;
+		}
 	}
 
-	function numRows() {
+	protected function doNumRows() {
 		return count( $this->result );
 	}
 
-	function fetchRow() {
-		if ( $this->pos < count( $this->result ) ) {
-			$this->currentRow = $this->result[$this->pos];
-		} else {
-			$this->currentRow = false;
-		}
-		$this->pos++;
-		if ( is_object( $this->currentRow ) ) {
-			return get_object_vars( $this->currentRow );
-		} else {
-			return $this->currentRow;
-		}
+	protected function doFetchObject() {
+		$value = $this->result[$this->currentPos] ?? false;
+		return is_array( $value ) ? (object)$value : $value;
 	}
 
-	function seek( $row ) {
-		$this->pos = $row;
+	protected function doFetchRow() {
+		$row = $this->doFetchObject();
+		return is_object( $row ) ? get_object_vars( $row ) : $row;
 	}
 
-	function free() {
+	protected function doSeek( $pos ) {
 	}
 
-	function fetchObject() {
-		$this->fetchRow();
-		if ( $this->currentRow ) {
-			return (object)$this->currentRow;
-		} else {
-			return false;
-		}
+	protected function doFree() {
+		$this->result = null;
 	}
 
-	function rewind() {
-		$this->pos = 0;
-		$this->currentRow = null;
-	}
-
-	function next() {
-		return $this->fetchObject();
+	protected function doGetFieldNames() {
+		// @phan-suppress-previous-line PhanPluginNeverReturnMethod
+		throw new RuntimeException( __METHOD__ . ' is unimplemented' );
 	}
 }
 

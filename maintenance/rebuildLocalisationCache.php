@@ -29,6 +29,10 @@
  * @ingroup Maintenance
  */
 
+use MediaWiki\Config\ServiceOptions;
+use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\MediaWikiServices;
+
 require_once __DIR__ . '/Maintenance.php';
 
 /**
@@ -46,10 +50,33 @@ class RebuildLocalisationCache extends Maintenance {
 			false, true );
 		$this->addOption( 'lang', 'Only rebuild these languages, comma separated.',
 			false, true );
+		$this->addOption(
+			'store-class',
+			'Override the LC store class (normally $wgLocalisationCacheConf[\'storeClass\'])',
+			false,
+			true
+		);
+		$this->addOption(
+			'no-database',
+			'EXPERIMENTAL: Disable the database backend. Setting this option will result in an error ' .
+			'if you have extensions or use site configuration that need the database. This is an ' .
+			'experimental feature to allow offline building of the localisation cache. Known limitations:' .
+			"\n" .
+			'* Incompatible with LCStoreDB, which always requires a database. ' . "\n" .
+			'* The message purge may require a database. See --skip-message-purge.'
+		);
+		// T237148: The Gadget extension (bundled with MediaWiki by default) requires a database`
+		// connection to register its modules for MessageBlobStore.
+		$this->addOption(
+			'skip-message-purge',
+			'Skip purging of MessageBlobStore. The purge operation may require a database, depending ' .
+			'on the configuration and extensions on this wiki. If skipping the purge now, you need to ' .
+			'run purgeMessageBlobStore.php shortly after deployment.'
+		);
 	}
 
 	public function finalSetup() {
-		# This script needs to be run to build the inital l10n cache. But if
+		# This script needs to be run to build the initial l10n cache. But if
 		# $wgLanguageCode is not 'en', it won't be able to run because there is
 		# no l10n cache. Break the cycle by forcing $wgLanguageCode = 'en'.
 		global $wgLanguageCode;
@@ -58,7 +85,7 @@ class RebuildLocalisationCache extends Maintenance {
 	}
 
 	public function execute() {
-		global $wgLocalisationCacheConf;
+		global $wgLocalisationCacheConf, $wgCacheDirectory;
 
 		$force = $this->hasOption( 'force' );
 		$threads = $this->getOption( 'threads', 1 );
@@ -76,16 +103,38 @@ class RebuildLocalisationCache extends Maintenance {
 		}
 
 		$conf = $wgLocalisationCacheConf;
-		$conf['manualRecache'] = false; // Allow fallbacks to create CDB files
-		if ( $force ) {
-			$conf['forceRecache'] = true;
-		}
+		// Allow fallbacks to create CDB files
+		$conf['manualRecache'] = false;
+		$conf['forceRecache'] = $force || !empty( $conf['forceRecache'] );
 		if ( $this->hasOption( 'outdir' ) ) {
 			$conf['storeDirectory'] = $this->getOption( 'outdir' );
 		}
-		$lc = new LocalisationCacheBulkLoad( $conf );
 
-		$allCodes = array_keys( Language::fetchLanguageNames( null, 'mwfile' ) );
+		if ( $this->hasOption( 'store-class' ) ) {
+			$conf['storeClass'] = $this->getOption( 'store-class' );
+		}
+
+		// XXX Copy-pasted from ServiceWiring.php. Do we need a factory for this one caller?
+		$services = MediaWikiServices::getInstance();
+		$lc = new LocalisationCacheBulkLoad(
+			new ServiceOptions(
+				LocalisationCache::CONSTRUCTOR_OPTIONS,
+				$conf,
+				$services->getMainConfig()
+			),
+			LocalisationCache::getStoreFromConf( $conf, $wgCacheDirectory ),
+			LoggerFactory::getInstance( 'localisation' ),
+			$this->hasOption( 'skip-message-purge' ) ? [] :
+				[ static function () use ( $services ) {
+					MessageBlobStore::clearGlobalCacheEntry( $services->getMainWANObjectCache() );
+				} ],
+			$services->getLanguageNameUtils(),
+			$services->getHookContainer()
+		);
+
+		$allCodes = array_keys( $services
+			->getLanguageNameUtils()
+			->getLanguageNames( null, 'mwfile' ) );
 		if ( $this->hasOption( 'lang' ) ) {
 			# Validate requested languages
 			$codes = array_intersect( $allCodes,
@@ -116,7 +165,7 @@ class RebuildLocalisationCache extends Maintenance {
 				mt_srand( getmypid() );
 
 				$this->doRebuild( $codes, $lc, $force );
-				exit( 0 );
+				return;
 			} elseif ( $pid === -1 ) {
 				// Fork failed or one thread, do it serialized
 				$numRebuilt += $this->doRebuild( $codes, $lc, $force );
@@ -129,9 +178,18 @@ class RebuildLocalisationCache extends Maintenance {
 		foreach ( $pids as $pid ) {
 			$status = 0;
 			pcntl_waitpid( $pid, $status );
-			if ( pcntl_wexitstatus( $status ) ) {
-				// Pass a fatal error code through to the caller
-				$parentStatus = pcntl_wexitstatus( $status );
+
+			if ( pcntl_wifexited( $status ) ) {
+			$code = pcntl_wexitstatus( $status );
+				if ( $code ) {
+					$this->output( "Pid $pid exited with status $code !!\n" );
+				}
+				// Mush all child statuses into a single value in the parent.
+				$parentStatus |= $code;
+			} elseif ( pcntl_wifsignaled( $status ) ) {
+				$signum = pcntl_wtermsig( $status );
+				$this->output( "Pid $pid terminated by signal $signum !!\n" );
+				$parentStatus |= 1;
 			}
 		}
 
@@ -142,15 +200,15 @@ class RebuildLocalisationCache extends Maintenance {
 			}
 		}
 		if ( $parentStatus ) {
-			exit( $parentStatus );
+			$this->fatalError( 'Failed.', $parentStatus );
 		}
 	}
 
 	/**
 	 * Helper function to rebuild list of languages codes. Prints the code
 	 * for each language which is rebuilt.
-	 * @param array $codes List of language codes to rebuild.
-	 * @param LocalisationCache $lc Instance of LocalisationCacheBulkLoad (?)
+	 * @param string[] $codes List of language codes to rebuild.
+	 * @param LocalisationCache $lc
 	 * @param bool $force Rebuild up-to-date languages
 	 * @return int Number of rebuilt languages
 	 */
@@ -165,6 +223,15 @@ class RebuildLocalisationCache extends Maintenance {
 		}
 
 		return $numRebuilt;
+	}
+
+	/** @inheritDoc */
+	public function getDbType() {
+		if ( $this->hasOption( 'no-database' ) ) {
+			return Maintenance::DB_NONE;
+		}
+
+		return parent::getDbType();
 	}
 
 	/**

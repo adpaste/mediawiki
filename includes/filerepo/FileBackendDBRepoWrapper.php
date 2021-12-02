@@ -97,7 +97,7 @@ class FileBackendDBRepoWrapper extends FileBackend {
 	 * @return string[] Translated paths in same order
 	 */
 	public function getBackendPaths( array $paths, $latest = true ) {
-		$db = $this->getDB( $latest ? DB_MASTER : DB_REPLICA );
+		$db = $this->getDB( $latest ? DB_PRIMARY : DB_REPLICA );
 
 		// @TODO: batching
 		$resolved = [];
@@ -150,8 +150,8 @@ class FileBackendDBRepoWrapper extends FileBackend {
 		return $this->backend->doOperationsInternal( $this->mungeOpPaths( $ops ), $opts );
 	}
 
-	protected function doQuickOperationsInternal( array $ops ) {
-		return $this->backend->doQuickOperationsInternal( $this->mungeOpPaths( $ops ) );
+	protected function doQuickOperationsInternal( array $ops, array $opts ) {
+		return $this->backend->doQuickOperationsInternal( $this->mungeOpPaths( $ops ), $opts );
 	}
 
 	protected function doPrepare( array $params ) {

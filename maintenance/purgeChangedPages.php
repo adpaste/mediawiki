@@ -23,7 +23,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
-use Wikimedia\Rdbms\ResultWrapper;
+use MediaWiki\MediaWikiServices;
+use Wikimedia\Rdbms\IResultWrapper;
 
 /**
  * Maintenance script that sends purge requests for pages edited in a date
@@ -76,7 +77,7 @@ class PurgeChangedPages extends Maintenance {
 			$this->maybeHelp( true );
 		}
 
-		$stuckCount = 0; // loop breaker
+		$stuckCount = 0;
 		while ( true ) {
 			// Adjust bach size if we are stuck in a second that had many changes
 			$bSize = ( $stuckCount + 1 ) * $this->getBatchSize();
@@ -136,9 +137,9 @@ class PurgeChangedPages extends Maintenance {
 				}
 			}
 
-			// Send batch of purge requests out to squids
-			$squid = new CdnCacheUpdate( $urls, count( $urls ) );
-			$squid->doUpdate();
+			// Send batch of purge requests out to CDN servers
+			$hcu = MediaWikiServices::getInstance()->getHtmlCacheUpdater();
+			$hcu->purgeUrls( $urls, $hcu::PURGE_NAIVE );
 
 			if ( $this->hasOption( 'sleep-per-batch' ) ) {
 				// sleep-per-batch is milliseconds, usleep wants micro seconds.
@@ -163,12 +164,12 @@ class PurgeChangedPages extends Maintenance {
 	 *
 	 * @todo move this elsewhere
 	 *
-	 * @param ResultWrapper $res Query result sorted by $column (ascending)
+	 * @param IResultWrapper $res Query result sorted by $column (ascending)
 	 * @param string $column
 	 * @param int $limit
 	 * @return array (array of rows, string column value)
 	 */
-	protected function pageableSortedRows( ResultWrapper $res, $column, $limit ) {
+	protected function pageableSortedRows( IResultWrapper $res, $column, $limit ) {
 		$rows = iterator_to_array( $res, false );
 
 		// Nothing to do

@@ -20,7 +20,7 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
 
 /**
  * This query action allows clients to retrieve a list of pages
@@ -30,8 +30,39 @@ use MediaWiki\MediaWikiServices;
  */
 class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var WatchedItemQueryService */
+	private $watchedItemQueryService;
+
+	/** @var Language */
+	private $contentLanguage;
+
+	/** @var NamespaceInfo */
+	private $namespaceInfo;
+
+	/** @var GenderCache */
+	private $genderCache;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param WatchedItemQueryService $watchedItemQueryService
+	 * @param Language $contentLanguage
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param GenderCache $genderCache
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		WatchedItemQueryService $watchedItemQueryService,
+		Language $contentLanguage,
+		NamespaceInfo $namespaceInfo,
+		GenderCache $genderCache
+	) {
 		parent::__construct( $query, $moduleName, 'wr' );
+		$this->watchedItemQueryService = $watchedItemQueryService;
+		$this->contentLanguage = $contentLanguage;
+		$this->namespaceInfo = $namespaceInfo;
+		$this->genderCache = $genderCache;
 	}
 
 	public function execute() {
@@ -43,7 +74,7 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 * @return void
 	 */
 	private function run( $resultPageSet = null ) {
@@ -51,8 +82,8 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 
 		$user = $this->getWatchlistUser( $params );
 
-		$prop = array_flip( (array)$params['prop'] );
-		$show = array_flip( (array)$params['show'] );
+		$prop = array_fill_keys( (array)$params['prop'], true );
+		$show = array_fill_keys( (array)$params['show'], true );
 		if ( isset( $show[WatchedItemQueryService::FILTER_CHANGED] )
 			&& isset( $show[WatchedItemQueryService::FILTER_NOT_CHANGED] )
 		) {
@@ -76,17 +107,16 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 			$ns = (int)$cont[0];
 			$this->dieContinueUsageIf( strval( $ns ) !== $cont[0] );
 			$title = $cont[1];
-			$options['startFrom'] = new TitleValue( $ns, $title );
+			$options['startFrom'] = TitleValue::tryNew( $ns, $title );
+			$this->dieContinueUsageIf( !$options['startFrom'] );
 		}
 
 		if ( isset( $params['fromtitle'] ) ) {
-			list( $ns, $title ) = $this->prefixedTitlePartToKey( $params['fromtitle'] );
-			$options['from'] = new TitleValue( $ns, $title );
+			$options['from'] = $this->parsePrefixedTitlePart( $params['fromtitle'] );
 		}
 
 		if ( isset( $params['totitle'] ) ) {
-			list( $ns, $title ) = $this->prefixedTitlePartToKey( $params['totitle'] );
-			$options['until'] = new TitleValue( $ns, $title );
+			$options['until'] = $this->parsePrefixedTitlePart( $params['totitle'] );
 		}
 
 		$options['sort'] = WatchedItemStore::SORT_ASC;
@@ -97,11 +127,27 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 
 		$titles = [];
 		$count = 0;
-		$items = MediaWikiServices::getInstance()->getWatchedItemQueryService()
-			->getWatchedItemsForUser( $user, $options );
+		$items = $this->watchedItemQueryService->getWatchedItemsForUser( $user, $options );
+
+		// Get gender information
+		if ( $items !== [] && $resultPageSet === null &&
+			$this->contentLanguage->needsGenderDistinction()
+		) {
+			$usernames = [];
+			foreach ( $items as $item ) {
+				$linkTarget = $item->getTarget();
+				if ( $this->namespaceInfo->hasGenderDistinction( $linkTarget->getNamespace() ) ) {
+					$usernames[] = $linkTarget->getText();
+				}
+			}
+			if ( $usernames !== [] ) {
+				$this->genderCache->doQuery( $usernames, __METHOD__ );
+			}
+		}
+
 		foreach ( $items as $item ) {
-			$ns = $item->getLinkTarget()->getNamespace();
-			$dbKey = $item->getLinkTarget()->getDBkey();
+			$ns = $item->getTarget()->getNamespace();
+			$dbKey = $item->getTarget()->getDBkey();
 			if ( ++$count > $params['limit'] ) {
 				// We've reached the one extra which shows that there are
 				// additional pages to be had. Stop here...
@@ -110,10 +156,10 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 			}
 			$t = Title::makeTitle( $ns, $dbKey );
 
-			if ( is_null( $resultPageSet ) ) {
+			if ( $resultPageSet === null ) {
 				$vals = [];
 				ApiQueryBase::addTitleInfo( $vals, $t );
-				if ( isset( $prop['changed'] ) && !is_null( $item->getNotificationTimestamp() ) ) {
+				if ( isset( $prop['changed'] ) && $item->getNotificationTimestamp() !== null ) {
 					$vals['changed'] = wfTimestamp( TS_ISO_8601, $item->getNotificationTimestamp() );
 				}
 				$fit = $this->getResult()->addValue( $this->getModuleName(), null, $vals );
@@ -125,7 +171,7 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 				$titles[] = $t;
 			}
 		}
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$this->getResult()->addIndexedTagName( $this->getModuleName(), 'wr' );
 		} else {
 			$resultPageSet->populateFromTitles( $titles );
@@ -163,7 +209,8 @@ class ApiQueryWatchlistRaw extends ApiQueryGeneratorBase {
 				]
 			],
 			'owner' => [
-				ApiBase::PARAM_TYPE => 'user'
+				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name' ],
 			],
 			'token' => [
 				ApiBase::PARAM_TYPE => 'string',

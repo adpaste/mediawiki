@@ -23,6 +23,8 @@
  * @file
  * @ingroup Maintenance
  */
+use MediaWiki\MediaWikiServices;
+
 require_once dirname( __DIR__ ) . '/Maintenance.php';
 
 /**
@@ -41,9 +43,9 @@ class ListVariants extends Maintenance {
 		$variantLangs = [];
 		$variants = [];
 		foreach ( LanguageConverter::$languagesWithVariants as $langCode ) {
-			$lang = Language::factory( $langCode );
+			$lang = MediaWikiServices::getInstance()->getLanguageFactory()->getLanguage( $langCode );
 			if ( $lang->hasVariants() ) {
-				$variants += array_flip( $lang->getVariants() );
+				$variants += array_fill_keys( $lang->getVariants(), true );
 				$variantLangs[$langCode] = $lang->getVariants();
 			}
 		}

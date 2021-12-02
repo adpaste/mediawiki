@@ -36,6 +36,12 @@ use MediaWiki\MediaWikiServices;
  * @ingroup Maintenance
  */
 class RecountCategories extends Maintenance {
+	/** @var string */
+	private $mode;
+
+	/** @var int */
+	private $minimumId;
+
 	public function __construct() {
 		parent::__construct();
 		$this->addDescription( <<<'TEXT'
@@ -120,7 +126,7 @@ TEXT
 		$idsToUpdate = $dbr->selectFieldValues( 'category',
 			'cat_id',
 			[
-				'cat_id > ' . $this->minimumId,
+				'cat_id > ' . (int)$this->minimumId,
 				"cat_{$this->mode} != ($countingSubquery)"
 			],
 			__METHOD__,
@@ -139,7 +145,7 @@ TEXT
 		$this->minimumId = end( $idsToUpdate );
 
 		// Now, on master, find the correct counts for these categories.
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		$res = $dbw->select( 'category',
 			[ 'cat_id', 'count' => "($countingSubquery)" ],
 			[ 'cat_id' => $idsToUpdate ],

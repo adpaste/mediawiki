@@ -40,7 +40,7 @@ class Licenses extends HTMLFormField {
 
 	/** @var string|null */
 	protected $selected;
-	/**#@-*/
+	/** #@- */
 
 	/**
 	 * @param array $params
@@ -88,7 +88,7 @@ class Licenses extends HTMLFormField {
 	}
 
 	/**
-	 * @private
+	 * @internal
 	 */
 	protected function makeLines() {
 		$levels = [];
@@ -97,21 +97,20 @@ class Licenses extends HTMLFormField {
 		foreach ( $lines as $line ) {
 			if ( strpos( $line, '*' ) !== 0 ) {
 				continue;
-			} else {
-				list( $level, $line ) = $this->trimStars( $line );
+			}
+			list( $level, $line ) = $this->trimStars( $line );
 
-				if ( strpos( $line, '|' ) !== false ) {
-					$obj = $this->buildLine( $line );
-					$this->stackItem( $this->lines, $levels, $obj );
-				} else {
-					if ( $level < count( $levels ) ) {
-						$levels = array_slice( $levels, 0, $level );
-					}
-					if ( $level == count( $levels ) ) {
-						$levels[$level - 1] = $line;
-					} elseif ( $level > count( $levels ) ) {
-						$levels[] = $line;
-					}
+			if ( strpos( $line, '|' ) !== false ) {
+				$obj = $this->buildLine( $line );
+				$this->stackItem( $this->lines, $levels, $obj );
+			} else {
+				if ( $level < count( $levels ) ) {
+					$levels = array_slice( $levels, 0, $level );
+				}
+				if ( $level == count( $levels ) ) {
+					$levels[$level - 1] = $line;
+				} elseif ( $level > count( $levels ) ) {
+					$levels[] = $line;
 				}
 			}
 		}
@@ -191,7 +190,7 @@ class Licenses extends HTMLFormField {
 		return str_repeat( "\t", $depth ) . Xml::element( 'option', $attribs, $val ) . "\n";
 	}
 
-	/**#@-*/
+	/** #@- */
 
 	/**
 	 * Accessor for $this->lines

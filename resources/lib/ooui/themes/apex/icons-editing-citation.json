@@ -1,6 +1,6 @@
 {
 	"prefix": "oo-ui-icon",
-	"intro": "@import '../../../../src/styles/common';",
+	"intro": "@import '../../../../src/styles/common.less';",
 	"images": {
 		"book": {
 			"file": {
@@ -34,10 +34,6 @@
 				"ltr": "../wikimediaui/images/icons/references-ltr.svg",
 				"rtl": "../wikimediaui/images/icons/references-rtl.svg"
 			}
-		},
-		"web": {
-			"file": "../wikimediaui/images/icons/web.svg",
-			"deprecated": "Deprecated since v0.30.2, use 'browser' from 'interactions' pack instead."
 		}
 	}
 }

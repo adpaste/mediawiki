@@ -1,6 +1,6 @@
 <?php
 
-class GlobalVarConfigTest extends MediaWikiTestCase {
+class GlobalVarConfigTest extends MediaWikiIntegrationTestCase {
 
 	/**
 	 * @covers GlobalVarConfig::newInstance
@@ -19,11 +19,10 @@ class GlobalVarConfigTest extends MediaWikiTestCase {
 	 */
 	public function testConstructor( $prefix ) {
 		$var = $prefix . 'GlobalVarConfigTest';
-		$rand = wfRandomString();
-		$this->setMwGlobals( $var, $rand );
+		$this->setMwGlobals( $var, 'testvalue' );
 		$config = new GlobalVarConfig( $prefix );
 		$this->assertInstanceOf( GlobalVarConfig::class, $config );
-		$this->assertEquals( $rand, $config->get( 'GlobalVarConfigTest' ) );
+		$this->assertEquals( 'testvalue', $config->get( 'GlobalVarConfigTest' ) );
 	}
 
 	public static function provideConstructor() {
@@ -41,7 +40,7 @@ class GlobalVarConfigTest extends MediaWikiTestCase {
 	 * @covers GlobalVarConfig::hasWithPrefix
 	 */
 	public function testHas() {
-		$this->setMwGlobals( 'wgGlobalVarConfigTestHas', wfRandomString() );
+		$this->setMwGlobals( 'wgGlobalVarConfigTestHas', 'testvalue' );
 		$config = new GlobalVarConfig();
 		$this->assertTrue( $config->has( 'GlobalVarConfigTestHas' ) );
 		$this->assertFalse( $config->has( 'GlobalVarConfigTestNotHas' ) );
@@ -79,7 +78,8 @@ class GlobalVarConfigTest extends MediaWikiTestCase {
 	public function testGet( $name, $prefix, $expected ) {
 		$config = new GlobalVarConfig( $prefix );
 		if ( $expected === false ) {
-			$this->setExpectedException( ConfigException::class, 'GlobalVarConfig::get: undefined option:' );
+			$this->expectException( ConfigException::class );
+			$this->expectExceptionMessage( 'GlobalVarConfig::get: undefined option:' );
 		}
 		$this->assertEquals( $config->get( $name ), $expected );
 	}

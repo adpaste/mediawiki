@@ -51,14 +51,14 @@
 	 *      recognized: If we expect that this value's type is detectable by the parser
 	 *      outputValue: The value the parser has converted the input to
 	 *      msg: describing the testcase
-	 * @param {function($table)} callback something to do before we start the testcase
+	 * @param {Function} beforeTest Something to do before we start the testcase
 	 */
-	function parserTest( msg, parserId, data, callback ) {
+	function parserTest( msg, parserId, data, beforeTest ) {
 		QUnit.test( msg, function ( assert ) {
 			var extractedR, extractedF, parser;
 
-			if ( callback !== undefined ) {
-				callback();
+			if ( beforeTest !== undefined ) {
+				beforeTest();
 			}
 
 			parser = $.tablesorter.getParser( parserId );
@@ -74,9 +74,9 @@
 	}
 
 	text = [
-		[ 'Mars', true, 'mars', 'Simple text' ],
-		[ 'Mẘas', true, 'mẘas', 'Non ascii character' ],
-		[ 'A sentence', true, 'a sentence', 'A sentence with space chars' ]
+		[ 'Mars', true, 'Mars', 'Simple text' ],
+		[ 'Mẘas', true, 'Mẘas', 'Non ascii character' ],
+		[ 'A sentence', true, 'A sentence', 'A sentence with space chars' ]
 	];
 	parserTest( 'Textual keys', 'text', text );
 

@@ -1,7 +1,5 @@
 <?php
 /**
- * ResourceLoader module for site customizations.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -23,21 +21,28 @@
  */
 
 /**
- * Module for site customizations
+ * Module for site customizations.
+ *
+ * @ingroup ResourceLoader
+ * @internal
  */
 class ResourceLoaderSiteModule extends ResourceLoaderWikiModule {
+	/** @var string[] What client platforms the module targets (e.g. desktop, mobile) */
+	protected $targets = [ 'desktop', 'mobile' ];
 
 	/**
 	 * Get list of pages used by this module
 	 *
 	 * @param ResourceLoaderContext $context
-	 * @return array List of pages
+	 * @return array[]
 	 */
 	protected function getPages( ResourceLoaderContext $context ) {
 		$pages = [];
 		if ( $this->getConfig()->get( 'UseSiteJs' ) ) {
+			$skin = $context->getSkin();
 			$pages['MediaWiki:Common.js'] = [ 'type' => 'script' ];
-			$pages['MediaWiki:' . ucfirst( $context->getSkin() ) . '.js'] = [ 'type' => 'script' ];
+			$pages['MediaWiki:' . ucfirst( $skin ) . '.js'] = [ 'type' => 'script' ];
+			$this->getHookRunner()->onResourceLoaderSiteModulePages( $skin, $pages );
 		}
 		return $pages;
 	}

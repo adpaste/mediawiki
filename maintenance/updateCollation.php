@@ -26,6 +26,7 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\MediaWikiServices;
 use Wikimedia\Rdbms\IDatabase;
 
 /**
@@ -35,20 +36,18 @@ use Wikimedia\Rdbms\IDatabase;
  * @ingroup Maintenance
  */
 class UpdateCollation extends Maintenance {
-	const BATCH_SIZE = 100; // Number of rows to process in one batch
-	const SYNC_INTERVAL = 5; // Wait for replica DBs after this many batches
+	private const BATCH_SIZE = 100; // Number of rows to process in one batch
 
 	public $sizeHistogram = [];
 
 	public function __construct() {
 		parent::__construct();
 
-		global $wgCategoryCollation;
 		$this->addDescription( <<<TEXT
 This script will find all rows in the categorylinks table whose collation is
-out-of-date (cl_collation != '$wgCategoryCollation') and repopulate cl_sortkey
-using the page title and cl_sortkey_prefix.  If all collations are
-up-to-date, it will do nothing.
+out-of-date (cl_collation is not the same as \$wgCategoryCollation) and
+repopulate cl_sortkey using the page title and cl_sortkey_prefix. If all
+collations are up-to-date, it will do nothing.
 TEXT
 		);
 
@@ -69,20 +68,17 @@ TEXT
 	}
 
 	public function execute() {
-		global $wgCategoryCollation;
-
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		$dbr = $this->getDB( DB_REPLICA );
 		$force = $this->getOption( 'force' );
 		$dryRun = $this->getOption( 'dry-run' );
 		$verboseStats = $this->getOption( 'verbose-stats' );
 		if ( $this->hasOption( 'target-collation' ) ) {
 			$collationName = $this->getOption( 'target-collation' );
-			$collation = Collation::factory( $collationName );
 		} else {
-			$collationName = $wgCategoryCollation;
-			$collation = Collation::singleton();
+			$collationName = $this->getConfig()->get( 'CategoryCollation' );
 		}
+		$collation = MediaWikiServices::getInstance()->getCollationFactory()->makeCollation( $collationName );
 
 		// Collation sanity check: in some cases the constructor will work,
 		// but this will raise an exception, breaking all category pages
@@ -103,9 +99,8 @@ TEXT
 			'STRAIGHT_JOIN' // per T58041
 		];
 
-		if ( $force ) {
-			$collationConds = [];
-		} else {
+		$collationConds = [];
+		if ( !$force ) {
 			if ( $this->hasOption( 'previous-collation' ) ) {
 				$collationConds['cl_collation'] = $this->getOption( 'previous-collation' );
 			} else {
@@ -139,7 +134,7 @@ TEXT
 			} else {
 				$this->output( "Fixing collation for $count rows.\n" );
 			}
-			wfWaitForSlaves();
+			MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->waitForReplication();
 		}
 		$count = 0;
 		$batchConds = [];
@@ -186,7 +181,8 @@ TEXT
 				}
 				# cl_type will be wrong for lots of pages if cl_collation is 0,
 				# so let's update it while we're here.
-				$type = MWNamespace::getCategoryLinkType( $title->getNamespace() );
+				$type = MediaWikiServices::getInstance()->getNamespaceInfo()->
+					getCategoryLinkType( $title->getNamespace() );
 				$newSortKey = $collation->getSortKey(
 					$title->getCategorySortkey( $prefix ) );
 				if ( $verboseStats ) {
@@ -244,7 +240,7 @@ TEXT
 	 * @param IDatabase $dbw
 	 * @return string
 	 */
-	function getBatchCondition( $row, $dbw ) {
+	private function getBatchCondition( $row, $dbw ) {
 		if ( $this->hasOption( 'previous-collation' ) ) {
 			$fields = [ 'cl_to', 'cl_type', 'cl_from' ];
 		} else {
@@ -276,7 +272,7 @@ TEXT
 		return $cond;
 	}
 
-	function updateSortKeySizeHistogram( $key ) {
+	private function updateSortKeySizeHistogram( $key ) {
 		$length = strlen( $key );
 		if ( !isset( $this->sizeHistogram[$length] ) ) {
 			$this->sizeHistogram[$length] = 0;
@@ -284,7 +280,10 @@ TEXT
 		$this->sizeHistogram[$length]++;
 	}
 
-	function showSortKeySizeHistogram() {
+	private function showSortKeySizeHistogram() {
+		if ( !$this->sizeHistogram ) {
+			return;
+		}
 		$maxLength = max( array_keys( $this->sizeHistogram ) );
 		if ( $maxLength == 0 ) {
 			return;

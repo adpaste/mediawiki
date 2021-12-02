@@ -23,8 +23,9 @@
 
 namespace MediaWiki\Session;
 
-use Psr\Log\LoggerInterface;
 use BagOStuff;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * Adapter for PHP's session handling
@@ -41,7 +42,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 	/** @var bool */
 	protected $warn = true;
 
-	/** @var SessionManager|null */
+	/** @var SessionManagerInterface|null */
 	protected $manager;
 
 	/** @var BagOStuff|null */
@@ -150,13 +151,13 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Set the manager, store, and logger
-	 * @private Use self::install().
-	 * @param SessionManager $manager
+	 * @internal Use self::install().
+	 * @param SessionManagerInterface $manager
 	 * @param BagOStuff $store
 	 * @param LoggerInterface $logger
 	 */
 	public function setManager(
-		SessionManager $manager, BagOStuff $store, LoggerInterface $logger
+		SessionManagerInterface $manager, BagOStuff $store, LoggerInterface $logger
 	) {
 		if ( $this->manager !== $manager ) {
 			// Close any existing session before we change stores
@@ -172,7 +173,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Initialize the session (handler)
-	 * @private For internal use only
+	 * @internal For internal use only
 	 * @param string $save_path Path used to store session files (ignored)
 	 * @param string $session_name Session name (ignored)
 	 * @return true
@@ -189,7 +190,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Close the session (handler)
-	 * @private For internal use only
+	 * @internal For internal use only
 	 * @return true
 	 */
 	public function close() {
@@ -202,7 +203,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Read session data
-	 * @private For internal use only
+	 * @internal For internal use only
 	 * @param string $id Session id
 	 * @return string Session data
 	 */
@@ -227,7 +228,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Write session data
-	 * @private For internal use only
+	 * @internal For internal use only
 	 * @param string $id Session id
 	 * @param string $dataStr Session data. Not that you should ever call this
 	 *   directly, but note that this has the same issues with code injection
@@ -299,12 +300,12 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 		}
 		// Anything deleted in $_SESSION and unchanged in Session should be deleted too
 		// (but not if $_SESSION can't represent it at all)
-		\Wikimedia\PhpSessionSerializer::setLogger( new \Psr\Log\NullLogger() );
+		\Wikimedia\PhpSessionSerializer::setLogger( new NullLogger() );
 		foreach ( $cache as $key => $value ) {
 			if ( !array_key_exists( $key, $data ) && $session->exists( $key ) &&
 				\Wikimedia\PhpSessionSerializer::encode( [ $key => true ] )
 			) {
-				if ( $cache[$key] === $session->get( $key ) ) {
+				if ( $value === $session->get( $key ) ) {
 					// Unchanged in Session, delete it
 					$session->remove( $key );
 					$changed = true;
@@ -336,7 +337,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Destroy a session
-	 * @private For internal use only
+	 * @internal For internal use only
 	 * @param string $id Session id
 	 * @return true
 	 */
@@ -356,7 +357,7 @@ class PHPSessionHandler implements \SessionHandlerInterface {
 
 	/**
 	 * Execute garbage collection.
-	 * @private For internal use only
+	 * @internal For internal use only
 	 * @param int $maxlifetime Maximum session life time (ignored)
 	 * @return true
 	 * @codeCoverageIgnore See T135576

@@ -3,7 +3,7 @@
 /**
  * @group Database
  */
-class MultiWriteBagOStuffTest extends MediaWikiTestCase {
+class MultiWriteBagOStuffTest extends MediaWikiIntegrationTestCase {
 	/** @var HashBagOStuff */
 	private $cache1;
 	/** @var HashBagOStuff */
@@ -11,7 +11,7 @@ class MultiWriteBagOStuffTest extends MediaWikiTestCase {
 	/** @var MultiWriteBagOStuff */
 	private $cache;
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->cache1 = new HashBagOStuff();
@@ -25,45 +25,59 @@ class MultiWriteBagOStuffTest extends MediaWikiTestCase {
 
 	/**
 	 * @covers MultiWriteBagOStuff::set
-	 * @covers MultiWriteBagOStuff::doWrite
 	 */
-	public function testSetImmediate() {
-		$key = wfRandomString();
-		$value = wfRandomString();
+	public function testSet() {
+		$key = 'key';
+		$value = 'value';
 		$this->cache->set( $key, $value );
 
 		// Set in tier 1
-		$this->assertEquals( $value, $this->cache1->get( $key ), 'Written to tier 1' );
+		$this->assertSame( $value, $this->cache1->get( $key ), 'Written to tier 1' );
 		// Set in tier 2
-		$this->assertEquals( $value, $this->cache2->get( $key ), 'Written to tier 2' );
+		$this->assertSame( $value, $this->cache2->get( $key ), 'Written to tier 2' );
+	}
+
+	/**
+	 * @covers MultiWriteBagOStuff::add
+	 */
+	public function testAdd() {
+		$key = 'key';
+		$value = 'value';
+		$ok = $this->cache->add( $key, $value );
+
+		$this->assertTrue( $ok );
+		// Set in tier 1
+		$this->assertSame( $value, $this->cache1->get( $key ), 'Written to tier 1' );
+		// Set in tier 2
+		$this->assertSame( $value, $this->cache2->get( $key ), 'Written to tier 2' );
 	}
 
 	/**
 	 * @covers MultiWriteBagOStuff
 	 */
 	public function testSyncMerge() {
-		$key = wfRandomString();
-		$value = wfRandomString();
-		$func = function () use ( $value ) {
+		$key = 'keyA';
+		$value = 'value';
+		$func = static function () use ( $value ) {
 			return $value;
 		};
 
 		// XXX: DeferredUpdates bound to transactions in CLI mode
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->begin();
 		$this->cache->merge( $key, $func );
 
 		// Set in tier 1
 		$this->assertEquals( $value, $this->cache1->get( $key ), 'Written to tier 1' );
 		// Not yet set in tier 2
-		$this->assertEquals( false, $this->cache2->get( $key ), 'Not written to tier 2' );
+		$this->assertFalse( $this->cache2->get( $key ), 'Not written to tier 2' );
 
 		$dbw->commit();
 
 		// Set in tier 2
 		$this->assertEquals( $value, $this->cache2->get( $key ), 'Written to tier 2' );
 
-		$key = wfRandomString();
+		$key = 'keyB';
 
 		$dbw->begin();
 		$this->cache->merge( $key, $func, 0, 1, BagOStuff::WRITE_SYNC );
@@ -80,22 +94,22 @@ class MultiWriteBagOStuffTest extends MediaWikiTestCase {
 	 * @covers MultiWriteBagOStuff::set
 	 */
 	public function testSetDelayed() {
-		$key = wfRandomString();
-		$value = (object)[ 'v' => wfRandomString() ];
+		$key = 'key';
+		$value = (object)[ 'v' => 'saved value' ];
 		$expectValue = clone $value;
 
 		// XXX: DeferredUpdates bound to transactions in CLI mode
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->begin();
 		$this->cache->set( $key, $value );
 
 		// Test that later changes to $value don't affect the saved value (e.g. T168040)
-		$value->v = 'bogus';
+		$value->v = 'other value';
 
 		// Set in tier 1
 		$this->assertEquals( $expectValue, $this->cache1->get( $key ), 'Written to tier 1' );
 		// Not yet set in tier 2
-		$this->assertEquals( false, $this->cache2->get( $key ), 'Not written to tier 2' );
+		$this->assertFalse( $this->cache2->get( $key ), 'Not written to tier 2' );
 
 		$dbw->commit();
 
@@ -108,16 +122,19 @@ class MultiWriteBagOStuffTest extends MediaWikiTestCase {
 	 */
 	public function testMakeKey() {
 		$cache1 = $this->getMockBuilder( HashBagOStuff::class )
-			->setMethods( [ 'makeKey' ] )->getMock();
-		$cache1->expects( $this->once() )->method( 'makeKey' )
-			->willReturn( 'special' );
+			->onlyMethods( [ 'makeKey' ] )->getMock();
+		$cache1->expects( $this->never() )->method( 'makeKey' );
 
 		$cache2 = $this->getMockBuilder( HashBagOStuff::class )
-			->setMethods( [ 'makeKey' ] )->getMock();
+			->onlyMethods( [ 'makeKey' ] )->getMock();
 		$cache2->expects( $this->never() )->method( 'makeKey' );
 
-		$cache = new MultiWriteBagOStuff( [ 'caches' => [ $cache1, $cache2 ] ] );
-		$this->assertSame( 'special', $cache->makeKey( 'a', 'b' ) );
+		$cache = new MultiWriteBagOStuff( [
+			'keyspace' => 'generic',
+			'caches' => [ $cache1, $cache2 ]
+		] );
+
+		$this->assertSame( 'generic:a:b', $cache->makeKey( 'a', 'b' ) );
 	}
 
 	/**
@@ -125,17 +142,16 @@ class MultiWriteBagOStuffTest extends MediaWikiTestCase {
 	 */
 	public function testMakeGlobalKey() {
 		$cache1 = $this->getMockBuilder( HashBagOStuff::class )
-			->setMethods( [ 'makeGlobalKey' ] )->getMock();
-		$cache1->expects( $this->once() )->method( 'makeGlobalKey' )
-			->willReturn( 'special' );
+			->onlyMethods( [ 'makeGlobalKey' ] )->getMock();
+		$cache1->expects( $this->never() )->method( 'makeGlobalKey' );
 
 		$cache2 = $this->getMockBuilder( HashBagOStuff::class )
-			->setMethods( [ 'makeGlobalKey' ] )->getMock();
+			->onlyMethods( [ 'makeGlobalKey' ] )->getMock();
 		$cache2->expects( $this->never() )->method( 'makeGlobalKey' );
 
 		$cache = new MultiWriteBagOStuff( [ 'caches' => [ $cache1, $cache2 ] ] );
 
-		$this->assertSame( 'special', $cache->makeGlobalKey( 'a', 'b' ) );
+		$this->assertSame( 'global:a:b', $cache->makeGlobalKey( 'a', 'b' ) );
 	}
 
 	/**
@@ -148,5 +164,51 @@ class MultiWriteBagOStuffTest extends MediaWikiTestCase {
 		] );
 
 		$this->assertTrue( $cache->add( 'key', 1, 30 ) );
+	}
+
+	/**
+	 * @covers MultiWriteBagOStuff::incr
+	 */
+	public function testIncr() {
+		$key = $this->cache->makeKey( 'key' );
+
+		$this->cache->add( $key, 7, 30 );
+
+		$value = $this->cache->incr( $key );
+		$this->assertSame( 8, $value, 'Value after incrementing' );
+
+		$value = $this->cache->get( $key );
+		$this->assertSame( 8, $value, 'Value after incrementing' );
+	}
+
+	/**
+	 * @covers MultiWriteBagOStuff::decr
+	 */
+	public function testDecr() {
+		$key = $this->cache->makeKey( 'key' );
+
+		$this->cache->add( $key, 10, 30 );
+
+		$value = $this->cache->decr( $key );
+		$this->assertSame( 9, $value, 'Value after decrementing' );
+
+		$value = $this->cache->get( $key );
+		$this->assertSame( 9, $value, 'Value after decrementing' );
+	}
+
+	/**
+	 * @covers MultiWriteBagOStuff::incrWithInit
+	 */
+	public function testIncrWithInit() {
+		$key = $this->cache->makeKey( 'key' );
+		$val = $this->cache->incrWithInit( $key, 0, 1, 3 );
+		$this->assertSame( 3, $val, "Correct init value" );
+
+		$val = $this->cache->incrWithInit( $key, 0, 1, 3 );
+		$this->assertSame( 4, $val, "Correct init value" );
+		$this->cache->delete( $key );
+
+		$val = $this->cache->incrWithInit( $key, 0, 5 );
+		$this->assertSame( 5, $val, "Correct init value" );
 	}
 }

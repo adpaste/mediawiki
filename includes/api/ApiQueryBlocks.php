@@ -20,8 +20,12 @@
  * @file
  */
 
+use MediaWiki\Block\BlockActionInfo;
+use MediaWiki\Block\BlockRestrictionStore;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
+use MediaWiki\User\UserNameUtils;
+use Wikimedia\IPUtils;
 use Wikimedia\Rdbms\IResultWrapper;
-use MediaWiki\MediaWikiServices;
 
 /**
  * Query module to enumerate all user blocks
@@ -30,17 +34,47 @@ use MediaWiki\MediaWikiServices;
  */
 class ApiQueryBlocks extends ApiQueryBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var BlockActionInfo */
+	private $blockActionInfo;
+
+	/** @var BlockRestrictionStore */
+	private $blockRestrictionStore;
+
+	/** @var CommentStore */
+	private $commentStore;
+
+	/** @var UserNameUtils */
+	private $userNameUtils;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param BlockActionInfo $blockActionInfo
+	 * @param BlockRestrictionStore $blockRestrictionStore
+	 * @param CommentStore $commentStore
+	 * @param UserNameUtils $userNameUtils
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		BlockActionInfo $blockActionInfo,
+		BlockRestrictionStore $blockRestrictionStore,
+		CommentStore $commentStore,
+		UserNameUtils $userNameUtils
+	) {
 		parent::__construct( $query, $moduleName, 'bk' );
+		$this->blockActionInfo = $blockActionInfo;
+		$this->blockRestrictionStore = $blockRestrictionStore;
+		$this->commentStore = $commentStore;
+		$this->userNameUtils = $userNameUtils;
 	}
 
 	public function execute() {
 		$db = $this->getDB();
-		$commentStore = CommentStore::getStore();
 		$params = $this->extractRequestParams();
 		$this->requireMaxOneParameter( $params, 'users', 'ip' );
 
-		$prop = array_flip( $params['prop'] );
+		$prop = array_fill_keys( $params['prop'], true );
 		$fld_id = isset( $prop['id'] );
 		$fld_user = isset( $prop['user'] );
 		$fld_userid = isset( $prop['userid'] );
@@ -60,10 +94,9 @@ class ApiQueryBlocks extends ApiQueryBase {
 
 		$this->addFieldsIf( [ 'ipb_address', 'ipb_user' ], $fld_user || $fld_userid );
 		if ( $fld_by || $fld_byid ) {
-			$actorQuery = ActorMigration::newMigration()->getJoin( 'ipb_by' );
-			$this->addTables( $actorQuery['tables'] );
-			$this->addFields( $actorQuery['fields'] );
-			$this->addJoinConds( $actorQuery['joins'] );
+			$this->addTables( 'actor' );
+			$this->addFields( [ 'actor_user', 'actor_name' ] );
+			$this->addJoinConds( [ 'actor' => [ 'JOIN', 'actor_id=ipb_by_actor' ] ] );
 		}
 		$this->addFieldsIf( 'ipb_expiry', $fld_expiry );
 		$this->addFieldsIf( [ 'ipb_range_start', 'ipb_range_end' ], $fld_range );
@@ -73,7 +106,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 		$this->addFieldsIf( 'ipb_sitewide', $fld_restrictions );
 
 		if ( $fld_reason ) {
-			$commentQuery = $commentStore->getJoin( 'ipb_reason' );
+			$commentQuery = $this->commentStore->getJoin( 'ipb_reason' );
 			$this->addTables( $commentQuery['tables'] );
 			$this->addFields( $commentQuery['fields'] );
 			$this->addJoinConds( $commentQuery['joins'] );
@@ -89,7 +122,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 		// Include in ORDER BY for uniqueness
 		$this->addWhereRange( 'ipb_id', $params['dir'], null, null );
 
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != 2 );
 			$op = ( $params['dir'] == 'newer' ? '>' : '<' );
@@ -115,26 +148,26 @@ class ApiQueryBlocks extends ApiQueryBase {
 		}
 		if ( isset( $params['ip'] ) ) {
 			$blockCIDRLimit = $this->getConfig()->get( 'BlockCIDRLimit' );
-			if ( IP::isIPv4( $params['ip'] ) ) {
+			if ( IPUtils::isIPv4( $params['ip'] ) ) {
 				$type = 'IPv4';
 				$cidrLimit = $blockCIDRLimit['IPv4'];
 				$prefixLen = 0;
-			} elseif ( IP::isIPv6( $params['ip'] ) ) {
+			} elseif ( IPUtils::isIPv6( $params['ip'] ) ) {
 				$type = 'IPv6';
 				$cidrLimit = $blockCIDRLimit['IPv6'];
-				$prefixLen = 3; // IP::toHex output is prefixed with "v6-"
+				$prefixLen = 3; // IPUtils::toHex output is prefixed with "v6-"
 			} else {
 				$this->dieWithError( 'apierror-badip', 'param_ip' );
 			}
 
 			# Check range validity, if it's a CIDR
-			list( $ip, $range ) = IP::parseCIDR( $params['ip'] );
+			list( $ip, $range ) = IPUtils::parseCIDR( $params['ip'] );
 			if ( $ip !== false && $range !== false && $range < $cidrLimit ) {
 				$this->dieWithError( [ 'apierror-cidrtoobroad', $type, $cidrLimit ] );
 			}
 
-			# Let IP::parseRange handle calculating $upper, instead of duplicating the logic here.
-			list( $lower, $upper ) = IP::parseRange( $params['ip'] );
+			# Let IPUtils::parseRange handle calculating $upper, instead of duplicating the logic here.
+			list( $lower, $upper ) = IPUtils::parseRange( $params['ip'] );
 
 			# Extract the common prefix to any rangeblock affecting this IP/CIDR
 			$prefix = substr( $lower, 0, $prefixLen + floor( $cidrLimit / 4 ) );
@@ -152,8 +185,8 @@ class ApiQueryBlocks extends ApiQueryBase {
 			] );
 		}
 
-		if ( !is_null( $params['show'] ) ) {
-			$show = array_flip( $params['show'] );
+		if ( $params['show'] !== null ) {
+			$show = array_fill_keys( $params['show'], true );
 
 			/* Check for conflicting parameters. */
 			if ( ( isset( $show['account'] ) && isset( $show['!account'] ) )
@@ -176,7 +209,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 			$this->addWhereIf( 'ipb_range_end > ipb_range_start', isset( $show['range'] ) );
 		}
 
-		if ( !$this->getUser()->isAllowed( 'hideuser' ) ) {
+		if ( !$this->getAuthority()->isAllowed( 'hideuser' ) ) {
 			$this->addWhereFld( 'ipb_deleted', 0 );
 		}
 
@@ -187,7 +220,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 
 		$restrictions = [];
 		if ( $fld_restrictions ) {
-			$restrictions = self::getRestrictionData( $res, $params['limit'] );
+			$restrictions = $this->getRestrictionData( $res, $params['limit'] );
 		}
 
 		$count = 0;
@@ -210,10 +243,10 @@ class ApiQueryBlocks extends ApiQueryBase {
 				$block['userid'] = (int)$row->ipb_user;
 			}
 			if ( $fld_by ) {
-				$block['by'] = $row->ipb_by_text;
+				$block['by'] = $row->actor_name;
 			}
 			if ( $fld_byid ) {
-				$block['byid'] = (int)$row->ipb_by;
+				$block['byid'] = (int)$row->actor_user;
 			}
 			if ( $fld_timestamp ) {
 				$block['timestamp'] = wfTimestamp( TS_ISO_8601, $row->ipb_timestamp );
@@ -222,11 +255,11 @@ class ApiQueryBlocks extends ApiQueryBase {
 				$block['expiry'] = ApiResult::formatExpiry( $row->ipb_expiry );
 			}
 			if ( $fld_reason ) {
-				$block['reason'] = $commentStore->getComment( 'ipb_reason', $row )->text;
+				$block['reason'] = $this->commentStore->getComment( 'ipb_reason', $row )->text;
 			}
 			if ( $fld_range && !$row->ipb_auto ) {
-				$block['rangestart'] = IP::formatHex( $row->ipb_range_start );
-				$block['rangeend'] = IP::formatHex( $row->ipb_range_end );
+				$block['rangestart'] = IPUtils::formatHex( $row->ipb_range_start );
+				$block['rangeend'] = IPUtils::formatHex( $row->ipb_range_end );
 			}
 			if ( $fld_flags ) {
 				// For clarity, these flags use the same names as their action=block counterparts
@@ -263,9 +296,9 @@ class ApiQueryBlocks extends ApiQueryBase {
 				"baduser_{$encParamName}"
 			);
 		}
-		$name = User::isIP( $user )
+		$name = $this->userNameUtils->isIP( $user ) || IPUtils::isIPv6( $user )
 			? $user
-			: User::getCanonicalName( $user, 'valid' );
+			: $this->userNameUtils->getCanonical( $user );
 		if ( $name === false ) {
 			$encParamName = $this->encodeParamName( 'users' );
 			$this->dieWithError( [ 'apierror-baduser', $encParamName, wfEscapeWikiText( $user ) ],
@@ -283,7 +316,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 	 *
 	 * @return array
 	 */
-	private static function getRestrictionData( IResultWrapper $result, $limit ) {
+	private function getRestrictionData( IResultWrapper $result, $limit ) {
 		$partialIds = [];
 		$count = 0;
 		foreach ( $result as $row ) {
@@ -292,23 +325,31 @@ class ApiQueryBlocks extends ApiQueryBase {
 			}
 		}
 
-		$blockRestrictionStore = MediaWikiServices::getInstance()->getBlockRestrictionStore();
-		$restrictions = $blockRestrictionStore->loadByBlockId( $partialIds );
+		$restrictions = $this->blockRestrictionStore->loadByBlockId( $partialIds );
 
 		$data = [];
 		$keys = [
 			'page' => 'pages',
 			'ns' => 'namespaces',
 		];
+		if ( $this->getConfig()->get( 'EnablePartialActionBlocks' ) ) {
+			$keys['action'] = 'actions';
+		}
+
 		foreach ( $restrictions as $restriction ) {
 			$key = $keys[$restriction->getType()];
 			$id = $restriction->getBlockId();
 			switch ( $restriction->getType() ) {
 				case 'page':
+					/** @var \MediaWiki\Block\Restriction\PageRestriction $restriction */
+					'@phan-var \MediaWiki\Block\Restriction\PageRestriction $restriction';
 					$value = [ 'id' => $restriction->getValue() ];
 					if ( $restriction->getTitle() ) {
 						self::addTitleInfo( $value, $restriction->getTitle() );
 					}
+					break;
+				case 'action':
+					$value = $this->blockActionInfo->getActionFromId( $restriction->getValue() );
 					break;
 				default:
 					$value = $restriction->getValue();
@@ -348,6 +389,7 @@ class ApiQueryBlocks extends ApiQueryBase {
 			],
 			'users' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'cidr' ],
 				ApiBase::PARAM_ISMULTI => true
 			],
 			'ip' => [

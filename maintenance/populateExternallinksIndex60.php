@@ -23,6 +23,8 @@
 
 require_once __DIR__ . '/Maintenance.php';
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Maintenance script that populates the el_index_60 field in the externallinks
  * table.
@@ -47,11 +49,12 @@ class PopulateExternallinksIndex60 extends LoggedUpdateMaintenance {
 	}
 
 	protected function doDBUpdates() {
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		$this->output( "Populating externallinks.el_index_60...\n" );
 
 		$count = 0;
 		$start = 0;
+		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		$last = $dbw->selectField( 'externallinks', 'MAX(el_id)', '', __METHOD__ );
 		while ( $start <= $last ) {
 			$end = $start + $this->mBatchSize;
@@ -76,7 +79,7 @@ class PopulateExternallinksIndex60 extends LoggedUpdateMaintenance {
 					], __METHOD__
 				);
 			}
-			wfWaitForSlaves();
+			$lbFactory->waitForReplication();
 			$start = $end;
 		}
 		$this->output( "Done, $count rows updated.\n" );
@@ -85,5 +88,5 @@ class PopulateExternallinksIndex60 extends LoggedUpdateMaintenance {
 	}
 }
 
-$maintClass = "PopulateExternallinksIndex60";
+$maintClass = PopulateExternallinksIndex60::class;
 require_once RUN_MAINTENANCE_IF_MAIN;

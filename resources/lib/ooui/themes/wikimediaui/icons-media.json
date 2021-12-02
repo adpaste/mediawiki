@@ -1,7 +1,7 @@
 {
 	"selectorWithoutVariant": ".oo-ui-icon-{name}",
 	"selectorWithVariant": ".oo-ui-image-{variant}.oo-ui-icon-{name}",
-	"intro": "@import '../../../../src/styles/common';",
+	"intro": "@import '../../../../src/styles/common.less';",
 	"variants": {
 		"invert": {
 			"color": "#fff",
@@ -69,6 +69,24 @@
 		},
 		"stop": {
 			"file": "images/icons/stop.svg"
+		},
+		"volumeDown": {
+			"file": {
+				"ltr": "images/icons/volumeDown-ltr.svg",
+				"rtl": "images/icons/volumeDown-rtl.svg"
+			}
+		},
+		"volumeOff": {
+			"file": {
+				"ltr": "images/icons/volumeOff-ltr.svg",
+				"rtl": "images/icons/volumeOff-rtl.svg"
+			}
+		},
+		"volumeUp": {
+			"file": {
+				"ltr": "images/icons/volumeUp-ltr.svg",
+				"rtl": "images/icons/volumeUp-rtl.svg"
+			}
 		},
 		"zoomIn": {
 			"file": "images/icons/zoomIn.svg"

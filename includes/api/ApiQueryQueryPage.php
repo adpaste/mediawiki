@@ -20,8 +20,7 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
-use MediaWiki\Special\SpecialPageFactory;
+use MediaWiki\SpecialPage\SpecialPageFactory;
 
 /**
  * Query module to get the results of a QueryPage-based special page
@@ -40,13 +39,22 @@ class ApiQueryQueryPage extends ApiQueryGeneratorBase {
 	 */
 	private $specialPageFactory;
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param SpecialPageFactory $specialPageFactory
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		SpecialPageFactory $specialPageFactory
+	) {
 		parent::__construct( $query, $moduleName, 'qp' );
 		$this->queryPages = array_values( array_diff(
 			array_column( QueryPage::getPages(), 1 ), // [ class, name ]
 			$this->getConfig()->get( 'APIUselessQueryPages' )
 		) );
-		$this->specialPageFactory = MediaWikiServices::getInstance()->getSpecialPageFactory();
+		$this->specialPageFactory = $specialPageFactory;
 	}
 
 	public function execute() {
@@ -61,7 +69,7 @@ class ApiQueryQueryPage extends ApiQueryGeneratorBase {
 	 * @param string $name
 	 * @return QueryPage
 	 */
-	private function getSpecialPage( $name ) {
+	private function getSpecialPage( $name ): QueryPage {
 		$qp = $this->specialPageFactory->getPage( $name );
 		if ( !$qp ) {
 			self::dieDebug(
@@ -121,10 +129,13 @@ class ApiQueryQueryPage extends ApiQueryGeneratorBase {
 			}
 
 			$title = Title::makeTitle( $row->namespace, $row->title );
-			if ( is_null( $resultPageSet ) ) {
-				$data = [ 'value' => $row->value ];
-				if ( $qp->usesTimestamps() ) {
-					$data['timestamp'] = wfTimestamp( TS_ISO_8601, $row->value );
+			if ( $resultPageSet === null ) {
+				$data = [];
+				if ( isset( $row->value ) ) {
+					$data['value'] = $row->value;
+					if ( $qp->usesTimestamps() ) {
+						$data['timestamp'] = wfTimestamp( TS_ISO_8601, $row->value );
+					}
 				}
 				self::addTitleInfo( $data, $title );
 
@@ -143,7 +154,7 @@ class ApiQueryQueryPage extends ApiQueryGeneratorBase {
 				$titles[] = $title;
 			}
 		}
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$result->addIndexedTagName(
 				[ 'query', $this->getModuleName(), 'results' ],
 				'page'

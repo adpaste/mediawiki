@@ -1,7 +1,5 @@
 <?php
 /**
- * Foreign file accessible through api.php requests.
- *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -22,10 +20,12 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Permissions\Authority;
+use MediaWiki\User\UserIdentity;
+use MediaWiki\User\UserIdentityValue;
 
 /**
  * Foreign file accessible through api.php requests.
- * Very hacky and inefficient, do not use :D
  *
  * @ingroup FileAbstraction
  */
@@ -33,7 +33,7 @@ class ForeignAPIFile extends File {
 	/** @var bool */
 	private $mExists;
 	/** @var array */
-	private $mInfo = [];
+	private $mInfo;
 
 	protected $repoClass = ForeignAPIRepo::class;
 
@@ -43,7 +43,7 @@ class ForeignAPIFile extends File {
 	 * @param array $info
 	 * @param bool $exists
 	 */
-	function __construct( $title, $repo, $info, $exists = false ) {
+	public function __construct( $title, $repo, $info, $exists = false ) {
 		parent::__construct( $title, $repo );
 
 		$this->mInfo = $info;
@@ -57,13 +57,13 @@ class ForeignAPIFile extends File {
 	 * @param ForeignApiRepo $repo
 	 * @return ForeignAPIFile|null
 	 */
-	static function newFromTitle( Title $title, $repo ) {
+	public static function newFromTitle( Title $title, $repo ) {
 		$data = $repo->fetchImageQuery( [
 			'titles' => 'File:' . $title->getDBkey(),
 			'iiprop' => self::getProps(),
 			'prop' => 'imageinfo',
 			'iimetadataversion' => MediaHandler::getMetadataVersion(),
-			// extmetadata is language-dependant, accessing the current language here
+			// extmetadata is language-dependent, accessing the current language here
 			// would be problematic, so we just get them all
 			'iiextmetadatamultilang' => 1,
 		] );
@@ -75,6 +75,7 @@ class ForeignAPIFile extends File {
 				? count( $data['query']['redirects'] ) - 1
 				: -1;
 			if ( $lastRedirect >= 0 ) {
+				// @phan-suppress-next-line PhanTypeArraySuspiciousNullable
 				$newtitle = Title::newFromText( $data['query']['redirects'][$lastRedirect]['to'] );
 				$img = new self( $newtitle, $repo, $info, true );
 				$img->redirectedFrom( $title->getDBkey() );
@@ -92,8 +93,15 @@ class ForeignAPIFile extends File {
 	 * Get the property string for iiprop and aiprop
 	 * @return string
 	 */
-	static function getProps() {
+	public static function getProps() {
 		return 'timestamp|user|comment|url|size|sha1|metadata|mime|mediatype|extmetadata';
+	}
+
+	/**
+	 * @return ForeignAPIRepo|bool
+	 */
+	public function getRepo() {
+		return $this->repo;
 	}
 
 	// Dummy functions...
@@ -117,7 +125,7 @@ class ForeignAPIFile extends File {
 	 * @param int $flags
 	 * @return bool|MediaTransformOutput
 	 */
-	function transform( $params, $flags = 0 ) {
+	public function transform( $params, $flags = 0 ) {
 		if ( !$this->canRender() ) {
 			// show icon
 			return parent::transform( $params, $flags );
@@ -169,14 +177,25 @@ class ForeignAPIFile extends File {
 	}
 
 	/**
-	 * @return bool|null|string
+	 * @return string|false
 	 */
 	public function getMetadata() {
 		if ( isset( $this->mInfo['metadata'] ) ) {
 			return serialize( self::parseMetadata( $this->mInfo['metadata'] ) );
 		}
 
-		return null;
+		return false;
+	}
+
+	/**
+	 * @return array
+	 */
+	public function getMetadataArray(): array {
+		if ( isset( $this->mInfo['metadata'] ) ) {
+			return self::parseMetadata( $this->mInfo['metadata'] );
+		}
+
+		return [];
 	}
 
 	/**
@@ -189,15 +208,33 @@ class ForeignAPIFile extends File {
 
 	/**
 	 * @param mixed $metadata
-	 * @return mixed
+	 * @return array
 	 */
 	public static function parseMetadata( $metadata ) {
 		if ( !is_array( $metadata ) ) {
-			return $metadata;
+			return [ '_error' => $metadata ];
 		}
+		'@phan-var array[] $metadata';
 		$ret = [];
 		foreach ( $metadata as $meta ) {
-			$ret[$meta['name']] = self::parseMetadata( $meta['value'] );
+			$ret[$meta['name']] = self::parseMetadataValue( $meta['value'] );
+		}
+
+		return $ret;
+	}
+
+	/**
+	 * @param mixed $metadata
+	 * @return mixed
+	 */
+	private static function parseMetadataValue( $metadata ) {
+		if ( !is_array( $metadata ) ) {
+			return $metadata;
+		}
+		'@phan-var array[] $metadata';
+		$ret = [];
+		foreach ( $metadata as $meta ) {
+			$ret[$meta['name']] = self::parseMetadataValue( $meta['value'] );
 		}
 
 		return $ret;
@@ -236,31 +273,28 @@ class ForeignAPIFile extends File {
 		return null;
 	}
 
-	/**
-	 * @param string $type
-	 * @return int|null|string
-	 */
-	public function getUser( $type = 'text' ) {
-		if ( $type == 'text' ) {
-			return isset( $this->mInfo['user'] ) ? strval( $this->mInfo['user'] ) : null;
-		} else {
-			return 0; // What makes sense here, for a remote user?
+	public function getUploader( int $audience = self::FOR_PUBLIC, Authority $performer = null ): ?UserIdentity {
+		if ( isset( $this->mInfo['user'] ) ) {
+			// We don't know if the foreign repo will have a real interwiki prefix,
+			// treat this user as a foreign imported user. Maybe we can do better?
+			return UserIdentityValue::newExternal( $this->getRepoName(), $this->mInfo['user'] );
 		}
+		return null;
 	}
 
 	/**
 	 * @param int $audience
-	 * @param User|null $user
+	 * @param Authority|null $performer
 	 * @return null|string
 	 */
-	public function getDescription( $audience = self::FOR_PUBLIC, User $user = null ) {
+	public function getDescription( $audience = self::FOR_PUBLIC, Authority $performer = null ) {
 		return isset( $this->mInfo['comment'] ) ? strval( $this->mInfo['comment'] ) : null;
 	}
 
 	/**
 	 * @return null|string
 	 */
-	function getSha1() {
+	public function getSha1() {
 		return isset( $this->mInfo['sha1'] )
 			? Wikimedia\base_convert( strval( $this->mInfo['sha1'] ), 16, 36, 31 )
 			: null;
@@ -269,7 +303,7 @@ class ForeignAPIFile extends File {
 	/**
 	 * @return bool|string
 	 */
-	function getTimestamp() {
+	public function getTimestamp() {
 		return wfTimestamp( TS_MW,
 			isset( $this->mInfo['timestamp'] )
 				? strval( $this->mInfo['timestamp'] )
@@ -280,10 +314,10 @@ class ForeignAPIFile extends File {
 	/**
 	 * @return string
 	 */
-	function getMimeType() {
+	public function getMimeType() {
 		if ( !isset( $this->mInfo['mime'] ) ) {
 			$magic = MediaWiki\MediaWikiServices::getInstance()->getMimeAnalyzer();
-			$this->mInfo['mime'] = $magic->guessTypesForExtension( $this->getExtension() );
+			$this->mInfo['mime'] = $magic->getMimeTypeFromExtensionOrNull( $this->getExtension() );
 		}
 
 		return $this->mInfo['mime'];
@@ -292,7 +326,7 @@ class ForeignAPIFile extends File {
 	/**
 	 * @return int|string
 	 */
-	function getMediaType() {
+	public function getMediaType() {
 		if ( isset( $this->mInfo['mediatype'] ) ) {
 			return $this->mInfo['mediatype'];
 		}
@@ -304,7 +338,7 @@ class ForeignAPIFile extends File {
 	/**
 	 * @return bool|string
 	 */
-	function getDescriptionUrl() {
+	public function getDescriptionUrl() {
 		return $this->mInfo['descriptionurl'] ?? false;
 	}
 
@@ -313,7 +347,7 @@ class ForeignAPIFile extends File {
 	 * @param string $suffix
 	 * @return null|string
 	 */
-	function getThumbPath( $suffix = '' ) {
+	public function getThumbPath( $suffix = '' ) {
 		if ( !$this->repo->canCacheThumbs() ) {
 			return null;
 		}
@@ -328,7 +362,7 @@ class ForeignAPIFile extends File {
 	/**
 	 * @return string[]
 	 */
-	function getThumbnails() {
+	protected function getThumbnails() {
 		$dir = $this->getThumbPath( $this->getName() );
 		$iter = $this->repo->getBackend()->getFileList( [ 'dir' => $dir ] );
 
@@ -342,25 +376,27 @@ class ForeignAPIFile extends File {
 		return $files;
 	}
 
-	function purgeCache( $options = [] ) {
+	public function purgeCache( $options = [] ) {
 		$this->purgeThumbnails( $options );
 		$this->purgeDescriptionPage();
 	}
 
-	function purgeDescriptionPage() {
+	private function purgeDescriptionPage() {
 		$services = MediaWikiServices::getInstance();
 		$url = $this->repo->getDescriptionRenderUrl(
-			$this->getName(), $services->getContentLanguage()->getCode() );
-		$key = $this->repo->getLocalCacheKey( 'RemoteFileDescription', 'url', md5( $url ) );
+			$this->getName(),
+			$services->getContentLanguage()->getCode()
+		);
 
+		$key = $this->repo->getLocalCacheKey( 'file-remote-description', md5( $url ) );
 		$services->getMainWANObjectCache()->delete( $key );
 	}
 
 	/**
 	 * @param array $options
 	 */
-	function purgeThumbnails( $options = [] ) {
-		$key = $this->repo->getLocalCacheKey( 'ForeignAPIRepo', 'ThumbUrl', $this->getName() );
+	public function purgeThumbnails( $options = [] ) {
+		$key = $this->repo->getLocalCacheKey( 'file-thumb-url', sha1( $this->getName() ) );
 		MediaWikiServices::getInstance()->getMainWANObjectCache()->delete( $key );
 
 		$files = $this->getThumbnails();

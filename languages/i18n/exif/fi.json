@@ -12,7 +12,8 @@
 			"Str4nd",
 			"Surjection",
 			"Tarmo",
-			"Wix"
+			"Wix",
+			"MITO"
 		]
 	},
 	"exif-imagewidth": "Leveys",
@@ -203,7 +204,6 @@
 	"exif-photometricinterpretation-3": "Paletti",
 	"exif-photometricinterpretation-4": "Läpinäkyvyysmaski",
 	"exif-photometricinterpretation-5": "Erotettu (luultavasti CMYK)",
-	"exif-photometricinterpretation-8": "CIE L*a*b*",
 	"exif-photometricinterpretation-9": "CIE L*a*b* (ICC-koodaus)",
 	"exif-photometricinterpretation-10": "CIE L*a*b* (ITU-koodaus)",
 	"exif-unknowndate": "Tuntematon päiväys",
@@ -276,6 +276,11 @@
 	"exif-scenetype-1": "Suoraan valokuvattu kuva",
 	"exif-customrendered-0": "Normaali käsittely",
 	"exif-customrendered-1": "Muokattu käsittely",
+	"exif-customrendered-2": "HDR (alkuperäistä ei tallennettu)",
+	"exif-customrendered-3": "HDR (alkuperäinen tallennettu)",
+	"exif-customrendered-4": "Alkuperäinen (HDR:lle)",
+	"exif-customrendered-6": "Panoraama",
+	"exif-customrendered-8": "Muotokuva",
 	"exif-exposuremode-0": "Automaattinen valotus",
 	"exif-exposuremode-1": "Käsinsäädetty valotus",
 	"exif-exposuremode-2": "Automaattinen haarukointi",
@@ -361,5 +366,11 @@
 	"exif-urgency-normal": "Tavallinen ($1)",
 	"exif-urgency-low": "Matala ($1)",
 	"exif-urgency-high": "Korkea ($1)",
-	"exif-urgency-other": "Käyttäjän määrittelemä prioriteetti ($1)"
+	"exif-urgency-other": "Käyttäjän määrittelemä prioriteetti ($1)",
+	"exif-firstphotodate": "Ensimmäisen kuvan päiväys",
+	"exif-lastphotodate": "Viimeisimmän kuvan päiväys",
+	"exif-usepanoramaviewer-true": "Kyllä",
+	"exif-usepanoramaviewer-false": "Ei",
+	"exif-exposurelockused-true": "Kyllä",
+	"exif-exposurelockused-false": "Ei"
 }

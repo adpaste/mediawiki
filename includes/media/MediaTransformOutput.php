@@ -24,6 +24,7 @@
 /**
  * Base class for the output of MediaHandler::doTransform() and File::transform().
  *
+ * @stable to extend
  * @ingroup Media
  */
 abstract class MediaTransformOutput {
@@ -80,6 +81,8 @@ abstract class MediaTransformOutput {
 	/**
 	 * Get the final extension of the thumbnail.
 	 * Returns false for scripted transformations.
+	 * @stable to override
+	 *
 	 * @return string|bool
 	 */
 	public function getExtension() {
@@ -87,6 +90,8 @@ abstract class MediaTransformOutput {
 	}
 
 	/**
+	 * @stable to override
+	 *
 	 * @return string|bool The thumbnail URL
 	 */
 	public function getUrl() {
@@ -94,6 +99,8 @@ abstract class MediaTransformOutput {
 	}
 
 	/**
+	 * @stable to override
+	 *
 	 * @return string|bool The permanent thumbnail storage path
 	 */
 	public function getStoragePath() {
@@ -101,6 +108,8 @@ abstract class MediaTransformOutput {
 	}
 
 	/**
+	 * @stable to override
+	 *
 	 * @param string $storagePath The permanent storage path
 	 * @return void
 	 */
@@ -202,7 +211,8 @@ abstract class MediaTransformOutput {
 			return Status::newFatal( 'backend-fail-stream', '<no path>' );
 		} elseif ( FileBackend::isStoragePath( $this->path ) ) {
 			$be = $this->file->getRepo()->getBackend();
-			return $be->streamFile( [ 'src' => $this->path, 'headers' => $headers ] );
+			return Status::wrap(
+				$be->streamFile( [ 'src' => $this->path, 'headers' => $headers ] ) );
 		} else { // FS-file
 			$success = StreamFile::stream( $this->getLocalCopyPath(), $headers );
 			return $success ? Status::newGood() : Status::newFatal( 'backend-fail-stream', $this->path );
@@ -222,6 +232,7 @@ abstract class MediaTransformOutput {
 
 	/**
 	 * Wrap some XHTML text in an anchor tag with the given attributes
+	 * or, fallback to a span in the absence thereof.
 	 *
 	 * @param array $linkAttribs
 	 * @param string $contents
@@ -231,7 +242,12 @@ abstract class MediaTransformOutput {
 		if ( $linkAttribs ) {
 			return Xml::tags( 'a', $linkAttribs, $contents );
 		} else {
-			return $contents;
+			global $wgParserEnableLegacyMediaDOM;
+			if ( $wgParserEnableLegacyMediaDOM ) {
+				return $contents;
+			} else {
+				return Xml::tags( 'span', null, $contents );
+			}
 		}
 	}
 
@@ -259,8 +275,13 @@ abstract class MediaTransformOutput {
 
 		$attribs = [
 			'href' => $this->file->getTitle()->getLocalURL( $query ),
-			'class' => 'image',
 		];
+
+		global $wgParserEnableLegacyMediaDOM;
+		if ( $wgParserEnableLegacyMediaDOM ) {
+			$attribs['class'] = 'image';
+		}
+
 		if ( $title ) {
 			$attribs['title'] = $title;
 		}

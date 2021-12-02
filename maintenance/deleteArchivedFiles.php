@@ -23,6 +23,8 @@
  * @ingroup Maintenance
  */
 
+use MediaWiki\MediaWikiServices;
+
 require_once __DIR__ . '/Maintenance.php';
 
 /**
@@ -45,9 +47,9 @@ class DeleteArchivedFiles extends Maintenance {
 		}
 
 		# Data should come off the master, wrapped in a transaction
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		$this->beginTransaction( $dbw, __METHOD__ );
-		$repo = RepoGroup::singleton()->getLocalRepo();
+		$repo = MediaWikiServices::getInstance()->getRepoGroup()->getLocalRepo();
 
 		# Get "active" revisions from the filearchive table
 		$this->output( "Searching for and deleting archived files...\n" );
@@ -66,7 +68,6 @@ class DeleteArchivedFiles extends Maintenance {
 				continue;
 			}
 
-			/** @var LocalFile $file */
 			$file = $repo->newFile( $row->fa_name );
 			try {
 				$file->lock();
@@ -87,9 +88,7 @@ class DeleteArchivedFiles extends Maintenance {
 			}
 
 			// Check if the file is used anywhere...
-			$inuse = $dbw->selectField(
-				'oldimage',
-				'1',
+			$inuse = (bool)$dbw->selectField( 'oldimage', '1',
 				[
 					'oi_sha1' => $sha1,
 					$dbw->bitAnd( 'oi_deleted', File::DELETED_FILE ) => File::DELETED_FILE
@@ -106,7 +105,9 @@ class DeleteArchivedFiles extends Maintenance {
 			} elseif ( !$repo->quickPurge( $path ) ) {
 				$this->output( "Unable to remove file $path, skipping\n" );
 				$file->unlock();
-				continue; // don't delete even with --force
+
+				// don't delete even with --force
+				continue;
 			} else {
 				$needForce = false;
 			}

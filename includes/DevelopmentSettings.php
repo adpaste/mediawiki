@@ -14,7 +14,7 @@
  */
 
 /**
- * Debugging: PHP
+ * Debugging for PHP
  */
 
 // Enable showing of errors
@@ -22,11 +22,12 @@ error_reporting( -1 );
 ini_set( 'display_errors', 1 );
 
 /**
- * Debugging: MediaWiki
+ * Debugging for MediaWiki
  */
+
 global $wgDevelopmentWarnings, $wgShowExceptionDetails, $wgShowHostnames,
-	$wgDebugRawPage, $wgDebugComments, $wgDebugDumpSql, $wgDebugTimestamps,
-	$wgCommandLineMode, $wgDebugLogFile, $wgDBerrorLog, $wgDebugLogGroups;
+	$wgDebugRawPage, $wgCommandLineMode, $wgDebugLogFile,
+	$wgDBerrorLog, $wgDebugLogGroups;
 
 // Use of wfWarn() should cause tests to fail
 $wgDevelopmentWarnings = true;
@@ -35,9 +36,6 @@ $wgDevelopmentWarnings = true;
 $wgShowExceptionDetails = true;
 $wgShowHostnames = true;
 $wgDebugRawPage = true; // T49960
-
-// Enable MariaDB/MySQL strict mode
-$wgSQLMode = 'TRADITIONAL';
 
 // Enable log files
 $logDir = getenv( 'MW_LOG_DIR' );
@@ -49,10 +47,63 @@ if ( $logDir ) {
 	}
 	$wgDBerrorLog = "$logDir/mw-dberror.log";
 	$wgDebugLogGroups['ratelimit'] = "$logDir/mw-ratelimit.log";
-	$wgDebugLogGroups['exception'] = "$logDir/mw-exception.log";
 	$wgDebugLogGroups['error'] = "$logDir/mw-error.log";
+	$wgDebugLogGroups['exception'] = "$logDir/mw-error.log";
 }
 unset( $logDir );
 
 // Disable rate-limiting
 $wgRateLimits = [];
+
+/**
+ * Make testing possible (or easier)
+ */
+
+global $wgRateLimits, $wgEnableJavaScriptTest, $wgRestAPIAdditionalRouteFiles;
+
+// Set almost infinite rate limits. This allows integration tests to run unthrottled
+// in CI and for devs locally (T225796), but doesn't turn a large chunk of production
+// code completely off during testing (T284804)
+foreach ( $wgRateLimits as $right => &$limit ) {
+	foreach ( $limit as $group => &$groupLimit ) {
+		$groupLimit[0] = PHP_INT_MAX;
+	}
+}
+
+// Enable Special:JavaScriptTest and allow `npm run qunit` to work
+// https://www.mediawiki.org/wiki/Manual:JavaScript_unit_testing
+$wgEnableJavaScriptTest = true;
+
+// Enable development/experimental endpoints
+$wgRestAPIAdditionalRouteFiles = [ 'includes/Rest/coreDevelopmentRoutes.json' ];
+
+/**
+ * Experimental changes that may later become the default.
+ * (Must reference a Phabricator ticket)
+ */
+
+global $wgSQLMode, $wgLocalisationCacheConf,
+	$wgCacheDirectory, $wgEnableUploads, $wgCiteBookReferencing;
+
+// Enable MariaDB/MySQL strict mode (T108255)
+$wgSQLMode = 'TRADITIONAL';
+
+// Localisation Cache to StaticArray (T218207)
+$wgLocalisationCacheConf['store'] = 'array';
+
+// Experimental Book Referencing feature (T236255)
+$wgCiteBookReferencing = true;
+
+// The default value is false, but for development it is useful to set this to the system temp
+// directory by default (T218207)
+$wgCacheDirectory = TempFSFile::getUsableTempDirectory() .
+	DIRECTORY_SEPARATOR .
+	rawurlencode( WikiMap::getCurrentWikiId() );
+
+// Enable uploads for FileImporter browser tests (T190829)
+$wgEnableUploads = true;
+
+// Enable the new wikitext mode for browser testing (T270240)
+$wgVisualEditorEnableWikitext = true;
+// Currently the default, but repeated here for safety since it would break many source editor tests.
+$wgDefaultUserOptions['visualeditor-newwikitext'] = 0;

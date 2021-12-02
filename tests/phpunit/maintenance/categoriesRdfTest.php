@@ -58,25 +58,24 @@ class CategoriesRdfTest extends MediaWikiLangTestCase {
 			'wgServer' => 'http://acme.test',
 			'wgCanonicalServer' => 'http://acme.test',
 			'wgArticlePath' => '/wiki/$1',
-			'wgRightsUrl' => '//creativecommons.org/licenses/by-sa/3.0/',
+			'wgRightsUrl' => 'https://creativecommons.org/licenses/by-sa/3.0/',
 		] );
 
 		$dumpScript =
 			$this->getMockBuilder( DumpCategoriesAsRdf::class )
-				->setMethods( [ 'getCategoryIterator', 'getCategoryLinksIterator' ] )
+				->onlyMethods( [ 'getCategoryIterator', 'getCategoryLinksIterator' ] )
 				->getMock();
 
 		$dumpScript->expects( $this->once() )
 			->method( 'getCategoryIterator' )
 			->willReturn( $this->getCategoryIterator() );
 
-		$dumpScript->expects( $this->any() )
-			->method( 'getCategoryLinksIterator' )
+		$dumpScript->method( 'getCategoryLinksIterator' )
 			->willReturnCallback( [ $this, 'getCategoryLinksIterator' ] );
 
-		/** @var DumpCategoriesAsRdf  $dumpScript */
-		$logFileName = tempnam( sys_get_temp_dir(), "Categories-DumpRdfTest" );
-		$outFileName = tempnam( sys_get_temp_dir(), "Categories-DumpRdfTest" );
+		/** @var DumpCategoriesAsRdf $dumpScript */
+		$logFileName = $this->getNewTempFile();
+		$outFileName = $this->getNewTempFile();
 
 		$dumpScript->loadParamsAndArgs(
 			null,

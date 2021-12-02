@@ -30,21 +30,27 @@ use MediaWiki\MediaWikiServices;
  * @ingroup SpecialPage
  */
 class ImportStreamSource implements ImportSource {
-	function __construct( $handle ) {
+	/** @var resource */
+	private $mHandle;
+
+	/**
+	 * @param resource $handle
+	 */
+	public function __construct( $handle ) {
 		$this->mHandle = $handle;
 	}
 
 	/**
 	 * @return bool
 	 */
-	function atEnd() {
+	public function atEnd() {
 		return feof( $this->mHandle );
 	}
 
 	/**
 	 * @return string
 	 */
-	function readChunk() {
+	public function readChunk() {
 		return fread( $this->mHandle, 32768 );
 	}
 
@@ -52,7 +58,7 @@ class ImportStreamSource implements ImportSource {
 	 * @param string $filename
 	 * @return Status
 	 */
-	static function newFromFile( $filename ) {
+	public static function newFromFile( $filename ) {
 		Wikimedia\suppressWarnings();
 		$file = fopen( $filename, 'rt' );
 		Wikimedia\restoreWarnings();
@@ -66,7 +72,7 @@ class ImportStreamSource implements ImportSource {
 	 * @param string $fieldname
 	 * @return Status
 	 */
-	static function newFromUpload( $fieldname = "xmlimport" ) {
+	public static function newFromUpload( $fieldname = "xmlimport" ) {
 		$upload =& $_FILES[$fieldname];
 
 		if ( $upload === null || !$upload['name'] ) {
@@ -105,14 +111,14 @@ class ImportStreamSource implements ImportSource {
 	 * @param string $method
 	 * @return Status
 	 */
-	static function newFromURL( $url, $method = 'GET' ) {
+	public static function newFromURL( $url, $method = 'GET' ) {
 		global $wgHTTPImportTimeout;
-		wfDebug( __METHOD__ . ": opening $url\n" );
+		wfDebug( __METHOD__ . ": opening $url" );
 		# Use the standard HTTP fetch function; it times out
 		# quicker and sorts out user-agent problems which might
 		# otherwise prevent importing from large sites, such
 		# as the Wikimedia cluster, etc.
-		$data = Http::request(
+		$data = MediaWikiServices::getInstance()->getHttpRequestFactory()->request(
 			$method,
 			$url,
 			[

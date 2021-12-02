@@ -10,13 +10,14 @@
 		// (This function could be changed to infuse and check OOUI widgets, but that would only make it
 		// slower and more complicated. It works fine to treat them as HTML elements.)
 		function isPrefsChanged() {
-			var inputs = $( '#mw-prefs-form :input[name]' ),
+			// eslint-disable-next-line no-jquery/no-sizzle
+			var $inputs = $( '#mw-prefs-form :input[name]' ),
 				input, $input, inputType,
 				index, optIndex,
 				opt;
 
-			for ( index = 0; index < inputs.length; index++ ) {
-				input = inputs[ index ];
+			for ( index = 0; index < $inputs.length; index++ ) {
+				input = $inputs[ index ];
 				$input = $( input );
 
 				// Different types of inputs have different methods for accessing defaults
@@ -68,8 +69,7 @@
 		// saving.
 		allowCloseWindow = mw.confirmCloseWindow( {
 			test: isPrefsChanged,
-			message: mw.msg( 'prefswarning-warning', mw.msg( 'saveprefs' ) ),
-			namespace: 'prefswarning'
+			message: mw.msg( 'prefswarning-warning', mw.msg( 'saveprefs' ) )
 		} );
 		$( '#mw-prefs-form' ).on( 'submit', allowCloseWindow.release );
 		restoreButton.on( 'click', function () {

@@ -20,10 +20,37 @@
  * @file
  */
 
+use MediaWiki\Permissions\Authority;
+use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\Watchlist\WatchlistManager;
+
 /**
  * @ingroup API
  */
 class ApiUndelete extends ApiBase {
+
+	use ApiWatchlistTrait;
+
+	/**
+	 * @param ApiMain $mainModule
+	 * @param string $moduleName
+	 * @param WatchlistManager $watchlistManager
+	 * @param UserOptionsLookup $userOptionsLookup
+	 */
+	public function __construct(
+		ApiMain $mainModule,
+		$moduleName,
+		WatchlistManager $watchlistManager,
+		UserOptionsLookup $userOptionsLookup
+	) {
+		parent::__construct( $mainModule, $moduleName );
+
+		// Variables needed in ApiWatchlistTrait trait
+		$this->watchlistExpiryEnabled = $this->getConfig()->get( 'WatchlistExpiry' );
+		$this->watchlistMaxDuration = $this->getConfig()->get( 'WatchlistExpiryMaxDuration' );
+		$this->watchlistManager = $watchlistManager;
+		$this->userOptionsLookup = $userOptionsLookup;
+	}
 
 	public function execute() {
 		$this->useTransactionalTimeLimit();
@@ -31,9 +58,9 @@ class ApiUndelete extends ApiBase {
 		$params = $this->extractRequestParams();
 
 		$user = $this->getUser();
-		$block = $user->getBlock();
+		$block = $user->getBlock( Authority::READ_LATEST );
 		if ( $block && $block->isSitewide() ) {
-			$this->dieBlocked( $user->getBlock() );
+			$this->dieBlocked( $block );
 		}
 
 		$titleObj = Title::newFromText( $params['title'] );
@@ -41,13 +68,13 @@ class ApiUndelete extends ApiBase {
 			$this->dieWithError( [ 'apierror-invalidtitle', wfEscapeWikiText( $params['title'] ) ] );
 		}
 
-		if ( !$titleObj->userCan( 'undelete', $user, 'secure' ) ) {
+		if ( !$this->getAuthority()->authorizeWrite( 'undelete', $titleObj ) ) {
 			$this->dieWithError( 'permdenied-undelete' );
 		}
 
 		// Check if user can add tags
-		if ( !is_null( $params['tags'] ) ) {
-			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $user );
+		if ( $params['tags'] !== null ) {
+			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $this->getAuthority() );
 			if ( !$ableToTag->isOK() ) {
 				$this->dieStatus( $ableToTag );
 			}
@@ -65,12 +92,12 @@ class ApiUndelete extends ApiBase {
 		}
 
 		$pa = new PageArchive( $titleObj, $this->getConfig() );
-		$retval = $pa->undelete(
+		$retval = $pa->undeleteAsUser(
 			( $params['timestamps'] ?? [] ),
+			$user,
 			$params['reason'],
 			$params['fileids'],
 			false,
-			$user,
 			$params['tags']
 		);
 		if ( !is_array( $retval ) ) {
@@ -78,16 +105,20 @@ class ApiUndelete extends ApiBase {
 		}
 
 		if ( $retval[1] ) {
-			Hooks::run( 'FileUndeleteComplete',
-				[ $titleObj, $params['fileids'], $this->getUser(), $params['reason'] ] );
+			$this->getHookRunner()->onFileUndeleteComplete(
+				$titleObj, $params['fileids'],
+				$this->getUser(), $params['reason'] );
 		}
 
-		$this->setWatch( $params['watchlist'], $titleObj );
+		$watchlistExpiry = $this->getExpiryFromParams( $params );
+		$this->setWatch( $params['watchlist'], $titleObj, $user, null, $watchlistExpiry );
 
-		$info['title'] = $titleObj->getPrefixedText();
-		$info['revisions'] = (int)$retval[0];
-		$info['fileversions'] = (int)$retval[1];
-		$info['reason'] = $retval[2];
+		$info = [
+			'title' => $titleObj->getPrefixedText(),
+			'revisions' => (int)$retval[0],
+			'fileversions' => (int)$retval[1],
+			'reason' => $retval[2]
+		];
 		$this->getResult()->addValue( null, $this->getModuleName(), $info );
 	}
 
@@ -118,16 +149,7 @@ class ApiUndelete extends ApiBase {
 				ApiBase::PARAM_TYPE => 'integer',
 				ApiBase::PARAM_ISMULTI => true,
 			],
-			'watchlist' => [
-				ApiBase::PARAM_DFLT => 'preferences',
-				ApiBase::PARAM_TYPE => [
-					'watch',
-					'unwatch',
-					'preferences',
-					'nochange'
-				],
-			],
-		];
+		] + $this->getWatchlistParams();
 	}
 
 	public function needsToken() {

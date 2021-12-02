@@ -49,8 +49,16 @@
 			.length;
 	}
 
-	// Like String#charAt, but return the pair of UTF-16 surrogates for characters outside of BMP.
-	function codePointAt( string, offset, backwards ) {
+	/**
+	 * Like String#charAt, but return the pair of UTF-16 surrogates for characters outside of BMP.
+	 *
+	 * @param {string} string
+	 * @param {number} offset Offset to extract the character
+	 * @param {boolean} [backwards] Use backwards direction to detect UTF-16 surrogates,
+	 *                              defaults to false
+	 * @return {string}
+	 */
+	function charAt( string, offset, backwards ) {
 		// We don't need to check for offsets at the beginning or end of string,
 		// String#slice will simply return a shorter (or empty) substring.
 		var maybePair = backwards ?
@@ -94,8 +102,8 @@
 		// Count same characters from the left, first.
 		// (if "foo" -> "foofoo", assume addition was at the end).
 		while ( startMatches < matchesLen ) {
-			oldChar = codePointAt( oldVal, startMatches, false );
-			newChar = codePointAt( newVal, startMatches, false );
+			oldChar = charAt( oldVal, startMatches, false );
+			newChar = charAt( newVal, startMatches, false );
 			if ( oldChar !== newChar ) {
 				break;
 			}
@@ -103,8 +111,8 @@
 		}
 
 		while ( endMatches < ( matchesLen - startMatches ) ) {
-			oldChar = codePointAt( oldVal, oldVal.length - 1 - endMatches, true );
-			newChar = codePointAt( newVal, newVal.length - 1 - endMatches, true );
+			oldChar = charAt( oldVal, oldVal.length - 1 - endMatches, true );
+			newChar = charAt( newVal, newVal.length - 1 - endMatches, true );
 			if ( oldChar !== newChar ) {
 				break;
 			}
@@ -148,16 +156,16 @@
 	 * function, if none, pass empty string.
 	 * @param {string} newVal New value that may have to be trimmed down.
 	 * @param {number} byteLimit Number of bytes the value may be in size.
-	 * @param {Function} [filterFn] Function to call on the string before assessing the length.
+	 * @param {Function} [filterFunction] Function to call on the string before assessing the length.
 	 * @return {Object}
 	 * @return {string} return.newVal
 	 * @return {boolean} return.trimmed
 	 */
-	function trimByteLength( safeVal, newVal, byteLimit, filterFn ) {
+	function trimByteLength( safeVal, newVal, byteLimit, filterFunction ) {
 		var lengthFn;
-		if ( filterFn ) {
+		if ( filterFunction ) {
 			lengthFn = function ( val ) {
-				return byteLength( filterFn( val ) );
+				return byteLength( filterFunction( val ) );
 			};
 		} else {
 			lengthFn = byteLength;
@@ -177,16 +185,16 @@
 	 * function, if none, pass empty string.
 	 * @param {string} newVal New value that may have to be trimmed down.
 	 * @param {number} codePointLimit Number of characters the value may be in size.
-	 * @param {Function} [filterFn] Function to call on the string before assessing the length.
+	 * @param {Function} [filterFunction] Function to call on the string before assessing the length.
 	 * @return {Object}
 	 * @return {string} return.newVal
 	 * @return {boolean} return.trimmed
 	 */
-	function trimCodePointLength( safeVal, newVal, codePointLimit, filterFn ) {
+	function trimCodePointLength( safeVal, newVal, codePointLimit, filterFunction ) {
 		var lengthFn;
-		if ( filterFn ) {
+		if ( filterFunction ) {
 			lengthFn = function ( val ) {
-				return codePointLength( filterFn( val ) );
+				return codePointLength( filterFunction( val ) );
 			};
 		} else {
 			lengthFn = codePointLength;
@@ -198,6 +206,7 @@
 	module.exports = {
 		byteLength: byteLength,
 		codePointLength: codePointLength,
+		charAt: charAt,
 		trimByteLength: trimByteLength,
 		trimCodePointLength: trimCodePointLength
 	};

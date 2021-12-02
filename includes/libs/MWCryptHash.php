@@ -33,8 +33,8 @@ class MWCryptHash {
 	 * The number of bytes outputted by the hash algorithm
 	 */
 	protected static $hashLength = [
-		true => null,
-		false => null,
+		'binary' => null,
+		'hex' => null,
 	];
 
 	/**
@@ -42,7 +42,7 @@ class MWCryptHash {
 	 * @return string A hash algorithm
 	 */
 	public static function hashAlgo() {
-		if ( !is_null( self::$algo ) ) {
+		if ( self::$algo !== null ) {
 			return self::$algo;
 		}
 
@@ -74,12 +74,12 @@ class MWCryptHash {
 	 * @return int Number of bytes the hash outputs
 	 */
 	public static function hashLength( $raw = true ) {
-		$raw = (bool)$raw;
-		if ( is_null( self::$hashLength[$raw] ) ) {
-			self::$hashLength[$raw] = strlen( self::hash( '', $raw ) );
+		$key = $raw ? 'binary' : 'hex';
+		if ( self::$hashLength[$key] === null ) {
+			self::$hashLength[$key] = strlen( self::hash( '', $raw ) );
 		}
 
-		return self::$hashLength[$raw];
+		return self::$hashLength[$key];
 	}
 
 	/**
@@ -105,7 +105,7 @@ class MWCryptHash {
 	 */
 	public static function hmac( $data, $key, $raw = true ) {
 		if ( !is_string( $key ) ) {
-			// a fatal error in HHVM; an exception will at least give us a stack trace
+			// hash_hmac tolerates non-string (would return null with warning)
 			throw new InvalidArgumentException( 'Invalid key type: ' . gettype( $key ) );
 		}
 		return hash_hmac( self::hashAlgo(), $data, $key, $raw );

@@ -20,15 +20,43 @@
  * @file
  */
 
+use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\Watchlist\WatchlistManager;
+
 /**
  * @ingroup API
  */
 class ApiProtect extends ApiBase {
+
+	use ApiWatchlistTrait;
+
+	/**
+	 * @param ApiMain $mainModule
+	 * @param string $moduleName
+	 * @param WatchlistManager $watchlistManager
+	 * @param UserOptionsLookup $userOptionsLookup
+	 */
+	public function __construct(
+		ApiMain $mainModule,
+		$moduleName,
+		WatchlistManager $watchlistManager,
+		UserOptionsLookup $userOptionsLookup
+	) {
+		parent::__construct( $mainModule, $moduleName );
+
+		// Variables needed in ApiWatchlistTrait trait
+		$this->watchlistExpiryEnabled = $this->getConfig()->get( 'WatchlistExpiry' );
+		$this->watchlistMaxDuration = $this->getConfig()->get( 'WatchlistExpiryMaxDuration' );
+		$this->watchlistManager = $watchlistManager;
+		$this->userOptionsLookup = $userOptionsLookup;
+	}
+
 	public function execute() {
 		$params = $this->extractRequestParams();
 
 		$pageObj = $this->getTitleOrPageId( $params, 'fromdbmaster' );
 		$titleObj = $pageObj->getTitle();
+		$this->getErrorFormatter()->setContextTitle( $titleObj );
 
 		$this->checkTitleUserPermissions( $titleObj, 'protect' );
 
@@ -36,8 +64,8 @@ class ApiProtect extends ApiBase {
 		$tags = $params['tags'];
 
 		// Check if user can add tags
-		if ( !is_null( $tags ) ) {
-			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $tags, $user );
+		if ( $tags !== null ) {
+			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $tags, $this->getAuthority() );
 			if ( !$ableToTag->isOK() ) {
 				$this->dieStatus( $ableToTag );
 			}
@@ -57,7 +85,7 @@ class ApiProtect extends ApiBase {
 		}
 
 		$restrictionTypes = $titleObj->getRestrictionTypes();
-		$levels = MWNamespace::getRestrictionLevels(
+		$levels = $this->getPermissionManager()->getNamespaceRestrictionLevels(
 			$titleObj->getNamespace(),
 			$user
 		);
@@ -106,7 +134,8 @@ class ApiProtect extends ApiBase {
 		$cascade = $params['cascade'];
 
 		$watch = $params['watch'] ? 'watch' : $params['watchlist'];
-		$this->setWatch( $watch, $titleObj, 'watchdefault' );
+		$watchlistExpiry = $this->getExpiryFromParams( $params );
+		$this->setWatch( $watch, $titleObj, $user, 'watchdefault', $watchlistExpiry );
 
 		$status = $pageObj->doUpdateRestrictions(
 			$protections,
@@ -168,16 +197,7 @@ class ApiProtect extends ApiBase {
 				ApiBase::PARAM_DFLT => false,
 				ApiBase::PARAM_DEPRECATED => true,
 			],
-			'watchlist' => [
-				ApiBase::PARAM_DFLT => 'preferences',
-				ApiBase::PARAM_TYPE => [
-					'watch',
-					'unwatch',
-					'preferences',
-					'nochange'
-				],
-			],
-		];
+		] + $this->getWatchlistParams();
 	}
 
 	public function needsToken() {

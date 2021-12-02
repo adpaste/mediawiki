@@ -6,8 +6,8 @@ use MediaWiki\Logger\LegacyLogger;
  * @group Database
  * @group GlobalFunctions
  */
-class GlobalTest extends MediaWikiTestCase {
-	protected function setUp() {
+class GlobalTest extends MediaWikiIntegrationTestCase {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$readOnlyFile = $this->getNewTempFile();
@@ -74,12 +74,8 @@ class GlobalTest extends MediaWikiTestCase {
 		$this->assertFalse(
 			wfRandomString() == wfRandomString()
 		);
-		$this->assertEquals(
-			strlen( wfRandomString( 10 ) ), 10
-		);
-		$this->assertTrue(
-			preg_match( '/^[0-9a-f]+$/i', wfRandomString() ) === 1
-		);
+		$this->assertSame( 10, strlen( wfRandomString( 10 ) ), 'length' );
+		$this->assertSame( 1, preg_match( '/^[0-9a-f]+$/i', wfRandomString() ), 'pattern' );
 	}
 
 	/**
@@ -124,9 +120,6 @@ class GlobalTest extends MediaWikiTestCase {
 		fwrite( $f, 'Message' );
 		fclose( $f );
 
-		// Reset the service to avoid cached results
-		$this->overrideMwServices();
-
 		$this->assertTrue( wfReadOnly() );
 		$this->assertTrue( wfReadOnly() ); # Check cached
 	}
@@ -141,7 +134,6 @@ class GlobalTest extends MediaWikiTestCase {
 		$this->setMwGlobals( [
 			'wgReadOnly' => 'reason'
 		] );
-		$this->overrideMwServices();
 
 		$this->assertSame( 'reason', wfReadOnlyReason() );
 	}
@@ -268,90 +260,31 @@ class GlobalTest extends MediaWikiTestCase {
 	}
 
 	/**
-	 * @covers ::wfNegotiateType
-	 */
-	public function testNegotiateType() {
-		$this->assertEquals(
-			'text/html',
-			wfNegotiateType(
-				[ 'application/xhtml+xml' => 1.0,
-					'text/html' => 0.7,
-					'text/plain' => 0.5,
-					'text/*' => 0.2 ],
-				[ 'text/html' => 1.0 ] ) );
-		$this->assertEquals(
-			'application/xhtml+xml',
-			wfNegotiateType(
-				[ 'application/xhtml+xml' => 1.0,
-					'text/html' => 0.7,
-					'text/plain' => 0.5,
-					'text/*' => 0.2 ],
-				[ 'application/xhtml+xml' => 1.0,
-					'text/html' => 0.5 ] ) );
-		$this->assertEquals(
-			'text/html',
-			wfNegotiateType(
-				[ 'text/html' => 1.0,
-					'text/plain' => 0.5,
-					'text/*' => 0.5,
-					'application/xhtml+xml' => 0.2 ],
-				[ 'application/xhtml+xml' => 1.0,
-					'text/html' => 0.5 ] ) );
-		$this->assertEquals(
-			'text/html',
-			wfNegotiateType(
-				[ 'text/*' => 1.0,
-					'image/*' => 0.7,
-					'*/*' => 0.3 ],
-				[ 'application/xhtml+xml' => 1.0,
-					'text/html' => 0.5 ] ) );
-		$this->assertNull(
-			wfNegotiateType(
-				[ 'text/*' => 1.0 ],
-				[ 'application/xhtml+xml' => 1.0 ] ) );
-	}
-
-	/**
 	 * @covers ::wfDebug
-	 * @covers ::wfDebugMem
 	 */
 	public function testDebugFunctionTest() {
 		$debugLogFile = $this->getNewTempFile();
 
 		$this->setMwGlobals( [
 			'wgDebugLogFile' => $debugLogFile,
-			#  @todo FIXME: $wgDebugTimestamps should be tested
-			'wgDebugTimestamps' => false,
 		] );
 		$this->setLogger( 'wfDebug', new LegacyLogger( 'wfDebug' ) );
 
+		unlink( $debugLogFile );
 		wfDebug( "This is a normal string" );
 		$this->assertEquals( "This is a normal string\n", file_get_contents( $debugLogFile ) );
-		unlink( $debugLogFile );
 
+		unlink( $debugLogFile );
 		wfDebug( "This is nöt an ASCII string" );
 		$this->assertEquals( "This is nöt an ASCII string\n", file_get_contents( $debugLogFile ) );
-		unlink( $debugLogFile );
 
+		unlink( $debugLogFile );
 		wfDebug( "\00305This has böth UTF and control chars\003" );
 		$this->assertEquals(
 			" 05This has böth UTF and control chars \n",
 			file_get_contents( $debugLogFile )
 		);
-		unlink( $debugLogFile );
 
-		wfDebugMem();
-		$this->assertGreaterThan(
-			1000,
-			preg_replace( '/\D/', '', file_get_contents( $debugLogFile ) )
-		);
-		unlink( $debugLogFile );
-
-		wfDebugMem( true );
-		$this->assertGreaterThan(
-			1000000,
-			preg_replace( '/\D/', '', file_get_contents( $debugLogFile ) )
-		);
 		unlink( $debugLogFile );
 	}
 
@@ -390,29 +323,28 @@ class GlobalTest extends MediaWikiTestCase {
 
 	/**
 	 * @covers ::wfPercent
+	 * @dataProvider provideWfPercentTest
 	 */
-	public function testWfPercentTest() {
-		$pcts = [
+	public function testWfPercentTest( float $input,
+		string $expected,
+		int $accuracy = 2,
+		bool $round = true
+	) {
+		$this->assertSame( $expected, wfPercent( $input, $accuracy, $round ) );
+	}
+
+	public function provideWfPercentTest() {
+		return [
 			[ 6 / 7, '0.86%', 2, false ],
 			[ 3 / 3, '1%' ],
 			[ 22 / 7, '3.14286%', 5 ],
 			[ 3 / 6, '0.5%' ],
 			[ 1 / 3, '0%', 0 ],
 			[ 10 / 3, '0%', -1 ],
+			[ 123.456, '120%', -1 ],
 			[ 3 / 4 / 5, '0.1%', 1 ],
 			[ 6 / 7 * 8, '6.8571428571%', 10 ],
 		];
-
-		foreach ( $pcts as $pct ) {
-			if ( !isset( $pct[2] ) ) {
-				$pct[2] = 2;
-			}
-			if ( !isset( $pct[3] ) ) {
-				$pct[3] = true;
-			}
-
-			$this->assertEquals( wfPercent( $pct[0], $pct[2], $pct[3] ), $pct[1], $pct[1] );
-		}
 	}
 
 	/**
@@ -482,8 +414,8 @@ class GlobalTest extends MediaWikiTestCase {
 		$mergedText = null;
 		$conflictingMerge = wfMerge( 'old', 'old and mine', 'old and yours', $mergedText );
 
-		$this->assertEquals( true, $successfulMerge );
-		$this->assertEquals( false, $conflictingMerge );
+		$this->assertTrue( $successfulMerge );
+		$this->assertFalse( $conflictingMerge );
 	}
 
 	/**
@@ -498,8 +430,9 @@ class GlobalTest extends MediaWikiTestCase {
 	 * @group medium
 	 * @covers ::wfMerge
 	 */
-	public function testMerge( $old, $mine, $yours, $expectedMergeResult, $expectedText,
-							   $expectedMergeAttemptResult ) {
+	public function testMerge(
+		$old, $mine, $yours, $expectedMergeResult, $expectedText, $expectedMergeAttemptResult
+	) {
 		$this->markTestSkippedIfNoDiff3();
 
 		$mergedText = null;
@@ -692,40 +625,6 @@ class GlobalTest extends MediaWikiTestCase {
 		);
 	}
 
-	/**
-	 * @covers ::wfMemcKey
-	 */
-	public function testWfMemcKey() {
-		$cache = ObjectCache::getLocalClusterInstance();
-		$this->assertEquals(
-			$cache->makeKey( 'foo', 123, 'bar' ),
-			wfMemcKey( 'foo', 123, 'bar' )
-		);
-	}
-
-	/**
-	 * @covers ::wfForeignMemcKey
-	 */
-	public function testWfForeignMemcKey() {
-		$cache = ObjectCache::getLocalClusterInstance();
-		$keyspace = $this->readAttribute( $cache, 'keyspace' );
-		$this->assertEquals(
-			wfForeignMemcKey( $keyspace, '', 'foo', 'bar' ),
-			$cache->makeKey( 'foo', 'bar' )
-		);
-	}
-
-	/**
-	 * @covers ::wfGlobalCacheKey
-	 */
-	public function testWfGlobalCacheKey() {
-		$cache = ObjectCache::getLocalClusterInstance();
-		$this->assertEquals(
-			$cache->makeGlobalKey( 'foo', 123, 'bar' ),
-			wfGlobalCacheKey( 'foo', 123, 'bar' )
-		);
-	}
-
 	public static function provideWfShellWikiCmdList() {
 		global $wgPhpCli;
 
@@ -748,5 +647,6 @@ class GlobalTest extends MediaWikiTestCase {
 			],
 		];
 	}
+
 	/* @todo many more! */
 }

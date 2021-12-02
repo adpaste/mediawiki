@@ -19,6 +19,11 @@
  * @ingroup Pager
  */
 
+use MediaWiki\Cache\LinkBatchFactory;
+use MediaWiki\Page\PageIdentity;
+use MediaWiki\Revision\RevisionStore;
+use Wikimedia\Rdbms\ILoadBalancer;
+
 /**
  * @ingroup Pager
  */
@@ -30,34 +35,66 @@ class MergeHistoryPager extends ReverseChronologicalPager {
 	/** @var array */
 	public $mConds;
 
-	public function __construct( SpecialMergeHistory $form, $conds, Title $source, Title $dest ) {
+	/** @var int */
+	private $articleID;
+
+	/** @var int */
+	private $maxTimestamp;
+
+	/** @var LinkBatchFactory */
+	private $linkBatchFactory;
+
+	/** @var RevisionStore */
+	private $revisionStore;
+
+	/**
+	 * @param SpecialMergeHistory $form
+	 * @param array $conds
+	 * @param PageIdentity $source
+	 * @param PageIdentity $dest
+	 * @param LinkBatchFactory $linkBatchFactory
+	 * @param ILoadBalancer $loadBalancer
+	 * @param RevisionStore $revisionStore
+	 */
+	public function __construct(
+		SpecialMergeHistory $form,
+		$conds,
+		PageIdentity $source,
+		PageIdentity $dest,
+		LinkBatchFactory $linkBatchFactory,
+		ILoadBalancer $loadBalancer,
+		RevisionStore $revisionStore
+	) {
 		$this->mForm = $form;
 		$this->mConds = $conds;
-		$this->title = $source;
-		$this->articleID = $source->getArticleID();
+		$this->articleID = $source->getId();
 
-		$dbr = wfGetDB( DB_REPLICA );
+		$dbr = $loadBalancer->getConnectionRef( ILoadBalancer::DB_REPLICA );
 		$maxtimestamp = $dbr->selectField(
 			'revision',
 			'MIN(rev_timestamp)',
-			[ 'rev_page' => $dest->getArticleID() ],
+			[ 'rev_page' => $dest->getId() ],
 			__METHOD__
 		);
 		$this->maxTimestamp = $maxtimestamp;
 
+		// Set database before parent constructor to avoid setting it there with wfGetDB
+		$this->mDb = $dbr;
 		parent::__construct( $form->getContext() );
+		$this->linkBatchFactory = $linkBatchFactory;
+		$this->revisionStore = $revisionStore;
 	}
 
 	protected function getStartBody() {
 		# Do a link batch query
 		$this->mResult->seek( 0 );
-		$batch = new LinkBatch();
+		$batch = $this->linkBatchFactory->newLinkBatch();
 		# Give some pointers to make (last) links
 		$this->mForm->prevId = [];
 		$rev_id = null;
 		foreach ( $this->mResult as $row ) {
-			$batch->addObj( Title::makeTitleSafe( NS_USER, $row->user_name ) );
-			$batch->addObj( Title::makeTitleSafe( NS_USER_TALK, $row->user_name ) );
+			$batch->add( NS_USER, $row->rev_user_text );
+			$batch->add( NS_USER_TALK, $row->rev_user_text );
 
 			if ( isset( $rev_id ) ) {
 				if ( $rev_id > $row->rev_id ) {
@@ -76,16 +113,17 @@ class MergeHistoryPager extends ReverseChronologicalPager {
 		return '';
 	}
 
-	function formatRow( $row ) {
+	public function formatRow( $row ) {
 		return $this->mForm->formatRevisionRow( $row );
 	}
 
-	function getQueryInfo() {
+	public function getQueryInfo() {
+		$dbr = $this->getDatabase();
 		$conds = $this->mConds;
 		$conds['rev_page'] = $this->articleID;
-		$conds[] = "rev_timestamp < " . $this->mDb->addQuotes( $this->maxTimestamp );
+		$conds[] = "rev_timestamp < " . $dbr->addQuotes( $this->maxTimestamp );
 
-		$revQuery = Revision::getQueryInfo( [ 'page', 'user' ] );
+		$revQuery = $this->revisionStore->getQueryInfo( [ 'page', 'user' ] );
 		return [
 			'tables' => $revQuery['tables'],
 			'fields' => $revQuery['fields'],
@@ -94,7 +132,7 @@ class MergeHistoryPager extends ReverseChronologicalPager {
 		];
 	}
 
-	function getIndexField() {
+	public function getIndexField() {
 		return 'rev_timestamp';
 	}
 }

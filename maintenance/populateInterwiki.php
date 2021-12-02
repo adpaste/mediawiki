@@ -86,7 +86,7 @@ TEXT
 			$url = rtrim( $this->source, '?' ) . '?' . $url;
 		}
 
-		$json = Http::get( $url );
+		$json = MediaWikiServices::getInstance()->getHttpRequestFactory()->get( $url, [], __METHOD__ );
 		$data = json_decode( $json, true );
 
 		if ( is_array( $data ) ) {
@@ -103,7 +103,7 @@ TEXT
 	 * @return bool
 	 */
 	protected function doPopulate( array $data, $force ) {
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 
 		if ( !$force ) {
 			$row = $dbw->selectRow(
@@ -141,7 +141,7 @@ TEXT
 						'iw_local' => 1
 					],
 					__METHOD__,
-					'IGNORE'
+					[ 'IGNORE' ]
 				);
 			}
 

@@ -9,16 +9,35 @@
 	border-collapse: collapse;
 	border-spacing: 0;
 	font-style: normal;
+
+	th,
+	td {
+		border: 1px solid #72777d;
+		/* TODO: Re-evaluate whether we should keep this over-ride or switch to ems */
+		/* stylelint-disable-next-line declaration-property-unit-disallowed-list */
+		font-size: 16px;
+		padding: 0.5em 1em;
+	}
+
+	tr {
+		background-color: #eaecf0;
+		margin-bottom: 0.5em;
+	}
+
+	th {
+		background-color: #fff;
+		font-weight: normal;
+		vertical-align: top;
+
+		span {
+			/* stylelint-disable-next-line plugin/no-unsupported-browser-features */
+			position: sticky;
+			top: 0.5em;
+		}
+	}
 }
 
-.mw-json th,
-.mw-json td {
-	border: 1px solid #72777d;
-	font-size: 16px;
-	padding: 0.5em 1em;
-}
-
-.mw-json .value,
+.mw-json-value,
 .mw-json-single-value {
 	background-color: #dcfae3;
 	font-family: monospace, monospace;
@@ -32,28 +51,4 @@
 .mw-json-empty {
 	background-color: #fff;
 	font-style: italic;
-}
-
-.mw-json tr {
-	background-color: #eaecf0;
-	margin-bottom: 0.5em;
-}
-
-.mw-json th {
-	background-color: #fff;
-	font-weight: normal;
-}
-
-.mw-json caption {
-	/* For stylistic reasons, suppress the caption of the outermost table */
-	display: none;
-}
-
-.mw-json table caption {
-	color: #72777d;
-	display: inline-block;
-	font-size: 10px;
-	font-style: italic;
-	margin-bottom: 0.5em;
-	text-align: left;
 }

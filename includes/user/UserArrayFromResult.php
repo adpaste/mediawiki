@@ -29,13 +29,13 @@ class UserArrayFromResult extends UserArray implements Countable {
 	/** @var int */
 	public $key;
 
-	/** @var bool|User */
+	/** @var User|false */
 	public $current;
 
 	/**
 	 * @param IResultWrapper $res
 	 */
-	function __construct( $res ) {
+	public function __construct( $res ) {
 		$this->res = $res;
 		$this->key = 0;
 		$this->setCurrent( $this->res->current() );
@@ -60,24 +60,21 @@ class UserArrayFromResult extends UserArray implements Countable {
 		return $this->res->numRows();
 	}
 
-	/**
-	 * @return User
-	 */
-	function current() {
+	public function current(): User {
 		return $this->current;
 	}
 
-	function key() {
+	public function key(): int {
 		return $this->key;
 	}
 
-	function next() {
+	public function next() {
 		$row = $this->res->next();
 		$this->setCurrent( $row );
 		$this->key++;
 	}
 
-	function rewind() {
+	public function rewind() {
 		$this->res->rewind();
 		$this->key = 0;
 		$this->setCurrent( $this->res->current() );
@@ -86,7 +83,7 @@ class UserArrayFromResult extends UserArray implements Countable {
 	/**
 	 * @return bool
 	 */
-	function valid() {
+	public function valid() {
 		return $this->current !== false;
 	}
 }

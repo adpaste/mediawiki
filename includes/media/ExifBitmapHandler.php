@@ -25,24 +25,23 @@
  * Stuff specific to JPEG and (built-in) TIFF handler.
  * All metadata related, since both JPEG and TIFF support Exif.
  *
+ * @stable to extend
  * @ingroup Media
  */
 class ExifBitmapHandler extends BitmapHandler {
-	const BROKEN_FILE = '-1'; // error extracting metadata
-	const OLD_BROKEN_FILE = '0'; // outdated error extracting metadata.
+	/** Error extracting metadata */
+	public const BROKEN_FILE = '-1';
 
-	function convertMetadataVersion( $metadata, $version = 1 ) {
+	/** Outdated error extracting metadata */
+	public const OLD_BROKEN_FILE = '0';
+
+	public function convertMetadataVersion( $metadata, $version = 1 ) {
 		// basically flattens arrays.
 		$version = intval( explode( ';', $version, 2 )[0] );
 		if ( $version < 1 || $version >= 2 ) {
 			return $metadata;
 		}
 
-		$avoidHtml = true;
-
-		if ( !is_array( $metadata ) ) {
-			$metadata = unserialize( $metadata );
-		}
 		if ( !isset( $metadata['MEDIAWIKI_EXIF_VERSION'] ) || $metadata['MEDIAWIKI_EXIF_VERSION'] != 2 ) {
 			return $metadata;
 		}
@@ -63,14 +62,15 @@ class ExifBitmapHandler extends BitmapHandler {
 
 		// ContactInfo also has to be dealt with specially
 		if ( isset( $metadata['Contact'] ) ) {
-			$metadata['Contact'] =
-				$formatter->collapseContactInfo(
-					$metadata['Contact'] );
+			$metadata['Contact'] = $formatter->collapseContactInfo(
+				is_array( $metadata['Contact'] ) ? $metadata['Contact'] : [ $metadata['Contact'] ]
+			);
 		}
 
 		foreach ( $metadata as &$val ) {
 			if ( is_array( $val ) ) {
-				$val = $formatter->flattenArrayReal( $val, 'ul', $avoidHtml );
+				// @phan-suppress-next-line SecurityCheck-DoubleEscaped Ambiguous with the true for nohtml
+				$val = $formatter->flattenArrayReal( $val, 'ul', true );
 			}
 		}
 		$metadata['MEDIAWIKI_EXIF_VERSION'] = 1;
@@ -80,28 +80,30 @@ class ExifBitmapHandler extends BitmapHandler {
 
 	/**
 	 * @param File $image
-	 * @param array $metadata
 	 * @return bool|int
 	 */
-	public function isMetadataValid( $image, $metadata ) {
+	public function isFileMetadataValid( $image ) {
 		global $wgShowEXIF;
 		if ( !$wgShowEXIF ) {
 			# Metadata disabled and so an empty field is expected
 			return self::METADATA_GOOD;
 		}
-		if ( $metadata === self::OLD_BROKEN_FILE ) {
+		$exif = $image->getMetadataArray();
+		if ( !$exif ) {
+			wfDebug( __METHOD__ . ': error unserializing?' );
+			return self::METADATA_BAD;
+		}
+		if ( $exif === [ '_error' => self::OLD_BROKEN_FILE ] ) {
 			# Old special value indicating that there is no Exif data in the file.
 			# or that there was an error well extracting the metadata.
-			wfDebug( __METHOD__ . ": back-compat version\n" );
-
+			wfDebug( __METHOD__ . ": back-compat version" );
 			return self::METADATA_COMPATIBLE;
 		}
-		if ( $metadata === self::BROKEN_FILE ) {
+
+		if ( $exif === [ '_error' => self::BROKEN_FILE ] ) {
 			return self::METADATA_GOOD;
 		}
-		Wikimedia\suppressWarnings();
-		$exif = unserialize( $metadata );
-		Wikimedia\restoreWarnings();
+
 		if ( !isset( $exif['MEDIAWIKI_EXIF_VERSION'] )
 			|| $exif['MEDIAWIKI_EXIF_VERSION'] != Exif::version()
 		) {
@@ -109,12 +111,12 @@ class ExifBitmapHandler extends BitmapHandler {
 				&& $exif['MEDIAWIKI_EXIF_VERSION'] == 1
 			) {
 				// back-compatible but old
-				wfDebug( __METHOD__ . ": back-compat version\n" );
+				wfDebug( __METHOD__ . ": back-compat version" );
 
 				return self::METADATA_COMPATIBLE;
 			}
 			# Wrong (non-compatible) version
-			wfDebug( __METHOD__ . ": wrong version\n" );
+			wfDebug( __METHOD__ . ": wrong version" );
 
 			return self::METADATA_BAD;
 		}
@@ -124,12 +126,12 @@ class ExifBitmapHandler extends BitmapHandler {
 
 	/**
 	 * @param File $image
-	 * @param bool|IContextSource $context Context to use (optional)
-	 * @return array|bool
+	 * @param IContextSource|false $context
+	 * @return array[]|false
 	 */
 	public function formatMetadata( $image, $context = false ) {
 		$meta = $this->getCommonMetaArray( $image );
-		if ( count( $meta ) === 0 ) {
+		if ( !$meta ) {
 			return false;
 		}
 
@@ -137,17 +139,7 @@ class ExifBitmapHandler extends BitmapHandler {
 	}
 
 	public function getCommonMetaArray( File $file ) {
-		$metadata = $file->getMetadata();
-		if ( $metadata === self::OLD_BROKEN_FILE
-			|| $metadata === self::BROKEN_FILE
-			|| $this->isMetadataValid( $file, $metadata ) === self::METADATA_BAD
-		) {
-			// So we don't try and display metadata from PagedTiffHandler
-			// for example when using InstantCommons.
-			return [];
-		}
-
-		$exif = unserialize( $metadata );
+		$exif = $file->getMetadataArray();
 		if ( !$exif ) {
 			return [];
 		}
@@ -156,37 +148,23 @@ class ExifBitmapHandler extends BitmapHandler {
 		return $exif;
 	}
 
-	function getMetadataType( $image ) {
+	public function getMetadataType( $image ) {
 		return 'exif';
 	}
 
-	/**
-	 * Wrapper for base classes ImageHandler::getImageSize() that checks for
-	 * rotation reported from metadata and swaps the sizes to match.
-	 *
-	 * @param File|FSFile $image
-	 * @param string $path
-	 * @return array
-	 */
-	function getImageSize( $image, $path ) {
-		$gis = parent::getImageSize( $image, $path );
-
-		// Don't just call $image->getMetadata(); FSFile::getPropsFromPath() calls us with a bogus object.
-		// This may mean we read EXIF data twice on initial upload.
+	protected function applyExifRotation( $info, $metadata ) {
 		if ( $this->autoRotateEnabled() ) {
-			$meta = $this->getMetadata( $image, $path );
-			$rotation = $this->getRotationForExif( $meta );
+			$rotation = $this->getRotationForExifFromOrientation( $metadata['Orientation'] ?? null );
 		} else {
 			$rotation = 0;
 		}
 
 		if ( $rotation == 90 || $rotation == 270 ) {
-			$width = $gis[0];
-			$gis[0] = $gis[1];
-			$gis[1] = $width;
+			$width = $info['width'];
+			$info['width'] = $info['height'];
+			$info['height'] = $width;
 		}
-
-		return $gis;
+		return $info;
 	}
 
 	/**
@@ -206,40 +184,32 @@ class ExifBitmapHandler extends BitmapHandler {
 			return 0;
 		}
 
-		$data = $file->getMetadata();
-
-		return $this->getRotationForExif( $data );
+		$orientation = $file->getMetadataItem( 'Orientation' );
+		return $this->getRotationForExifFromOrientation( $orientation );
 	}
 
 	/**
 	 * Given a chunk of serialized Exif metadata, return the orientation as
 	 * degrees of rotation.
 	 *
-	 * @param string $data
+	 * @param int|null $orientation
 	 * @return int 0, 90, 180 or 270
 	 * @todo FIXME: Orientation can include flipping as well; see if this is an issue!
 	 */
-	protected function getRotationForExif( $data ) {
-		if ( !$data ) {
+	protected function getRotationForExifFromOrientation( $orientation ) {
+		if ( $orientation === null ) {
 			return 0;
 		}
-		Wikimedia\suppressWarnings();
-		$data = unserialize( $data );
-		Wikimedia\restoreWarnings();
-		if ( isset( $data['Orientation'] ) ) {
-			# See http://sylvana.net/jpegcrop/exif_orientation.html
-			switch ( $data['Orientation'] ) {
-				case 8:
-					return 90;
-				case 3:
-					return 180;
-				case 6:
-					return 270;
-				default:
-					return 0;
-			}
+		# See http://sylvana.net/jpegcrop/exif_orientation.html
+		switch ( $orientation ) {
+			case 8:
+				return 90;
+			case 3:
+				return 180;
+			case 6:
+				return 270;
+			default:
+				return 0;
 		}
-
-		return 0;
 	}
 }

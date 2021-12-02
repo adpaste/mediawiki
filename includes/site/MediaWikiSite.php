@@ -36,8 +36,8 @@ use MediaWiki\Site\MediaWikiPageNameNormalizer;
  * @ingroup Site
  */
 class MediaWikiSite extends Site {
-	const PATH_FILE = 'file_path';
-	const PATH_PAGE = 'page_path';
+	public const PATH_FILE = 'file_path';
+	public const PATH_PAGE = 'page_path';
 
 	/**
 	 * @since 1.21
@@ -63,8 +63,9 @@ class MediaWikiSite extends Site {
 
 	/**
 	 * Returns the normalized form of the given page title, using the
-	 * normalization rules of the given site. If the given title is a redirect,
-	 * the redirect will be resolved and the redirect target is returned.
+	 * normalization rules of the given site. If $followRedirect is set to true
+	 * and the given title is a redirect, the redirect will be resolved and
+	 * the redirect target is returned.
 	 * Only titles of existing pages will be returned.
 	 *
 	 * @note This actually makes an API request to the remote site, so beware
@@ -77,16 +78,19 @@ class MediaWikiSite extends Site {
 	 * @see Site::normalizePageName
 	 *
 	 * @since 1.21
+	 * @since 1.37 Added $followRedirect
 	 *
 	 * @param string $pageName
+	 * @param int $followRedirect either MediaWikiPageNameNormalizer::FOLLOW_REDIRECT or
+	 * MediaWikiPageNameNormalizer::NOFOLLOW_REDIRECT
 	 *
 	 * @return string|false The normalized form of the title,
 	 * or false to indicate an invalid title, a missing page,
 	 * or some other kind of error.
 	 * @throws MWException
 	 */
-	public function normalizePageName( $pageName ) {
-		if ( defined( 'MW_PHPUNIT_TEST' ) ) {
+	public function normalizePageName( $pageName, $followRedirect = MediaWikiPageNameNormalizer::FOLLOW_REDIRECT ) {
+		if ( defined( 'MW_PHPUNIT_TEST' ) || defined( 'MW_DEV_ENV' ) ) {
 			// If the code is under test, don't call out to other sites, just
 			// normalize locally.
 			// Note: this may cause results to be inconsistent with the actual
@@ -103,7 +107,8 @@ class MediaWikiSite extends Site {
 
 			return $mediaWikiPageNameNormalizer->normalizePageName(
 				$pageName,
-				$this->getFileUrl( 'api.php' )
+				$this->getFileUrl( 'api.php' ),
+				$followRedirect
 			);
 		}
 	}
@@ -176,13 +181,13 @@ class MediaWikiSite extends Site {
 	 *
 	 * @param string|bool $pageName Page name or false (default: false)
 	 *
-	 * @return string
+	 * @return string|null
 	 */
 	public function getPageUrl( $pageName = false ) {
 		$url = $this->getLinkPath();
 
-		if ( $url === false ) {
-			return false;
+		if ( $url === null ) {
+			return null;
 		}
 
 		if ( $pageName !== false ) {

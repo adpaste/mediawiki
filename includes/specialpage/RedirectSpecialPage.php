@@ -24,34 +24,33 @@
 /**
  * Shortcut to construct a special page alias.
  *
+ * @stable to extend
+ *
  * @ingroup SpecialPage
  */
 abstract class RedirectSpecialPage extends UnlistedSpecialPage {
-	// Query parameters that can be passed through redirects
+	/** @var array Query parameters that can be passed through redirects */
 	protected $mAllowedRedirectParams = [];
 
-	// Query parameters added by redirects
+	/** @var array Query parameters added by redirects */
 	protected $mAddedRedirectParams = [];
 
 	/**
+	 * @stable to override
 	 * @param string|null $subpage
-	 * @return Title|bool
 	 */
 	public function execute( $subpage ) {
 		$redirect = $this->getRedirect( $subpage );
-		$query = $this->getRedirectQuery();
-		// Redirect to a page title with possible query parameters
+		$query = $this->getRedirectQuery( $subpage );
+
 		if ( $redirect instanceof Title ) {
+			// Redirect to a page title with possible query parameters
 			$url = $redirect->getFullUrlForRedirect( $query );
 			$this->getOutput()->redirect( $url );
-
-			return $redirect;
 		} elseif ( $redirect === true ) {
 			// Redirect to index.php with query parameters
 			$url = wfAppendQuery( wfScript( 'index' ), $query );
 			$this->getOutput()->redirect( $url );
-
-			return $redirect;
 		} else {
 			$this->showNoRedirectPage();
 		}
@@ -70,14 +69,16 @@ abstract class RedirectSpecialPage extends UnlistedSpecialPage {
 	 * Return part of the request string for a special redirect page
 	 * This allows passing, e.g. action=history to Special:Mypage, etc.
 	 *
+	 * @stable to override
+	 * @param string|null $subpage
 	 * @return array|bool
 	 */
-	public function getRedirectQuery() {
+	public function getRedirectQuery( $subpage ) {
 		$params = [];
 		$request = $this->getRequest();
 
 		foreach ( array_merge( $this->mAllowedRedirectParams,
-				[ 'uselang', 'useskin', 'debug' ] // parameters which can be passed to all pages
+				[ 'uselang', 'useskin', 'debug', 'safemode' ] // parameters which can be passed to all pages
 			) as $arg ) {
 			if ( $request->getVal( $arg, null ) !== null ) {
 				$params[$arg] = $request->getVal( $arg );
@@ -100,6 +101,7 @@ abstract class RedirectSpecialPage extends UnlistedSpecialPage {
 	 * a particular user of this wiki (e.g., if the redirect is to the
 	 * user page of a User). See T109724.
 	 *
+	 * @stable to override
 	 * @since 1.27
 	 * @return bool
 	 */
@@ -107,6 +109,9 @@ abstract class RedirectSpecialPage extends UnlistedSpecialPage {
 		return false;
 	}
 
+	/**
+	 * @stable to override
+	 */
 	protected function showNoRedirectPage() {
 		$class = static::class;
 		throw new MWException( "RedirectSpecialPage $class doesn't redirect!" );

@@ -18,14 +18,13 @@
  * http://www.gnu.org/copyleft/gpl.html
  *
  * @file
- * @package MediaWiki
  * @author Lupo
- * @since 1.20
  */
 
 // This file doesn't run as part of MediaWiki
 // phpcs:disable MediaWiki.Usage.SuperGlobalsUsage.SuperGlobals
 
+header( 'Cache-Control: private, no-cache, must-revalidate' );
 header( 'Content-Type: text/javascript; charset=utf-8' );
 
 $moduleImplementations = [

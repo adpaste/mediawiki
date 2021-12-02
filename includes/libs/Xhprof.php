@@ -20,70 +20,57 @@
 
 /**
  * Convenience class for working with XHProf
- * <https://github.com/phacility/xhprof>. XHProf can be installed as a PECL
- * package for use with PHP5 (Zend PHP) and is built-in to HHVM 3.3.0.
+ * <https://github.com/phacility/xhprof>. XHProf can be installed via PECL.
  *
  * This also supports using the Tideways profiler
- * <https://github.com/tideways/php-profiler-extension>, which additionally
- * has support for PHP7.
+ * <https://github.com/tideways/php-xhprof-extension>.
  *
+ * @internal For use by ProfilerXhprof
  * @since 1.28
  */
 class Xhprof {
-	/**
-	 * @var bool $enabled Whether XHProf is currently running.
-	 */
-	protected static $enabled;
 
 	/**
-	 * Start xhprof profiler
-	 * @return bool
-	 */
-	public static function isEnabled() {
-		return self::$enabled;
-	}
-
-	/**
-	 * Start xhprof profiler
+	 * Start profiler
+	 *
 	 * @param int $flags
 	 * @param array $options
-	 * @throws Exception
 	 */
 	public static function enable( $flags = 0, $options = [] ) {
-		if ( self::isEnabled() ) {
-			throw new Exception( 'Profiling is already enabled.' );
+		$args = [ $flags ];
+		if ( $options ) {
+			$args[] = $options;
 		}
-		self::$enabled = true;
+
 		self::callAny(
 			[
 				'xhprof_enable',
 				'tideways_enable',
 				'tideways_xhprof_enable'
 			],
-			[ $flags, $options ]
+			$args
 		);
 	}
 
 	/**
-	 * Stop xhprof profiler
+	 * Stop profiler
 	 *
-	 * @return array|null xhprof data from the run, or null if xhprof was not running.
+	 * @return array Xhprof data since last enable call,
+	 *  or empty array if it was never enabled.
 	 */
 	public static function disable() {
-		if ( self::isEnabled() ) {
-			self::$enabled = false;
-			return self::callAny( [
-				'xhprof_disable',
-				'tideways_disable',
-				'tideways_xhprof_disable'
-			] );
-		}
+		return self::callAny( [
+			'xhprof_disable',
+			'tideways_disable',
+			'tideways_xhprof_disable'
+		] );
 	}
 
 	/**
 	 * Call the first available function from $functions.
 	 * @param array $functions
 	 * @param array $args
+	 * @return mixed
 	 * @throws Exception
 	 */
 	protected static function callAny( array $functions, array $args = [] ) {

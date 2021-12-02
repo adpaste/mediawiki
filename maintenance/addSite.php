@@ -2,12 +2,14 @@
 
 use MediaWiki\MediaWikiServices;
 
-$basePath = getenv( 'MW_INSTALL_PATH' ) !== false ? getenv( 'MW_INSTALL_PATH' ) : __DIR__ . '/..';
-
-require_once $basePath . '/maintenance/Maintenance.php';
+require_once __DIR__ . '/Maintenance.php';
 
 /**
  * Maintenance script for adding a site definition into the sites table.
+ *
+ * The sites table is cached in the local-server cache,
+ * so you should reload your webserver and other long-running MediaWiki
+ * PHP processes after running this script.
  *
  * @since 1.29
  *
@@ -39,7 +41,10 @@ class AddSite extends Maintenance {
 	 */
 	public function execute() {
 		$siteStore = MediaWikiServices::getInstance()->getSiteStore();
-		$siteStore->reset();
+		if ( method_exists( $siteStore, 'reset' ) ) {
+			// @phan-suppress-next-line PhanUndeclaredMethod
+			$siteStore->reset();
+		}
 
 		$globalId = $this->getArg( 0 );
 		$group = $this->getArg( 1 );
@@ -50,12 +55,12 @@ class AddSite extends Maintenance {
 		$filepath = $this->getOption( 'filepath' );
 
 		if ( !is_string( $globalId ) || !is_string( $group ) ) {
-			echo "Arguments globalid and group need to be strings.\n";
+			$this->error( 'Arguments globalid and group need to be strings.' );
 			return false;
 		}
 
 		if ( $siteStore->getSite( $globalId ) !== null ) {
-			echo "Site with global id $globalId already exists.\n";
+			$this->error( "Site with global id $globalId already exists." );
 			return false;
 		}
 
@@ -81,10 +86,14 @@ class AddSite extends Maintenance {
 		$siteStore->saveSites( [ $site ] );
 
 		if ( method_exists( $siteStore, 'reset' ) ) {
+			// @phan-suppress-next-line PhanUndeclaredMethod
 			$siteStore->reset();
 		}
 
-		echo "Done.\n";
+		$this->output(
+			'Done. Reload the web server and other long-running PHP processes '
+			. "to refresh the local-server cache of the sites table.\n"
+		);
 	}
 }
 

@@ -26,7 +26,7 @@ use InvalidArgumentException;
 /**
  * Database connection manager.
  *
- * This manages access to master and replica databases.
+ * This manages access to primary and replica databases.
  *
  * @since 1.29
  *
@@ -72,12 +72,13 @@ class ConnectionManager {
 	/**
 	 * @param int $i
 	 * @param string[]|null $groups
+	 * @param int $flags
 	 *
-	 * @return Database
+	 * @return IDatabase
 	 */
-	private function getConnection( $i, array $groups = null ) {
-		$groups = $groups === null ? $this->groups : $groups;
-		return $this->loadBalancer->getConnection( $i, $groups, $this->domain );
+	private function getConnection( $i, ?array $groups = null, int $flags = 0 ) {
+		$groups = $groups ?? $this->groups;
+		return $this->loadBalancer->getConnection( $i, $groups, $this->domain, $flags );
 	}
 
 	/**
@@ -87,20 +88,34 @@ class ConnectionManager {
 	 * @return DBConnRef
 	 */
 	private function getConnectionRef( $i, array $groups = null ) {
-		$groups = $groups === null ? $this->groups : $groups;
+		$groups = $groups ?? $this->groups;
 		return $this->loadBalancer->getConnectionRef( $i, $groups, $this->domain );
 	}
 
 	/**
-	 * Returns a connection to the master DB, for updating. The connection should later be released
+	 * @param int $i
+	 * @param string[]|null $groups
+	 *
+	 * @return DBConnRef
+	 */
+	private function getLazyConnectionRef( $i, array $groups = null ) {
+		$groups = $groups ?? $this->groups;
+		return $this->loadBalancer->getLazyConnectionRef( $i, $groups, $this->domain );
+	}
+
+	/**
+	 * Returns a connection to the primary DB, for updating. The connection should later be released
 	 * by calling releaseConnection().
 	 *
 	 * @since 1.29
+	 * @since 1.37 Added optional $flags parameter
 	 *
-	 * @return Database
+	 * @param int $flags
+	 *
+	 * @return IDatabase
 	 */
-	public function getWriteConnection() {
-		return $this->getConnection( DB_MASTER );
+	public function getWriteConnection( int $flags = 0 ) {
+		return $this->getConnection( DB_PRIMARY, null, $flags );
 	}
 
 	/**
@@ -108,14 +123,16 @@ class ConnectionManager {
 	 * calling releaseConnection().
 	 *
 	 * @since 1.29
+	 * @since 1.37 Added optional $flags parameter
 	 *
 	 * @param string[]|null $groups
+	 * @param int $flags
 	 *
-	 * @return Database
+	 * @return IDatabase
 	 */
-	public function getReadConnection( array $groups = null ) {
-		$groups = $groups === null ? $this->groups : $groups;
-		return $this->getConnection( DB_REPLICA, $groups );
+	public function getReadConnection( ?array $groups = null, int $flags = 0 ) {
+		$groups = $groups ?? $this->groups;
+		return $this->getConnection( DB_REPLICA, $groups, $flags );
 	}
 
 	/**
@@ -128,14 +145,14 @@ class ConnectionManager {
 	}
 
 	/**
-	 * Returns a connection ref to the master DB, for updating.
+	 * Returns a connection ref to the primary DB, for updating.
 	 *
 	 * @since 1.29
 	 *
 	 * @return DBConnRef
 	 */
 	public function getWriteConnectionRef() {
-		return $this->getConnectionRef( DB_MASTER );
+		return $this->getConnectionRef( DB_PRIMARY );
 	}
 
 	/**
@@ -148,8 +165,22 @@ class ConnectionManager {
 	 * @return DBConnRef
 	 */
 	public function getReadConnectionRef( array $groups = null ) {
-		$groups = $groups === null ? $this->groups : $groups;
+		$groups = $groups ?? $this->groups;
 		return $this->getConnectionRef( DB_REPLICA, $groups );
+	}
+
+	/**
+	 * Returns a lazy-connecting database connection ref for reading.
+	 *
+	 * @since 1.37
+	 *
+	 * @param string[]|null $groups
+	 *
+	 * @return DBConnRef
+	 */
+	public function getLazyReadConnectionRef( array $groups = null ) {
+		$groups = $groups ?? $this->groups;
+		return $this->getLazyConnectionRef( DB_REPLICA, $groups );
 	}
 
 }

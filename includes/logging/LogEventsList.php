@@ -23,21 +23,19 @@
  * @file
  */
 
+use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\PageReference;
+use MediaWiki\Permissions\Authority;
 use Wikimedia\Rdbms\IDatabase;
 
 class LogEventsList extends ContextSource {
-	const NO_ACTION_LINK = 1;
-	const NO_EXTRA_USER_LINKS = 2;
-	const USE_CHECKBOXES = 4;
+	public const NO_ACTION_LINK = 1;
+	public const NO_EXTRA_USER_LINKS = 2;
+	public const USE_CHECKBOXES = 4;
 
 	public $flags;
-
-	/**
-	 * @var array
-	 */
-	protected $mDefaultQuery;
 
 	/**
 	 * @var bool
@@ -54,29 +52,27 @@ class LogEventsList extends ContextSource {
 	 */
 	private $linkRenderer;
 
+	/** @var HookRunner */
+	private $hookRunner;
+
 	/**
-	 * The first two parameters used to be $skin and $out, but now only a context
-	 * is needed, that's why there's a second unused parameter.
+	 * @stable to call. As of the 1.36 release, there is no factory for this class, and it is
+	 *         instantiated directly by several extensions. The constructor needs to retain
+	 *         backwards compatibility until a factory has been introduced.
 	 *
-	 * @param IContextSource|Skin $context Context to use; formerly it was
-	 *   a Skin object. Use of Skin is deprecated.
-	 * @param LinkRenderer|null $linkRenderer previously unused
+	 * @param IContextSource $context
+	 * @param LinkRenderer|null $linkRenderer
 	 * @param int $flags Can be a combination of self::NO_ACTION_LINK,
 	 *   self::NO_EXTRA_USER_LINKS or self::USE_CHECKBOXES.
 	 */
 	public function __construct( $context, $linkRenderer = null, $flags = 0 ) {
-		if ( $context instanceof IContextSource ) {
-			$this->setContext( $context );
-		} else {
-			// Old parameters, $context should be a Skin object
-			$this->setContext( $context->getContext() );
-		}
-
+		$this->setContext( $context );
 		$this->flags = $flags;
-		$this->showTagEditUI = ChangeTags::showTagEditingUI( $this->getUser() );
+		$this->showTagEditUI = ChangeTags::showTagEditingUI( $this->getAuthority() );
 		if ( $linkRenderer instanceof LinkRenderer ) {
 			$this->linkRenderer = $linkRenderer;
 		}
+		$this->hookRunner = Hooks::runner();
 	}
 
 	/**
@@ -96,7 +92,7 @@ class LogEventsList extends ContextSource {
 	 *
 	 * @param array|string $types
 	 * @param string $user
-	 * @param string $page
+	 * @param string|PageReference $page
 	 * @param bool $pattern
 	 * @param int|string $year Use 0 to start with no year preselected.
 	 * @param int|string $month A month in the 1..12 range. Use 0 to start with no month
@@ -155,7 +151,7 @@ class LogEventsList extends ContextSource {
 		$formDescriptor['tagfilter'] = [
 			'type' => 'tagfilter',
 			'name' => 'tagfilter',
-			'label-raw' => $this->msg( 'tag-filter' )->parse(),
+			'label-message' => 'tag-filter',
 		];
 
 		// Filter links
@@ -176,7 +172,7 @@ class LogEventsList extends ContextSource {
 		$context->setTitle( SpecialPage::getTitleFor( 'Log' ) ); // Remove subpage
 		$htmlForm = HTMLForm::factory( 'ooui', $formDescriptor, $context );
 		$htmlForm
-			->setSubmitText( $this->msg( 'logeventslist-submit' )->text() )
+			->setSubmitTextMsg( 'logeventslist-submit' )
 			->setMethod( 'get' )
 			->setWrapperLegendMsg( 'log' );
 
@@ -197,42 +193,22 @@ class LogEventsList extends ContextSource {
 	 * @return array Form descriptor
 	 */
 	private function getFiltersDesc( $filter ) {
-		$options = [];
+		$optionsMsg = [];
 		$default = [];
 		foreach ( $filter as $type => $val ) {
-			$message = $this->msg( "logeventslist-{$type}-log" );
-			// FIXME: Remove this check once T199657 is fully resolved.
-			if ( !$message->exists() ) {
-				$message = $this->msg( "log-show-hide-{$type}" )->params( $this->msg( 'show' )->text() );
-			}
-			$options[ $message->text() ] = $type;
+			$optionsMsg["logeventslist-{$type}-log"] = $type;
 
 			if ( $val === false ) {
 				$default[] = $type;
 			}
 		}
 		return [
-			'class' => 'HTMLMultiSelectField',
+			'class' => HTMLMultiSelectField::class,
 			'label-message' => 'logeventslist-more-filters',
 			'flatlist' => true,
-			'options' => $options,
+			'options-messages' => $optionsMsg,
 			'default' => $default,
 		];
-	}
-
-	private function getDefaultQuery() {
-		if ( !isset( $this->mDefaultQuery ) ) {
-			$this->mDefaultQuery = $this->getRequest()->getQueryValues();
-			unset( $this->mDefaultQuery['title'] );
-			unset( $this->mDefaultQuery['dir'] );
-			unset( $this->mDefaultQuery['offset'] );
-			unset( $this->mDefaultQuery['limit'] );
-			unset( $this->mDefaultQuery['order'] );
-			unset( $this->mDefaultQuery['month'] );
-			unset( $this->mDefaultQuery['year'] );
-		}
-
-		return $this->mDefaultQuery;
 	}
 
 	/**
@@ -247,7 +223,7 @@ class LogEventsList extends ContextSource {
 		foreach ( LogPage::validTypes() as $type ) {
 			$page = new LogPage( $type );
 			$restriction = $page->getRestriction();
-			if ( $this->getUser()->isAllowed( $restriction ) ) {
+			if ( $this->getAuthority()->isAllowed( $restriction ) ) {
 				$typesByName[$type] = $page->getName()->text();
 			}
 		}
@@ -261,7 +237,7 @@ class LogEventsList extends ContextSource {
 		$typesByName = [ '' => $public ] + $typesByName;
 
 		return [
-			'class' => 'HTMLSelectField',
+			'class' => HTMLSelectField::class,
 			'name' => 'type',
 			'options' => array_flip( $typesByName ),
 			'default' => $queryType,
@@ -274,7 +250,7 @@ class LogEventsList extends ContextSource {
 	 */
 	private function getUserInputDesc( $user ) {
 		return [
-			'class' => 'HTMLUserTextField',
+			'class' => HTMLUserTextField::class,
 			'label-message' => 'specialloguserlabel',
 			'name' => 'user',
 			'default' => $user,
@@ -282,12 +258,12 @@ class LogEventsList extends ContextSource {
 	}
 
 	/**
-	 * @param string $title
+	 * @param string|PageReference $page
 	 * @return array Form descriptor
 	 */
-	private function getTitleInputDesc( $title ) {
+	private function getTitleInputDesc( $page ) {
 		return [
-			'class' => 'HTMLTitleTextField',
+			'class' => HTMLTitleTextField::class,
 			'label-message' => 'speciallogtitlelabel',
 			'name' => 'page',
 			'required' => false
@@ -323,7 +299,7 @@ class LogEventsList extends ContextSource {
 				// This could be an array or string. See T199495.
 				$input = ''; // Deprecated
 				$formDescriptor = [];
-				Hooks::run( 'LogEventsListGetExtraInputs', [ $types[0], $this, &$input, &$formDescriptor ] );
+				$this->hookRunner->onLogEventsListGetExtraInputs( $types[0], $this, $input, $formDescriptor );
 
 				return empty( $formDescriptor ) ? $input : $formDescriptor;
 			}
@@ -348,7 +324,7 @@ class LogEventsList extends ContextSource {
 		}
 
 		return [
-			'class' => 'HTMLSelectField',
+			'class' => HTMLSelectField::class,
 			'name' => 'subtype',
 			'options-messages' => $actionOptions,
 			'default' => $action,
@@ -370,7 +346,7 @@ class LogEventsList extends ContextSource {
 	 * @return string
 	 */
 	public function beginLogEventsList() {
-		return "<ul>\n";
+		return "<ul class='mw-logevent-loglines'>\n";
 	}
 
 	/**
@@ -391,8 +367,17 @@ class LogEventsList extends ContextSource {
 		$formatter->setLinkRenderer( $this->getLinkRenderer() );
 		$formatter->setShowUserToolLinks( !( $this->flags & self::NO_EXTRA_USER_LINKS ) );
 
-		$time = htmlspecialchars( $this->getLanguage()->userTimeAndDate(
-			$entry->getTimestamp(), $this->getUser() ) );
+		$time = $this->getLanguage()->userTimeAndDate(
+			$entry->getTimestamp(),
+			$this->getUser()
+		);
+		// Link the time text to the specific log entry, see T207562
+		$timeLink = $this->getLinkRenderer()->makeKnownLink(
+			SpecialPage::getTitleValueFor( 'Log' ),
+			$time,
+			[],
+			[ 'logid' => $entry->getId() ]
+		);
 
 		$action = $formatter->getActionText();
 
@@ -424,15 +409,15 @@ class LogEventsList extends ContextSource {
 			'data-mw-logid' => $entry->getId(),
 			'data-mw-logaction' => $entry->getFullType(),
 		];
-		$ret = "$del $time $action $comment $revert $tagDisplay";
+		$ret = "$del $timeLink $action $comment $revert $tagDisplay";
 
 		// Let extensions add data
-		Hooks::run( 'LogEventsListLineEnding', [ $this, &$ret, $entry, &$classes, &$attribs ] );
+		$this->hookRunner->onLogEventsListLineEnding( $this, $ret, $entry, $classes, $attribs );
 		$attribs = array_filter( $attribs,
 			[ Sanitizer::class, 'isReservedDataAttribute' ],
 			ARRAY_FILTER_USE_KEY
 		);
-		$attribs['class'] = implode( ' ', $classes );
+		$attribs['class'] = $classes;
 
 		return Html::rawElement( 'li', $attribs, $ret ) . "\n";
 	}
@@ -465,10 +450,10 @@ class LogEventsList extends ContextSource {
 
 		$del = '';
 		// Don't show useless checkbox to people who cannot hide log entries
-		if ( $user->isAllowed( 'deletedhistory' ) ) {
-			$canHide = $user->isAllowed( 'deletelogentry' );
-			$canViewSuppressedOnly = $user->isAllowed( 'viewsuppressed' ) &&
-				!$user->isAllowed( 'suppressrevision' );
+		if ( $this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
+			$canHide = $this->getAuthority()->isAllowed( 'deletelogentry' );
+			$canViewSuppressedOnly = $this->getAuthority()->isAllowed( 'viewsuppressed' ) &&
+				!$this->getAuthority()->isAllowed( 'suppressrevision' );
 			$entryIsSuppressed = self::isDeleted( $row, LogPage::DELETED_RESTRICTED );
 			$canViewThisSuppressedEntry = $canViewSuppressedOnly && $entryIsSuppressed;
 			if ( $row->log_deleted || $canHide ) {
@@ -511,19 +496,14 @@ class LogEventsList extends ContextSource {
 	 * @param stdClass $row
 	 * @param string|array $type
 	 * @param string|array $action
-	 * @param string $right
 	 * @return bool
 	 */
-	public static function typeAction( $row, $type, $action, $right = '' ) {
+	public static function typeAction( $row, $type, $action ) {
 		$match = is_array( $type ) ?
 			in_array( $row->log_type, $type ) : $row->log_type == $type;
 		if ( $match ) {
 			$match = is_array( $action ) ?
 				in_array( $row->log_action, $action ) : $row->log_action == $action;
-			if ( $match && $right ) {
-				global $wgUser;
-				$match = $wgUser->isAllowed( $right );
-			}
 		}
 
 		return $match;
@@ -535,12 +515,12 @@ class LogEventsList extends ContextSource {
 	 *
 	 * @param stdClass $row
 	 * @param int $field
-	 * @param User|null $user User to check, or null to use $wgUser
+	 * @param Authority $performer User to check
 	 * @return bool
 	 */
-	public static function userCan( $row, $field, User $user = null ) {
-		return self::userCanBitfield( $row->log_deleted, $field, $user ) &&
-			self::userCanViewLogType( $row->log_type, $user );
+	public static function userCan( $row, $field, Authority $performer ) {
+		return self::userCanBitfield( $row->log_deleted, $field, $performer ) &&
+			self::userCanViewLogType( $row->log_type, $performer );
 	}
 
 	/**
@@ -549,23 +529,16 @@ class LogEventsList extends ContextSource {
 	 *
 	 * @param int $bitfield Current field
 	 * @param int $field
-	 * @param User|null $user User to check, or null to use $wgUser
+	 * @param Authority $performer User to check
 	 * @return bool
 	 */
-	public static function userCanBitfield( $bitfield, $field, User $user = null ) {
+	public static function userCanBitfield( $bitfield, $field, Authority $performer ) {
 		if ( $bitfield & $field ) {
-			if ( $user === null ) {
-				global $wgUser;
-				$user = $wgUser;
-			}
 			if ( $bitfield & LogPage::DELETED_RESTRICTED ) {
-				$permissions = [ 'suppressrevision', 'viewsuppressed' ];
+				return $performer->isAllowedAny( 'suppressrevision', 'viewsuppressed' );
 			} else {
-				$permissions = [ 'deletedhistory' ];
+				return $performer->isAllowed( 'deletedhistory' );
 			}
-			$permissionlist = implode( ', ', $permissions );
-			wfDebug( "Checking for $permissionlist due to $field match on $bitfield\n" );
-			return $user->isAllowedAny( ...$permissions );
 		}
 		return true;
 	}
@@ -574,17 +547,14 @@ class LogEventsList extends ContextSource {
 	 * Determine if the current user is allowed to view a particular
 	 * field of this log row, if it's marked as restricted log type.
 	 *
-	 * @param stdClass $type
-	 * @param User|null $user User to check, or null to use $wgUser
+	 * @param string $type
+	 * @param Authority $performer User to check
 	 * @return bool
 	 */
-	public static function userCanViewLogType( $type, User $user = null ) {
-		if ( $user === null ) {
-			global $wgUser;
-			$user = $wgUser;
-		}
+	public static function userCanViewLogType( $type, Authority $performer ) {
 		$logRestrictions = MediaWikiServices::getInstance()->getMainConfig()->get( 'LogRestrictions' );
-		if ( isset( $logRestrictions[$type] ) && !$user->isAllowed( $logRestrictions[$type] ) ) {
+		if ( isset( $logRestrictions[$type] ) && !$performer->isAllowed( $logRestrictions[$type] )
+		) {
 			return false;
 		}
 		return true;
@@ -604,7 +574,7 @@ class LogEventsList extends ContextSource {
 	 *
 	 * @param OutputPage|string &$out
 	 * @param string|array $types Log types to show
-	 * @param string|Title $page The page title to show log entries for
+	 * @param string|PageReference $page The page title to show log entries for
 	 * @param string $user The user who made the log entries
 	 * @param array $param Associative Array with the following additional options:
 	 * - lim Integer Limit of items to show, default is 50
@@ -620,7 +590,7 @@ class LogEventsList extends ContextSource {
 	 * - wrap String Wrap the message in html (usually something like "<div ...>$1</div>").
 	 * - flags Integer display flags (NO_ACTION_LINK,NO_EXTRA_USER_LINKS)
 	 * - useRequestParams boolean Set true to use Pager-related parameters in the WebRequest
-	 * - useMaster boolean Use master DB
+	 * - useMaster boolean Use primary DB
 	 * - extraUrlParams array|bool Additional url parameters for "full log" link (if it is shown)
 	 * @return int Number of total log items (not limited by $lim)
 	 */
@@ -651,6 +621,7 @@ class LogEventsList extends ContextSource {
 		$extraUrlParams = $param['extraUrlParams'];
 
 		$useRequestParams = $param['useRequestParams'];
+		// @phan-suppress-next-line PhanRedundantCondition
 		if ( !is_array( $msgKey ) ) {
 			$msgKey = [ $msgKey ];
 		}
@@ -661,12 +632,29 @@ class LogEventsList extends ContextSource {
 			$context = RequestContext::getMain();
 		}
 
+		$services = MediaWikiServices::getInstance();
 		// FIXME: Figure out how to inject this
-		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
+		$linkRenderer = $services->getLinkRenderer();
 
 		# Insert list of top 50 (or top $lim) items
 		$loglist = new LogEventsList( $context, $linkRenderer, $flags );
-		$pager = new LogPager( $loglist, $types, $user, $page, '', $conds );
+		$pager = new LogPager(
+			$loglist,
+			$types,
+			$user,
+			$page,
+			'',
+			$conds,
+			false,
+			false,
+			false,
+			'',
+			'',
+			0,
+			$services->getLinkBatchFactory(),
+			$services->getDBLoadBalancer(),
+			$services->getActorNormalization()
+		);
 		if ( !$useRequestParams ) {
 			# Reset vars that may have been taken from the request
 			$pager->mLimit = 50;
@@ -676,12 +664,14 @@ class LogEventsList extends ContextSource {
 		}
 
 		if ( $param['useMaster'] ) {
-			$pager->mDb = wfGetDB( DB_MASTER );
+			$pager->mDb = wfGetDB( DB_PRIMARY );
 		}
+		// @phan-suppress-next-line PhanImpossibleCondition
 		if ( isset( $param['offset'] ) ) { # Tell pager to ignore WebRequest offset
 			$pager->setOffset( $param['offset'] );
 		}
 
+		// @phan-suppress-next-line PhanSuspiciousValueComparison
 		if ( $lim > 0 ) {
 			$pager->mLimit = $lim;
 		}
@@ -697,11 +687,12 @@ class LogEventsList extends ContextSource {
 				$lang = $context->getLanguage()->getHtmlCode();
 
 				$s = Xml::openElement( 'div', [
-					'class' => "mw-warning-with-logexcerpt mw-content-$dir",
+					'class' => "warningbox mw-warning-with-logexcerpt mw-content-$dir",
 					'dir' => $dir,
 					'lang' => $lang,
 				] );
 
+				// @phan-suppress-next-line PhanSuspiciousValueComparison
 				if ( count( $msgKey ) == 1 ) {
 					$s .= $context->msg( $msgKey[0] )->parseAsBlock();
 				} else { // Process additional arguments
@@ -720,12 +711,19 @@ class LogEventsList extends ContextSource {
 				$context->msg( 'logempty' )->parse() );
 		}
 
+		if ( $page instanceof PageReference ) {
+			$titleFormatter = MediaWikiServices::getInstance()->getTitleFormatter();
+			$pageName = $titleFormatter->getPrefixedDBkey( $page );
+		} elseif ( $page != '' ) {
+			$pageName = $page;
+		} else {
+			$pageName = null;
+		}
+
 		if ( $numRows > $pager->mLimit ) { # Show "Full log" link
 			$urlParam = [];
-			if ( $page instanceof Title ) {
-				$urlParam['page'] = $page->getPrefixedDBkey();
-			} elseif ( $page != '' ) {
-				$urlParam['page'] = $page;
+			if ( $pageName ) {
+				$urlParam['page'] = $pageName;
 			}
 
 			if ( $user != '' ) {
@@ -741,6 +739,7 @@ class LogEventsList extends ContextSource {
 				$urlParam['type'] = $types[0];
 			}
 
+			// @phan-suppress-next-line PhanSuspiciousValueComparison
 			if ( $extraUrlParams !== false ) {
 				$urlParam = array_merge( $urlParam, $extraUrlParams );
 			}
@@ -757,12 +756,13 @@ class LogEventsList extends ContextSource {
 			$s .= '</div>';
 		}
 
+		// @phan-suppress-next-line PhanSuspiciousValueComparison
 		if ( $wrap != '' ) { // Wrap message in html
 			$s = str_replace( '$1', $s, $wrap );
 		}
 
 		/* hook can return false, if we don't want the message to be emitted (Wikia BugId:7093) */
-		if ( Hooks::run( 'LogEventsListShowLogExtract', [ &$s, $types, $page, $user, $param ] ) ) {
+		if ( Hooks::runner()->onLogEventsListShowLogExtract( $s, $types, $pageName, $user, $param ) ) {
 			// $out can be either an OutputPage object or a String-by-reference
 			if ( $out instanceof OutputPage ) {
 				$out->addHTML( $s );
@@ -779,15 +779,17 @@ class LogEventsList extends ContextSource {
 	 *
 	 * @param IDatabase $db
 	 * @param string $audience Public/user
-	 * @param User|null $user User to check, or null to use $wgUser
+	 * @param Authority|null $performer User to check, required when audience isn't public
 	 * @return string|bool String on success, false on failure.
+	 * @throws InvalidArgumentException
 	 */
-	public static function getExcludeClause( $db, $audience = 'public', User $user = null ) {
+	public static function getExcludeClause( $db, $audience = 'public', Authority $performer = null ) {
 		global $wgLogRestrictions;
 
-		if ( $audience != 'public' && $user === null ) {
-			global $wgUser;
-			$user = $wgUser;
+		if ( $audience != 'public' && $performer === null ) {
+			throw new InvalidArgumentException(
+				'A User object must be given when checking for a user audience.'
+			);
 		}
 
 		// Reset the array, clears extra "where" clauses when $par is used
@@ -795,7 +797,8 @@ class LogEventsList extends ContextSource {
 
 		// Don't show private logs to unprivileged users
 		foreach ( $wgLogRestrictions as $logType => $right ) {
-			if ( $audience == 'public' || !$user->isAllowed( $right ) ) {
+			if ( $audience == 'public' || !$performer->isAllowed( $right )
+			) {
 				$hiddenLogs[] = $logType;
 			}
 		}

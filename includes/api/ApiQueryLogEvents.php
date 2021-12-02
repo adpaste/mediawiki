@@ -20,8 +20,9 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\ParamValidator\TypeDef\UserDef;
 use MediaWiki\Storage\NameTableAccessException;
+use MediaWiki\Storage\NameTableStore;
 
 /**
  * Query action to List the log events, with optional filtering by various parameters.
@@ -30,10 +31,27 @@ use MediaWiki\Storage\NameTableAccessException;
  */
 class ApiQueryLogEvents extends ApiQueryBase {
 
+	/** @var CommentStore */
 	private $commentStore;
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var NameTableStore */
+	private $changeTagDefStore;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param CommentStore $commentStore
+	 * @param NameTableStore $changeTagDefStore
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		CommentStore $commentStore,
+		NameTableStore $changeTagDefStore
+	) {
 		parent::__construct( $query, $moduleName, 'le' );
+		$this->commentStore = $commentStore;
+		$this->changeTagDefStore = $changeTagDefStore;
 	}
 
 	private $fld_ids = false, $fld_title = false, $fld_type = false,
@@ -44,10 +62,9 @@ class ApiQueryLogEvents extends ApiQueryBase {
 	public function execute() {
 		$params = $this->extractRequestParams();
 		$db = $this->getDB();
-		$this->commentStore = CommentStore::getStore();
 		$this->requireMaxOneParameter( $params, 'title', 'prefix', 'namespace' );
 
-		$prop = array_flip( $params['prop'] );
+		$prop = array_fill_keys( $params['prop'], true );
 
 		$this->fld_ids = isset( $prop['ids'] );
 		$this->fld_title = isset( $prop['title'] );
@@ -65,15 +82,9 @@ class ApiQueryLogEvents extends ApiQueryBase {
 			$this->addWhere( $hideLogs );
 		}
 
-		$actorMigration = ActorMigration::newMigration();
-		$actorQuery = $actorMigration->getJoin( 'log_user' );
-		$this->addTables( 'logging' );
-		$this->addTables( $actorQuery['tables'] );
-		$this->addTables( [ 'user', 'page' ] );
-		$this->addJoinConds( $actorQuery['joins'] );
+		$this->addTables( [ 'logging', 'actor', 'page' ] );
 		$this->addJoinConds( [
-			'user' => [ 'LEFT JOIN',
-				'user_id=' . $actorQuery['fields']['log_user'] ],
+			'actor' => [ 'JOIN', 'actor_id=log_actor' ],
 			'page' => [ 'LEFT JOIN',
 				[ 'log_namespace=page_namespace',
 					'log_title=page_title' ] ] ] );
@@ -91,8 +102,8 @@ class ApiQueryLogEvents extends ApiQueryBase {
 		// join at query time.  This leads to different results in various
 		// scenarios, e.g. deletion, recreation.
 		$this->addFieldsIf( 'log_page', $this->fld_ids );
-		$this->addFieldsIf( $actorQuery['fields'] + [ 'user_name' ], $this->fld_user );
-		$this->addFieldsIf( $actorQuery['fields'], $this->fld_userid );
+		$this->addFieldsIf( [ 'actor_name', 'actor_user' ], $this->fld_user );
+		$this->addFieldsIf( 'actor_user', $this->fld_userid );
 		$this->addFieldsIf(
 			[ 'log_namespace', 'log_title' ],
 			$this->fld_title || $this->fld_parsedcomment
@@ -110,20 +121,19 @@ class ApiQueryLogEvents extends ApiQueryBase {
 			$this->addFields( [ 'ts_tags' => ChangeTags::makeTagSummarySubquery( 'logging' ) ] );
 		}
 
-		if ( !is_null( $params['tag'] ) ) {
+		if ( $params['tag'] !== null ) {
 			$this->addTables( 'change_tag' );
 			$this->addJoinConds( [ 'change_tag' => [ 'JOIN',
 				[ 'log_id=ct_log_id' ] ] ] );
-			$changeTagDefStore = MediaWikiServices::getInstance()->getChangeTagDefStore();
 			try {
-				$this->addWhereFld( 'ct_tag_id', $changeTagDefStore->getId( $params['tag'] ) );
+				$this->addWhereFld( 'ct_tag_id', $this->changeTagDefStore->getId( $params['tag'] ) );
 			} catch ( NameTableAccessException $exception ) {
 				// Return nothing.
 				$this->addWhere( '1=0' );
 			}
 		}
 
-		if ( !is_null( $params['action'] ) ) {
+		if ( $params['action'] !== null ) {
 			// Do validation of action param, list of allowed actions can contains wildcards
 			// Allow the param, when the actions is in the list or a wildcard version is listed.
 			$logAction = $params['action'];
@@ -131,7 +141,7 @@ class ApiQueryLogEvents extends ApiQueryBase {
 				// all items in the list have a slash
 				$valid = false;
 			} else {
-				$logActions = array_flip( $this->getAllowedLogActions() );
+				$logActions = array_fill_keys( $this->getAllowedLogActions(), true );
 				list( $type, $action ) = explode( '/', $logAction, 2 );
 				$valid = isset( $logActions[$logAction] ) || isset( $logActions[$type . '/*'] );
 			}
@@ -146,7 +156,7 @@ class ApiQueryLogEvents extends ApiQueryBase {
 
 			$this->addWhereFld( 'log_type', $type );
 			$this->addWhereFld( 'log_action', $action );
-		} elseif ( !is_null( $params['type'] ) ) {
+		} elseif ( $params['type'] !== null ) {
 			$this->addWhereFld( 'log_type', $params['type'] );
 		}
 
@@ -159,7 +169,7 @@ class ApiQueryLogEvents extends ApiQueryBase {
 		// Include in ORDER BY for uniqueness
 		$this->addWhereRange( 'log_id', $params['dir'], null, null );
 
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != 2 );
 			$op = ( $params['dir'] === 'newer' ? '>' : '<' );
@@ -176,23 +186,14 @@ class ApiQueryLogEvents extends ApiQueryBase {
 		$this->addOption( 'LIMIT', $limit + 1 );
 
 		$user = $params['user'];
-		if ( !is_null( $user ) ) {
-			// Note the joins in $q are the same as those from ->getJoin() above
-			// so we only need to add 'conds' here.
-			$q = $actorMigration->getWhere(
-				$db, 'log_user', User::newFromName( $params['user'], false )
-			);
-			$this->addWhere( $q['conds'] );
-
-			// T71222: MariaDB's optimizer, at least 10.1.37 and .38, likes to choose a wildly bad plan for
-			// some reason for this code path. Tell it not to use the wrong index it wants to pick.
-			$this->addOption( 'IGNORE INDEX', [ 'logging' => [ 'times' ] ] );
+		if ( $user !== null ) {
+			$this->addWhereFld( 'actor_name', $user );
 		}
 
 		$title = $params['title'];
-		if ( !is_null( $title ) ) {
+		if ( $title !== null ) {
 			$titleObj = Title::newFromText( $title );
-			if ( is_null( $titleObj ) ) {
+			if ( $titleObj === null ) {
 				$this->dieWithError( [ 'apierror-invalidtitle', wfEscapeWikiText( $title ) ] );
 			}
 			$this->addWhereFld( 'log_namespace', $titleObj->getNamespace() );
@@ -205,13 +206,13 @@ class ApiQueryLogEvents extends ApiQueryBase {
 
 		$prefix = $params['prefix'];
 
-		if ( !is_null( $prefix ) ) {
+		if ( $prefix !== null ) {
 			if ( $this->getConfig()->get( 'MiserMode' ) ) {
 				$this->dieWithError( 'apierror-prefixsearchdisabled' );
 			}
 
 			$title = Title::newFromText( $prefix );
-			if ( is_null( $title ) ) {
+			if ( $title === null ) {
 				$this->dieWithError( [ 'apierror-invalidtitle', wfEscapeWikiText( $prefix ) ] );
 			}
 			$this->addWhereFld( 'log_namespace', $title->getNamespace() );
@@ -219,27 +220,41 @@ class ApiQueryLogEvents extends ApiQueryBase {
 		}
 
 		// Paranoia: avoid brute force searches (T19342)
-		if ( $params['namespace'] !== null || !is_null( $title ) || !is_null( $user ) ) {
-			if ( !$this->getUser()->isAllowed( 'deletedhistory' ) ) {
+		if ( $params['namespace'] !== null || $title !== null || $user !== null ) {
+			if ( !$this->getAuthority()->isAllowed( 'deletedhistory' ) ) {
 				$titleBits = LogPage::DELETED_ACTION;
 				$userBits = LogPage::DELETED_USER;
-			} elseif ( !$this->getUser()->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
+			} elseif ( !$this->getAuthority()->isAllowedAny( 'suppressrevision', 'viewsuppressed' ) ) {
 				$titleBits = LogPage::DELETED_ACTION | LogPage::DELETED_RESTRICTED;
 				$userBits = LogPage::DELETED_USER | LogPage::DELETED_RESTRICTED;
 			} else {
 				$titleBits = 0;
 				$userBits = 0;
 			}
-			if ( ( $params['namespace'] !== null || !is_null( $title ) ) && $titleBits ) {
+			if ( ( $params['namespace'] !== null || $title !== null ) && $titleBits ) {
 				$this->addWhere( $db->bitAnd( 'log_deleted', $titleBits ) . " != $titleBits" );
 			}
-			if ( !is_null( $user ) && $userBits ) {
+			if ( $user !== null && $userBits ) {
 				$this->addWhere( $db->bitAnd( 'log_deleted', $userBits ) . " != $userBits" );
 			}
 		}
 
+		// T220999: MySQL/MariaDB (10.1.37) can sometimes irrationally decide that querying `actor` before
+		// `logging` and filesorting is somehow better than querying $limit+1 rows from `logging`.
+		// Tell it not to reorder the query. But not when `letag` was used, as it seems as likely
+		// to be harmed as helped in that case.
+		// If "user" was specified, it's obviously correct to query actor first (T282122)
+		if ( $params['tag'] === null && $user === null ) {
+			$this->addOption( 'STRAIGHT_JOIN' );
+		}
+
 		$count = 0;
 		$res = $this->select( __METHOD__ );
+
+		if ( $this->fld_title ) {
+			$this->executeGenderCacheFromResultWrapper( $res, __METHOD__, 'log' );
+		}
+
 		$result = $this->getResult();
 		foreach ( $res as $row ) {
 			if ( ++$count > $limit ) {
@@ -306,13 +321,13 @@ class ApiQueryLogEvents extends ApiQueryBase {
 			}
 			if ( LogEventsList::userCan( $row, LogPage::DELETED_USER, $user ) ) {
 				if ( $this->fld_user ) {
-					$vals['user'] = $row->user_name ?? $row->log_user_text;
+					$vals['user'] = $row->actor_name;
 				}
 				if ( $this->fld_userid ) {
-					$vals['userid'] = (int)$row->log_user;
+					$vals['userid'] = (int)$row->actor_user;
 				}
 
-				if ( !$row->log_user ) {
+				if ( !$row->actor_user ) {
 					$vals['anon'] = true;
 				}
 			}
@@ -370,7 +385,7 @@ class ApiQueryLogEvents extends ApiQueryBase {
 		if ( $this->userCanSeeRevDel() ) {
 			return 'private';
 		}
-		if ( !is_null( $params['prop'] ) && in_array( 'parsedcomment', $params['prop'] ) ) {
+		if ( $params['prop'] !== null && in_array( 'parsedcomment', $params['prop'] ) ) {
 			// formatComment() calls wfMessage() among other things
 			return 'anon-public-user-private';
 		} elseif ( LogEventsList::getExcludeClause( $this->getDB(), 'user', $this->getUser() )
@@ -431,6 +446,7 @@ class ApiQueryLogEvents extends ApiQueryBase {
 			],
 			'user' => [
 				ApiBase::PARAM_TYPE => 'user',
+				UserDef::PARAM_ALLOWED_USER_TYPES => [ 'name', 'ip', 'id', 'interwiki' ],
 			],
 			'title' => null,
 			'namespace' => [

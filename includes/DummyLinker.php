@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Revision\RevisionRecord;
+
 /**
  * @since 1.18
  */
@@ -66,7 +69,8 @@ class DummyLinker {
 	}
 
 	public function normaliseSpecialPage( Title $title ) {
-		return Linker::normaliseSpecialPage( $title );
+		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
+		return $linkRenderer->normalizeTarget( $title );
 	}
 
 	public function makeExternalImage( $url, $alt = '' ) {
@@ -243,12 +247,12 @@ class DummyLinker {
 		return Linker::emailLink( $userId, $userText );
 	}
 
-	public function revUserLink( $rev, $isPublic = false ) {
-		return Linker::revUserLink( $rev, $isPublic );
+	public function revUserLink( RevisionRecord $revRecord, $isPublic = false ) {
+		return Linker::revUserLink( $revRecord, $isPublic );
 	}
 
-	public function revUserTools( $rev, $isPublic = false ) {
-		return Linker::revUserTools( $rev, $isPublic );
+	public function revUserTools( RevisionRecord $revRecord, $isPublic = false ) {
+		return Linker::revUserTools( $revRecord, $isPublic );
 	}
 
 	public function formatComment(
@@ -315,8 +319,8 @@ class DummyLinker {
 		);
 	}
 
-	public function revComment( Revision $rev, $local = false, $isPublic = false ) {
-		return Linker::revComment( $rev, $local, $isPublic );
+	public function revComment( RevisionRecord $revRecord, $local = false, $isPublic = false ) {
+		return Linker::revComment( $revRecord, $local, $isPublic );
 	}
 
 	public function formatRevisionSize( $size ) {
@@ -345,11 +349,11 @@ class DummyLinker {
 		return Linker::tocLineEnd();
 	}
 
-	public function tocList( $toc, $lang = null ) {
+	public function tocList( $toc, Language $lang = null ) {
 		return Linker::tocList( $toc, $lang );
 	}
 
-	public function generateTOC( $tree, $lang = null ) {
+	public function generateTOC( $tree, Language $lang = null ) {
 		return Linker::generateTOC( $tree, $lang );
 	}
 
@@ -376,28 +380,28 @@ class DummyLinker {
 	}
 
 	public function generateRollback(
-		$rev,
+		RevisionRecord $revRecord,
 		IContextSource $context = null,
 		$options = [ 'verify' ]
 	) {
 		return Linker::generateRollback(
-			$rev,
+			$revRecord,
 			$context,
 			$options
 		);
 	}
 
-	public function getRollbackEditCount( $rev, $verify ) {
-		return Linker::getRollbackEditCount( $rev, $verify );
+	public function getRollbackEditCount( RevisionRecord $revRecord, $verify ) {
+		return Linker::getRollbackEditCount( $revRecord, $verify );
 	}
 
 	public function buildRollbackLink(
-		$rev,
+		RevisionRecord $revRecord,
 		IContextSource $context = null,
 		$editCount = false
 	) {
 		return Linker::buildRollbackLink(
-			$rev,
+			$revRecord,
 			$context,
 			$editCount
 		);
@@ -419,10 +423,10 @@ class DummyLinker {
 		return Linker::accesskey( $name );
 	}
 
-	public function getRevDeleteLink( User $user, Revision $rev, Title $title ) {
+	public function getRevDeleteLink( User $user, RevisionRecord $revRecord, Title $title ) {
 		return Linker::getRevDeleteLink(
 			$user,
-			$rev,
+			$revRecord,
 			$title
 		);
 	}

@@ -181,7 +181,8 @@ class WikiMap {
 	/**
 	 * Get canonical server info for all local wikis in the map that have one
 	 *
-	 * @return array Map of (local wiki ID => map of (url,parts))
+	 * @return array[] Map of (local wiki ID => map of (url,parts))
+	 * @phan-return array<string,array{url:string,parts:string[]|bool}>
 	 * @since 1.30
 	 */
 	public static function getCanonicalServerInfoForAllWikis() {
@@ -196,7 +197,7 @@ class WikiMap {
 				$infoMap = [];
 				// Make sure at least the current wiki is set, for simple configurations.
 				// This also makes it the first in the map, which is useful for common cases.
-				$wikiId = self::getWikiIdFromDbDomain( self::getCurrentWikiDbDomain() );
+				$wikiId = self::getCurrentWikiId();
 				$infoMap[$wikiId] = [
 					'url' => $wgCanonicalServer,
 					'parts' => wfParseUrl( $wgCanonicalServer )
@@ -221,19 +222,29 @@ class WikiMap {
 	 * @since 1.30
 	 */
 	public static function getWikiFromUrl( $url ) {
+		global $wgCanonicalServer;
+
+		if ( strpos( $url, "$wgCanonicalServer/" ) === 0 ) {
+			// Optimisation: Handle the common case.
+			// (Duplicates self::getCanonicalServerInfoForAllWikis)
+			return self::getCurrentWikiId();
+		}
+
 		$urlPartsCheck = wfParseUrl( $url );
 		if ( $urlPartsCheck === false ) {
 			return false;
 		}
 
-		$urlPartsCheck = array_intersect_key( $urlPartsCheck, [ 'host' => 1, 'port' => 1 ] );
+		static $relevantKeys = [ 'host' => 1, 'port' => 1 ];
+		$urlPartsCheck = array_intersect_key( $urlPartsCheck, $relevantKeys );
+
 		foreach ( self::getCanonicalServerInfoForAllWikis() as $wikiId => $info ) {
 			$urlParts = $info['parts'];
 			if ( $urlParts === false ) {
 				continue; // sanity
 			}
 
-			$urlParts = array_intersect_key( $urlParts, [ 'host' => 1, 'port' => 1 ] );
+			$urlParts = array_intersect_key( $urlParts, $relevantKeys );
 			if ( $urlParts == $urlPartsCheck ) {
 				return $wikiId;
 			}
@@ -246,11 +257,10 @@ class WikiMap {
 	 * Get the wiki ID of a database domain
 	 *
 	 * This is like DatabaseDomain::getId() without encoding (for legacy reasons) and
-	 * without the schema if it is the generic installer default of "mediawiki"/"dbo"
+	 * without the schema if it is the generic installer default of "mediawiki"
 	 *
 	 * @see $wgDBmwschema
 	 * @see PostgresInstaller
-	 * @see MssqlInstaller
 	 *
 	 * @param string|DatabaseDomain $domain
 	 * @return string
@@ -262,27 +272,18 @@ class WikiMap {
 		// compatibility with some common cases. Assume that if the DB domain schema is just
 		// the installer default then it is probably the case that the schema is the same for
 		// all wikis in the farm. Historically, any wiki farm had to make the database/prefix
-		// combination unique per wiki. Ommit the schema if it does not seem wiki specific.
-		if ( !in_array( $domain->getSchema(), [ null, 'mediawiki', 'dbo' ], true ) ) {
+		// combination unique per wiki. Omit the schema if it does not seem wiki specific.
+		if ( !in_array( $domain->getSchema(), [ null, 'mediawiki' ], true ) ) {
 			// This means a site admin may have specifically taylored the schemas.
 			// Domain IDs might use the form <DB>-<project>- or <DB>-<project>-<language>_,
 			// meaning that the schema portion must be accounted for to disambiguate wikis.
 			return "{$domain->getDatabase()}-{$domain->getSchema()}-{$domain->getTablePrefix()}";
 		}
-		// Note that if this wiki ID is passed a a domain ID to LoadBalancer, then it can
+		// Note that if this wiki ID is passed as a domain ID to LoadBalancer, then it can
 		// handle the schema by assuming the generic "mediawiki" schema if needed.
 		return strlen( $domain->getTablePrefix() )
 			? "{$domain->getDatabase()}-{$domain->getTablePrefix()}"
 			: (string)$domain->getDatabase();
-	}
-
-	/**
-	 * @param string $domain
-	 * @return string
-	 * @deprecated Since 1.33; use getWikiIdFromDbDomain()
-	 */
-	public static function getWikiIdFromDomain( $domain ) {
-		return self::getWikiIdFromDbDomain( $domain );
 	}
 
 	/**
@@ -296,12 +297,20 @@ class WikiMap {
 	}
 
 	/**
+	 * @since 1.35
+	 * @return string
+	 */
+	public static function getCurrentWikiId() {
+		return self::getWikiIdFromDbDomain( self::getCurrentWikiDbDomain() );
+	}
+
+	/**
 	 * @param DatabaseDomain|string $domain
 	 * @return bool Whether $domain matches the DB domain of the current wiki
 	 * @since 1.33
 	 */
 	public static function isCurrentWikiDbDomain( $domain ) {
-		return self::getCurrentWikiDbDomain()->equals( DatabaseDomain::newFromId( $domain ) );
+		return self::getCurrentWikiDbDomain()->equals( $domain );
 	}
 
 	/**
@@ -310,6 +319,6 @@ class WikiMap {
 	 * @since 1.33
 	 */
 	public static function isCurrentWikiId( $wikiId ) {
-		return ( self::getWikiIdFromDbDomain( self::getCurrentWikiDbDomain() ) === $wikiId );
+		return ( self::getCurrentWikiId() === $wikiId );
 	}
 }

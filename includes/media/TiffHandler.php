@@ -21,13 +21,18 @@
  * @ingroup Media
  */
 
+use Wikimedia\RequestTimeout\TimeoutException;
+
 /**
  * Handler for Tiff images.
  *
  * @ingroup Media
  */
 class TiffHandler extends ExifBitmapHandler {
-	const EXPENSIVE_SIZE_LIMIT = 10485760; // TIFF files over 10M are considered expensive to thumbnail
+	/**
+	 * TIFF files over 10M are considered expensive to thumbnail
+	 */
+	private const EXPENSIVE_SIZE_LIMIT = 10485760;
 
 	/**
 	 * Conversion to PNG for inline display can be disabled here...
@@ -62,7 +67,7 @@ class TiffHandler extends ExifBitmapHandler {
 	 * @param string $ext
 	 * @param string $mime
 	 * @param array|null $params
-	 * @return bool
+	 * @return array
 	 */
 	public function getThumbType( $ext, $mime, $params = null ) {
 		global $wgTiffThumbnailType;
@@ -70,34 +75,33 @@ class TiffHandler extends ExifBitmapHandler {
 		return $wgTiffThumbnailType;
 	}
 
-	/**
-	 * @param File|FSFile $image
-	 * @param string $filename
-	 * @throws MWException
-	 * @return string
-	 */
-	public function getMetadata( $image, $filename ) {
+	public function getSizeAndMetadata( $state, $filename ) {
 		global $wgShowEXIF;
 
-		if ( $wgShowEXIF ) {
-			try {
-				$meta = BitmapMetadataHandler::Tiff( $filename );
-				if ( !is_array( $meta ) ) {
-					// This should never happen, but doesn't hurt to be paranoid.
-					throw new MWException( 'Metadata array is not an array' );
-				}
-				$meta['MEDIAWIKI_EXIF_VERSION'] = Exif::version();
-
-				return serialize( $meta );
-			} catch ( Exception $e ) {
-				// BitmapMetadataHandler throws an exception in certain exceptional
-				// cases like if file does not exist.
-				wfDebug( __METHOD__ . ': ' . $e->getMessage() . "\n" );
-
-				return ExifBitmapHandler::BROKEN_FILE;
+		try {
+			$meta = BitmapMetadataHandler::Tiff( $filename );
+			if ( !is_array( $meta ) ) {
+				// This should never happen, but doesn't hurt to be paranoid.
+				throw new MWException( 'Metadata array is not an array' );
 			}
-		} else {
-			return '';
+			$info = [
+				'width' => $meta['ImageWidth'] ?? 0,
+				'height' => $meta['ImageLength'] ?? 0,
+			];
+			$info = $this->applyExifRotation( $info, $meta );
+			if ( $wgShowEXIF ) {
+				$meta['MEDIAWIKI_EXIF_VERSION'] = Exif::version();
+				$info['metadata'] = $meta;
+			}
+			return $info;
+		} catch ( TimeoutException $e ) {
+			throw $e;
+		} catch ( Exception $e ) {
+			// BitmapMetadataHandler throws an exception in certain exceptional
+			// cases like if file does not exist.
+			wfDebug( __METHOD__ . ': ' . $e->getMessage() );
+
+			return [ 'metadata' => [ '_error' => ExifBitmapHandler::BROKEN_FILE ] ];
 		}
 	}
 

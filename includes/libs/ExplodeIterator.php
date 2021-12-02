@@ -28,16 +28,22 @@
  * Except it doesn't use 193 byte per element
  */
 class ExplodeIterator implements Iterator {
-	// The subject string
-	private $subject, $subjectLength;
+	/** @var string */
+	private $subject;
 
-	// The delimiter
-	private $delim, $delimLength;
+	/** @var int */
+	private $subjectLength;
 
-	// The position of the start of the line
+	/** @var string */
+	private $delim;
+
+	/** @var int */
+	private $delimLength;
+
+	/** @var int The position of the start of the line */
 	private $curPos;
 
-	// The position after the end of the next delimiter
+	/** @var int The position after the end of the next delimiter */
 	private $endPos;
 
 	/** @var string|false The current token */
@@ -89,7 +95,7 @@ class ExplodeIterator implements Iterator {
 	}
 
 	/**
-	 * @return string
+	 * @return void
 	 */
 	public function next() {
 		if ( $this->endPos === false ) {
@@ -103,8 +109,6 @@ class ExplodeIterator implements Iterator {
 			}
 		}
 		$this->refreshCurrent();
-
-		return $this->current;
 	}
 
 	/**

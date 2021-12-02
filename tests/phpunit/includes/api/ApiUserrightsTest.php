@@ -1,5 +1,8 @@
 <?php
 
+use MediaWiki\Block\DatabaseBlock;
+use MediaWiki\MediaWikiServices;
+
 /**
  * @group API
  * @group Database
@@ -9,12 +12,16 @@
  */
 class ApiUserrightsTest extends ApiTestCase {
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 		$this->tablesUsed = array_merge(
 			$this->tablesUsed,
 			[ 'change_tag', 'change_tag_def', 'logging' ]
 		);
+		$this->setMwGlobals( [
+			'wgAddGroups' => [],
+			'wgRemoveGroups' => [],
+		] );
 	}
 
 	/**
@@ -73,7 +80,10 @@ class ApiUserrightsTest extends ApiTestCase {
 		$res = $this->doApiRequestWithToken( $params );
 
 		$user->clearInstanceCache();
-		$this->assertSame( $expectedGroups, $user->getGroups() );
+		$this->getServiceContainer()->getPermissionManager()->invalidateUsersRightsCache();
+		$this->assertSame(
+			$expectedGroups, $this->getServiceContainer()->getUserGroupManager()->getUserGroups( $user )
+		);
 
 		$this->assertArrayNotHasKey( 'warnings', $res[0] );
 	}
@@ -91,8 +101,10 @@ class ApiUserrightsTest extends ApiTestCase {
 		$expectedException, array $params = [], User $user = null
 	) {
 		$params['action'] = 'userrights';
+		$userGroupManager = $this->getServiceContainer()->getUserGroupManager();
 
-		$this->setExpectedException( ApiUsageException::class, $expectedException );
+		$this->expectException( ApiUsageException::class );
+		$this->expectExceptionMessage( $expectedException );
 
 		if ( !$user ) {
 			// If 'user' or 'userid' is specified and $user was not specified,
@@ -111,13 +123,13 @@ class ApiUserrightsTest extends ApiTestCase {
 		if ( !isset( $params['add'] ) && !isset( $params['remove'] ) ) {
 			$params['add'] = 'sysop';
 		}
-		$expectedGroups = $user->getGroups();
+		$expectedGroups = $userGroupManager->getUserGroups( $user );
 
 		try {
 			$this->doApiRequestWithToken( $params );
 		} finally {
 			$user->clearInstanceCache();
-			$this->assertSame( $expectedGroups, $user->getGroups() );
+			$this->assertSame( $expectedGroups, $userGroupManager->getUserGroups( $user ) );
 		}
 	}
 
@@ -126,16 +138,17 @@ class ApiUserrightsTest extends ApiTestCase {
 	}
 
 	public function testBlockedWithUserrights() {
-		global $wgUser;
+		$user = $this->getTestSysop()->getUser();
 
-		$block = new Block( [ 'address' => $wgUser, 'by' => $wgUser->getId(), ] );
-		$block->insert();
+		$block = new DatabaseBlock( [ 'address' => $user, 'by' => $user, ] );
+		$blockStore = MediaWikiServices::getInstance()->getDatabaseBlockStore();
+		$blockStore->insertBlock( $block );
 
 		try {
 			$this->doSuccessfulRightsChange();
 		} finally {
-			$block->delete();
-			$wgUser->clearInstanceCache();
+			$blockStore->deleteBlock( $block );
+			$user->clearInstanceCache();
 		}
 	}
 
@@ -144,13 +157,14 @@ class ApiUserrightsTest extends ApiTestCase {
 
 		$this->setPermissions( true, true );
 
-		$block = new Block( [ 'address' => $user, 'by' => $user->getId() ] );
-		$block->insert();
+		$block = new DatabaseBlock( [ 'address' => $user, 'by' => $user ] );
+		$blockStore = MediaWikiServices::getInstance()->getDatabaseBlockStore();
+		$blockStore->insertBlock( $block );
 
 		try {
 			$this->doFailedRightsChange( 'You have been blocked from editing.' );
 		} finally {
-			$block->delete();
+			$blockStore->deleteBlock( $block );
 			$user->clearInstanceCache();
 		}
 	}
@@ -243,7 +257,7 @@ class ApiUserrightsTest extends ApiTestCase {
 		] );
 
 		$user->clearInstanceCache();
-		$this->assertSame( [ 'sysop' ], $user->getGroups() );
+		$this->assertSame( [ 'sysop' ], $this->getServiceContainer()->getUserGroupManager()->getUserGroups( $user ) );
 
 		$this->assertArrayNotHasKey( 'warnings', $res[0] );
 	}
@@ -255,6 +269,7 @@ class ApiUserrightsTest extends ApiTestCase {
 	 * error in the way we construct the mock.
 	 *
 	 * @param bool $canProcessExpiries
+	 * @return ApiUserrights
 	 */
 	private function getMockForProcessingExpiries( $canProcessExpiries ) {
 		$sysop = $this->getTestSysop()->getUser();
@@ -270,13 +285,13 @@ class ApiUserrightsTest extends ApiTestCase {
 		] ) );
 
 		$mockUserRightsPage = $this->getMockBuilder( UserrightsPage::class )
-			->setMethods( [ 'canProcessExpiries' ] )
+			->onlyMethods( [ 'canProcessExpiries' ] )
 			->getMock();
 		$mockUserRightsPage->method( 'canProcessExpiries' )->willReturn( $canProcessExpiries );
 
 		$mockApi = $this->getMockBuilder( ApiUserrights::class )
 			->setConstructorArgs( [ $main, 'userrights' ] )
-			->setMethods( [ 'getUserRightsPage' ] )
+			->onlyMethods( [ 'getUserRightsPage' ] )
 			->getMock();
 		$mockApi->method( 'getUserRightsPage' )->willReturn( $mockUserRightsPage );
 
@@ -301,7 +316,7 @@ class ApiUserrightsTest extends ApiTestCase {
 	 * @param array $expectedGroups Array of expected groups
 	 */
 	public function testAddAndRemoveGroups(
-		array $permissions = null, array $groupsToChange, array $expectedGroups
+		?array $permissions, array $groupsToChange, array $expectedGroups
 	) {
 		if ( $permissions !== null ) {
 			$this->setPermissions( $permissions[0], $permissions[1] );

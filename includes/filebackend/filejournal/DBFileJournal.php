@@ -22,16 +22,15 @@
  */
 
 use MediaWiki\MediaWikiServices;
-use Wikimedia\Rdbms\IDatabase;
 use Wikimedia\Rdbms\DBError;
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Timestamp\ConvertibleTimestamp;
 
 /**
  * Version of FileJournal that logs to a DB table
  * @since 1.20
  */
 class DBFileJournal extends FileJournal {
-	/** @var IDatabase */
-	protected $dbw;
 	/** @var string */
 	protected $domain;
 
@@ -39,9 +38,9 @@ class DBFileJournal extends FileJournal {
 	 * Construct a new instance from configuration.
 	 *
 	 * @param array $config Includes:
-	 *   domain: database domain ID of the wiki
+	 *   - domain: database domain ID of the wiki
 	 */
-	protected function __construct( array $config ) {
+	public function __construct( array $config ) {
 		parent::__construct( $config );
 
 		$this->domain = $config['domain'] ?? $config['wiki']; // b/c
@@ -49,7 +48,7 @@ class DBFileJournal extends FileJournal {
 
 	/**
 	 * @see FileJournal::logChangeBatch()
-	 * @param array $entries
+	 * @param array[] $entries
 	 * @param string $batchId
 	 * @return StatusValue
 	 */
@@ -57,14 +56,12 @@ class DBFileJournal extends FileJournal {
 		$status = StatusValue::newGood();
 
 		try {
-			$dbw = $this->getMasterDB();
+			$dbw = $this->getPrimaryDB();
 		} catch ( DBError $e ) {
-			$status->fatal( 'filejournal-fail-dbconnect', $this->backend );
-
-			return $status;
+			return $status->fatal( 'filejournal-fail-dbconnect', $this->backend );
 		}
 
-		$now = wfTimestamp( TS_UNIX );
+		$now = ConvertibleTimestamp::time();
 
 		$data = [];
 		foreach ( $entries as $entry ) {
@@ -80,13 +77,14 @@ class DBFileJournal extends FileJournal {
 
 		try {
 			$dbw->insert( 'filejournal', $data, __METHOD__ );
+			// XXX Should we do this deterministically so it's testable? Maybe look at the last two
+			// digits of a hash of a bunch of the data?
 			if ( mt_rand( 0, 99 ) == 0 ) {
-				$this->purgeOldLogs(); // occasionally delete old logs
+				// occasionally delete old logs
+				$this->purgeOldLogs(); // @codeCoverageIgnore
 			}
 		} catch ( DBError $e ) {
-			$status->fatal( 'filejournal-fail-dbquery', $this->backend );
-
-			return $status;
+			return $status->fatal( 'filejournal-fail-dbquery', $this->backend );
 		}
 
 		return $status;
@@ -94,10 +92,10 @@ class DBFileJournal extends FileJournal {
 
 	/**
 	 * @see FileJournal::doGetCurrentPosition()
-	 * @return bool|mixed The value from the field, or false on failure.
+	 * @return int|false The value from the field, or false on failure.
 	 */
 	protected function doGetCurrentPosition() {
-		$dbw = $this->getMasterDB();
+		$dbw = $this->getPrimaryDB();
 
 		return $dbw->selectField( 'filejournal', 'MAX(fj_id)',
 			[ 'fj_backend' => $this->backend ],
@@ -108,10 +106,10 @@ class DBFileJournal extends FileJournal {
 	/**
 	 * @see FileJournal::doGetPositionAtTime()
 	 * @param int|string $time Timestamp
-	 * @return bool|mixed The value from the field, or false on failure.
+	 * @return int|false The value from the field, or false on failure.
 	 */
 	protected function doGetPositionAtTime( $time ) {
-		$dbw = $this->getMasterDB();
+		$dbw = $this->getPrimaryDB();
 
 		$encTimestamp = $dbw->addQuotes( $dbw->timestamp( $time ) );
 
@@ -129,7 +127,7 @@ class DBFileJournal extends FileJournal {
 	 * @return array[]
 	 */
 	protected function doGetChangeEntries( $start, $limit ) {
-		$dbw = $this->getMasterDB();
+		$dbw = $this->getPrimaryDB();
 
 		$res = $dbw->select( 'filejournal', '*',
 			[
@@ -163,8 +161,8 @@ class DBFileJournal extends FileJournal {
 			return $status; // nothing to do
 		}
 
-		$dbw = $this->getMasterDB();
-		$dbCutoff = $dbw->timestamp( time() - 86400 * $this->ttlDays );
+		$dbw = $this->getPrimaryDB();
+		$dbCutoff = $dbw->timestamp( ConvertibleTimestamp::time() - 86400 * $this->ttlDays );
 
 		$dbw->delete( 'filejournal',
 			[ 'fj_timestamp < ' . $dbw->addQuotes( $dbCutoff ) ],
@@ -175,19 +173,27 @@ class DBFileJournal extends FileJournal {
 	}
 
 	/**
-	 * Get a master connection to the logging DB
+	 * Get a primary connection to the logging DB
 	 *
+	 * @return IDatabase
+	 * @throws DBError
+	 * @since 1.37
+	 */
+	protected function getPrimaryDB() {
+		$lb = MediaWikiServices::getInstance()->getDBLoadBalancer();
+
+		return $lb->getConnectionRef( DB_PRIMARY, [], $this->domain, $lb::CONN_TRX_AUTOCOMMIT );
+	}
+
+	/**
+	 * Get a primary connection to the logging DB
+	 *
+	 * @deprecated since 1.37
 	 * @return IDatabase
 	 * @throws DBError
 	 */
 	protected function getMasterDB() {
-		if ( !$this->dbw ) {
-			// Get a separate connection in autocommit mode
-			$lb = MediaWikiServices::getInstance()->getDBLoadBalancerFactory()->newMainLB();
-			$this->dbw = $lb->getConnection( DB_MASTER, [], $this->domain );
-			$this->dbw->clearFlag( DBO_TRX );
-		}
-
-		return $this->dbw;
+		wfDeprecated( __METHOD__, '1.37' );
+		return $this->getPrimaryDB();
 	}
 }

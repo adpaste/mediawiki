@@ -32,6 +32,23 @@ class ApiFeedWatchlist extends ApiBase {
 	private $watchlistModule = null;
 	private $linkToSections = false;
 
+	/** @var Parser */
+	private $parser;
+
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param Parser $parser
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		Parser $parser
+	) {
+		parent::__construct( $main, $action );
+		$this->parser = $parser;
+	}
+
 	/**
 	 * This module uses a custom feed wrapper printer.
 	 *
@@ -49,6 +66,7 @@ class ApiFeedWatchlist extends ApiBase {
 		$config = $this->getConfig();
 		$feedClasses = $config->get( 'FeedClasses' );
 		$params = [];
+		$feedItems = [];
 		try {
 			$params = $this->extractRequestParams();
 
@@ -108,7 +126,6 @@ class ApiFeedWatchlist extends ApiBase {
 			$module->execute();
 
 			$data = $module->getResult()->getResultData( [ 'query', 'watchlist' ] );
-			$feedItems = [];
 			foreach ( (array)$data as $key => $info ) {
 				if ( ApiResult::isMetadataKey( $key ) ) {
 					continue;
@@ -148,6 +165,7 @@ class ApiFeedWatchlist extends ApiBase {
 
 			if ( $e instanceof ApiUsageException ) {
 				foreach ( $e->getStatusValue()->getErrors() as $error ) {
+					// @phan-suppress-next-line PhanUndeclaredMethod
 					$msg = ApiMessage::create( $error )
 						->inLanguage( $this->getLanguage() );
 					$errorTitle = $this->msg( 'api-feed-error-title', $msg->getApiCode() );
@@ -209,8 +227,7 @@ class ApiFeedWatchlist extends ApiBase {
 		if ( $this->linkToSections && $comment !== null &&
 			preg_match( '!(.*)/\*\s*(.*?)\s*\*/(.*)!', $comment, $matches )
 		) {
-			global $wgParser;
-			$titleUrl .= $wgParser->guessSectionNameFromWikiText( $matches[ 2 ] );
+			$titleUrl .= $this->parser->guessSectionNameFromWikiText( $matches[ 2 ] );
 		}
 
 		$timestamp = $info['timestamp'];
@@ -260,6 +277,7 @@ class ApiFeedWatchlist extends ApiBase {
 			'excludeuser' => 'wlexcludeuser',
 		];
 		if ( $flags ) {
+			// @phan-suppress-next-line PhanParamTooMany
 			$wlparams = $this->getWatchlistModule()->getAllowedParams( $flags );
 			foreach ( $copyParams as $from => $to ) {
 				$p = $wlparams[$from];

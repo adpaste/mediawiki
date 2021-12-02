@@ -19,7 +19,6 @@
  *
  * @file
  */
-use MediaWiki\MediaWikiServices;
 
 /**
  * Query module to enumerate all available pages.
@@ -28,8 +27,27 @@ use MediaWiki\MediaWikiServices;
  */
 class ApiQueryAllPages extends ApiQueryGeneratorBase {
 
-	public function __construct( ApiQuery $query, $moduleName ) {
+	/** @var NamespaceInfo */
+	private $namespaceInfo;
+
+	/** @var GenderCache */
+	private $genderCache;
+
+	/**
+	 * @param ApiQuery $query
+	 * @param string $moduleName
+	 * @param NamespaceInfo $namespaceInfo
+	 * @param GenderCache $genderCache
+	 */
+	public function __construct(
+		ApiQuery $query,
+		$moduleName,
+		NamespaceInfo $namespaceInfo,
+		GenderCache $genderCache
+	) {
 		parent::__construct( $query, $moduleName, 'ap' );
+		$this->namespaceInfo = $namespaceInfo;
+		$this->genderCache = $genderCache;
 	}
 
 	public function execute() {
@@ -53,7 +71,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 	}
 
 	/**
-	 * @param ApiPageSet $resultPageSet
+	 * @param ApiPageSet|null $resultPageSet
 	 * @return void
 	 */
 	private function run( $resultPageSet = null ) {
@@ -64,7 +82,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 		// Page filters
 		$this->addTables( 'page' );
 
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$cont = explode( '|', $params['continue'] );
 			$this->dieContinueUsageIf( count( $cont ) != 1 );
 			$op = $params['dir'] == 'descending' ? '<' : '>';
@@ -97,7 +115,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 				$db->anyString() ) );
 		}
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$selectFields = [
 				'page_namespace',
 				'page_title',
@@ -183,7 +201,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 			// in the 1992 SQL standard (it doesn't like having the
 			// constant-in-WHERE page_namespace column in there). Using the
 			// 1999 rules works fine, but that breaks other DBs. Sigh.
-			/// @todo Once we drop support for 1992-rule DBs, we can simplify this.
+			// @todo Once we drop support for 1992-rule DBs, we can simplify this.
 			$dbType = $db->getType();
 			if ( $dbType === 'mysql' || $dbType === 'sqlite' ) {
 				// Ignore the rules, or 1999 rules if you count unique keys
@@ -203,7 +221,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 		}
 
 		if ( $forceNameTitleIndex ) {
-			$this->addOption( 'USE INDEX', 'name_title' );
+			$this->addOption( 'USE INDEX', 'page_name_title' );
 		}
 
 		$limit = $params['limit'];
@@ -211,12 +229,12 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 		$res = $this->select( __METHOD__ );
 
 		// Get gender information
-		if ( MWNamespace::hasGenderDistinction( $params['namespace'] ) ) {
+		if ( $this->namespaceInfo->hasGenderDistinction( $params['namespace'] ) ) {
 			$users = [];
 			foreach ( $res as $row ) {
 				$users[] = $row->page_title;
 			}
-			MediaWikiServices::getInstance()->getGenderCache()->doQuery( $users, __METHOD__ );
+			$this->genderCache->doQuery( $users, __METHOD__ );
 			$res->rewind(); // reset
 		}
 
@@ -235,11 +253,11 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 				continue;
 			}
 
-			if ( is_null( $resultPageSet ) ) {
+			if ( $resultPageSet === null ) {
 				$title = Title::makeTitle( $row->page_namespace, $row->page_title );
 				$vals = [
 					'pageid' => (int)$row->page_id,
-					'ns' => (int)$title->getNamespace(),
+					'ns' => $title->getNamespace(),
 					'title' => $title->getPrefixedText()
 				];
 				$fit = $result->addValue( [ 'query', $this->getModuleName() ], null, $vals );
@@ -252,7 +270,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 			}
 		}
 
-		if ( is_null( $resultPageSet ) ) {
+		if ( $resultPageSet === null ) {
 			$result->addIndexedTagName( [ 'query', $this->getModuleName() ], 'p' );
 		}
 	}
@@ -341,7 +359,7 @@ class ApiQueryAllPages extends ApiQueryGeneratorBase {
 	protected function getExamplesMessages() {
 		return [
 			'action=query&list=allpages&apfrom=B'
-				=> 'apihelp-query+allpages-example-B',
+				=> 'apihelp-query+allpages-example-b',
 			'action=query&generator=allpages&gaplimit=4&gapfrom=T&prop=info'
 				=> 'apihelp-query+allpages-example-generator',
 			'action=query&generator=allpages&gaplimit=2&' .

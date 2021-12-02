@@ -1,22 +1,27 @@
 /*!
- * OOUI v0.31.3
+ * OOUI v0.42.0
  * https://www.mediawiki.org/wiki/OOUI
  *
- * Copyright 2011–2019 OOUI Team and other contributors.
+ * Copyright 2011–2021 OOUI Team and other contributors.
  * Released under the MIT license
  * http://oojs.mit-license.org
  *
- * Date: 2019-04-04T19:10:54Z
+ * Date: 2021-08-19T04:45:01Z
  */
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-tool > .oo-ui-tool-link > .oo-ui-tool-checkIcon {
   display: none;
 }
 
-.oo-ui-popupTool-popup .oo-ui-popupWidget-popup,
-.oo-ui-popupTool-popup .oo-ui-popupWidget-anchor {
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
+.oo-ui-popupTool-popup.oo-ui-popupWidget {
   z-index: 4;
 }
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-toolGroupTool > .oo-ui-popupToolGroup {
   border: 0;
   border-radius: 0;
@@ -42,6 +47,8 @@
   line-height: 2.1em;
 }
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-toolGroup {
   display: inline-block;
   vertical-align: middle;
@@ -49,13 +56,13 @@
   border-radius: 3px;
   border: 1px solid transparent;
   -webkit-transition: border-color 250ms;
-  -moz-transition: border-color 250ms;
   transition: border-color 250ms;
 }
 .oo-ui-toolGroup-empty {
   display: none;
 }
 .oo-ui-toolGroup-tools .oo-ui-tool-link {
+  color: inherit;
   text-decoration: none;
   cursor: pointer;
 }
@@ -70,10 +77,9 @@
 .oo-ui-toolGroup.oo-ui-widget-enabled:hover {
   border-color: rgba(0, 0, 0, 0.1);
 }
-.oo-ui-toolGroup-tools.oo-ui-toolGroup-enabled-tools .oo-ui-tool-link .oo-ui-tool-title {
-  color: #000;
-}
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-barToolGroup-tools > .oo-ui-tool {
   display: inline-block;
   position: relative;
@@ -105,6 +111,7 @@
   border-bottom-right-radius: 3px;
 }
 .oo-ui-barToolGroup-tools > .oo-ui-tool > .oo-ui-tool-link {
+  color: inherit;
   height: 1.875em;
   padding: 0.3125em;
 }
@@ -118,6 +125,9 @@
 .oo-ui-barToolGroup-tools > .oo-ui-tool > .oo-ui-tool-link .oo-ui-tool-title {
   line-height: 2.1em;
 }
+.oo-ui-barToolGroup-tools > .oo-ui-tool:not( .oo-ui-tool-with-icon ) > .oo-ui-tool-link .oo-ui-iconElement-noIcon {
+  display: none;
+}
 .oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-widget-enabled:hover {
   border-color: rgba(0, 0, 0, 0.2);
 }
@@ -125,9 +135,7 @@
   border-color: rgba(0, 0, 0, 0.2);
   box-shadow: inset 0 0.0875em 0.0875em 0 rgba(0, 0, 0, 0.07);
   background-color: #f8fbfd;
-  background-image: -webkit-gradient(linear, right top, right bottom, color-stop(0, #f1f7fb), color-stop(100%, #fff));
   background-image: -webkit-linear-gradient(top, #f1f7fb 0, #fff 100%);
-  background-image: -moz-linear-gradient(top, #f1f7fb 0, #fff 100%);
   background-image: linear-gradient(to bottom, #f1f7fb 0, #fff 100%);
 }
 .oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-tool-active.oo-ui-widget-enabled + .oo-ui-tool-active.oo-ui-widget-enabled {
@@ -145,6 +153,36 @@
 .oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-widget-enabled:hover > .oo-ui-tool-link .oo-ui-iconElement-icon {
   opacity: 1;
 }
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-progressive {
+  background-color: #cde7f4;
+  background-image: -webkit-linear-gradient(top, #eaf4fa 0, #b0d9ee 100%);
+  background-image: linear-gradient(to bottom, #eaf4fa 0, #b0d9ee 100%);
+  border: 1px solid #a6cee1;
+}
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-progressive:hover {
+  border-color: #9dc2d4;
+}
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-progressive.oo-ui-tool-active.oo-ui-widget-enabled {
+  background-color: #cde7f4;
+  background-image: -webkit-linear-gradient(top, #b0d9ee 0, #eaf4fa 100%);
+  background-image: linear-gradient(to bottom, #b0d9ee 0, #eaf4fa 100%);
+  border: 1px solid #a6cee1;
+}
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-progressive > .oo-ui-tool-link {
+  padding: 0.3125em 0.6255em;
+}
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-destructive {
+  background-color: #ebebeb;
+  background-image: -webkit-linear-gradient(top, #fafafa 0, #ddd 100%);
+  background-image: linear-gradient(to bottom, #fafafa 0, #ddd 100%);
+  border: 1px solid #ccc;
+}
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-destructive.oo-ui-widget-enabled > .oo-ui-tool-link {
+  color: #d45353;
+}
+.oo-ui-barToolGroup-tools.oo-ui-toolGroup-enabled-tools > .oo-ui-tool.oo-ui-flaggedElement-destructive > .oo-ui-tool-link {
+  padding: 0.3125em 0.6255em;
+}
 .oo-ui-barToolGroup-tools.oo-ui-toolGroup-disabled-tools > .oo-ui-tool:focus {
   outline: 0;
 }
@@ -158,6 +196,8 @@
   opacity: 0.2;
 }
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-popupToolGroup {
   position: relative;
   height: 2.5em;
@@ -230,26 +270,6 @@
 .oo-ui-toolbar-narrow .oo-ui-popupToolGroup.oo-ui-labelElement.oo-ui-indicatorElement .oo-ui-popupToolGroup-handle .oo-ui-labelElement-label {
   margin-right: 1.75em;
 }
-.oo-ui-buttonGroupWidget .oo-ui-popupToolGroup {
-  margin-left: 0;
-}
-.oo-ui-buttonGroupWidget .oo-ui-popupToolGroup > .oo-ui-popupToolGroup-handle {
-  height: 2.4em;
-  border-radius: 0;
-  margin-left: -2px;
-}
-.oo-ui-buttonGroupWidget .oo-ui-popupToolGroup:first-child > .oo-ui-popupToolGroup-handle {
-  border-bottom-left-radius: 3px;
-  border-top-left-radius: 3px;
-  margin-left: 0;
-}
-.oo-ui-buttonGroupWidget .oo-ui-popupToolGroup:last-child {
-  margin-right: 0.5em;
-}
-.oo-ui-buttonGroupWidget .oo-ui-popupToolGroup:last-child > .oo-ui-popupToolGroup-handle {
-  border-bottom-right-radius: 3px;
-  border-top-right-radius: 3px;
-}
 .oo-ui-popupToolGroup-handle {
   height: 2.5em;
 }
@@ -281,13 +301,35 @@
 }
 .oo-ui-popupToolGroup-active.oo-ui-widget-enabled {
   background-color: #f8fbfd;
-  background-image: -webkit-gradient(linear, right top, right bottom, color-stop(0, #f1f7fb), color-stop(100%, #fff));
   background-image: -webkit-linear-gradient(top, #f1f7fb 0, #fff 100%);
-  background-image: -moz-linear-gradient(top, #f1f7fb 0, #fff 100%);
   background-image: linear-gradient(to bottom, #f1f7fb 0, #fff 100%);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   box-shadow: inset 0 0.0875em 0.0875em 0 rgba(0, 0, 0, 0.07);
+}
+.oo-ui-popupToolGroup.oo-ui-flaggedElement-progressive {
+  background-color: #cde7f4;
+  background-image: -webkit-linear-gradient(top, #eaf4fa 0, #b0d9ee 100%);
+  background-image: linear-gradient(to bottom, #eaf4fa 0, #b0d9ee 100%);
+  border: 1px solid #a6cee1;
+}
+.oo-ui-popupToolGroup.oo-ui-flaggedElement-progressive:hover {
+  border-color: #9dc2d4;
+}
+.oo-ui-popupToolGroup.oo-ui-flaggedElement-progressive.oo-ui-popupToolGroup-active.oo-ui-widget-enabled {
+  background-color: #cde7f4;
+  background-image: -webkit-linear-gradient(top, #b0d9ee 0, #eaf4fa 100%);
+  background-image: linear-gradient(to bottom, #b0d9ee 0, #eaf4fa 100%);
+  border: 1px solid #a6cee1;
+}
+.oo-ui-popupToolGroup.oo-ui-flaggedElement-destructive {
+  background-color: #ebebeb;
+  background-image: -webkit-linear-gradient(top, #fafafa 0, #ddd 100%);
+  background-image: linear-gradient(to bottom, #fafafa 0, #ddd 100%);
+  border: 1px solid #ccc;
+}
+.oo-ui-popupToolGroup.oo-ui-flaggedElement-destructive.oo-ui-widget-enabled > .oo-ui-popupToolGroup-handle {
+  color: #d45353;
 }
 .oo-ui-popupToolGroup-tools {
   margin: -1px;
@@ -322,9 +364,10 @@
   padding-left: 3em;
 }
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-listToolGroup-tools .oo-ui-tool {
   display: block;
-  -webkit-box-sizing: border-box;
   -moz-box-sizing: border-box;
   box-sizing: border-box;
 }
@@ -343,9 +386,7 @@
   border-color: rgba(0, 0, 0, 0.1);
   box-shadow: inset 0 0.0875em 0.0875em 0 rgba(0, 0, 0, 0.07);
   background-color: #f8fbfd;
-  background-image: -webkit-gradient(linear, right top, right bottom, color-stop(0, #f1f7fb), color-stop(100%, #fff));
   background-image: -webkit-linear-gradient(top, #f1f7fb 0, #fff 100%);
-  background-image: -moz-linear-gradient(top, #f1f7fb 0, #fff 100%);
   background-image: linear-gradient(to bottom, #f1f7fb 0, #fff 100%);
 }
 .oo-ui-listToolGroup-tools .oo-ui-tool-active.oo-ui-widget-enabled + .oo-ui-tool-active.oo-ui-widget-enabled {
@@ -377,6 +418,8 @@
   opacity: 0.2;
 }
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-menuToolGroup {
   border-color: rgba(0, 0, 0, 0.1);
 }
@@ -425,6 +468,8 @@
   opacity: 0.2;
 }
 
+/* stylelint-disable selector-no-vendor-prefix */
+/* stylelint-enable selector-no-vendor-prefix */
 .oo-ui-toolbar {
   clear: both;
 }
@@ -477,9 +522,7 @@
 }
 .oo-ui-toolbar-bar {
   background-color: #f8fbfd;
-  background-image: -webkit-gradient(linear, right top, right bottom, color-stop(0, #fff), color-stop(100%, #f1f7fb));
   background-image: -webkit-linear-gradient(top, #fff 0, #f1f7fb 100%);
-  background-image: -moz-linear-gradient(top, #fff 0, #f1f7fb 100%);
   background-image: linear-gradient(to bottom, #fff 0, #f1f7fb 100%);
 }
 .oo-ui-toolbar-position-top > .oo-ui-toolbar-bar {
@@ -494,49 +537,4 @@
   border: 0;
   background: none;
   box-shadow: none;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-framed,
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-framed:last-child {
-  margin-top: 0.4em;
-  margin-bottom: 0.4em;
-  margin-right: 0.5em;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-frameless.oo-ui-labelElement,
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-frameless:last-child.oo-ui-labelElement {
-  margin: 0;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-frameless.oo-ui-labelElement > .oo-ui-buttonElement-button,
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-frameless:last-child.oo-ui-labelElement > .oo-ui-buttonElement-button {
-  margin: 0;
-  padding: 0 0.3125em;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-frameless.oo-ui-labelElement > .oo-ui-buttonElement-button > .oo-ui-labelElement-label,
-.oo-ui-toolbar-actions > .oo-ui-buttonElement-frameless:last-child.oo-ui-labelElement > .oo-ui-buttonElement-button > .oo-ui-labelElement-label {
-  margin: 0 1em;
-  line-height: 3.40625em;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonGroupWidget > .oo-ui-popupToolGroup,
-.oo-ui-toolbar-actions > .oo-ui-buttonGroupWidget > .oo-ui-popupToolGroup > .oo-ui-popupToolGroup-handle {
-  height: 2.34375em;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonGroupWidget > .oo-ui-popupToolGroup.oo-ui-widget-enabled.oo-ui-flaggedElement-primary.oo-ui-flaggedElement-progressive {
-  border: 0;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonGroupWidget > .oo-ui-popupToolGroup.oo-ui-widget-enabled.oo-ui-flaggedElement-primary.oo-ui-flaggedElement-progressive > .oo-ui-popupToolGroup-handle {
-  background-color: #cde7f4;
-  background-image: -webkit-gradient(linear, right top, right bottom, color-stop(0, #eaf4fa), color-stop(100%, #b0d9ee));
-  background-image: -webkit-linear-gradient(top, #eaf4fa 0, #b0d9ee 100%);
-  background-image: -moz-linear-gradient(top, #eaf4fa 0, #b0d9ee 100%);
-  background-image: linear-gradient(to bottom, #eaf4fa 0, #b0d9ee 100%);
-  border: 1px solid #a6cee1;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonGroupWidget > .oo-ui-popupToolGroup.oo-ui-widget-enabled.oo-ui-flaggedElement-primary.oo-ui-flaggedElement-progressive > .oo-ui-popupToolGroup-handle:hover {
-  border-color: #9dc2d4;
-}
-.oo-ui-toolbar-actions > .oo-ui-buttonGroupWidget > .oo-ui-popupToolGroup.oo-ui-widget-enabled.oo-ui-flaggedElement-primary.oo-ui-flaggedElement-progressive.oo-ui-popupToolGroup-active > .oo-ui-popupToolGroup-handle {
-  background-color: #cde7f4;
-  background-image: -webkit-gradient(linear, right top, right bottom, color-stop(0, #b0d9ee), color-stop(100%, #eaf4fa));
-  background-image: -webkit-linear-gradient(top, #b0d9ee 0, #eaf4fa 100%);
-  background-image: -moz-linear-gradient(top, #b0d9ee 0, #eaf4fa 100%);
-  background-image: linear-gradient(to bottom, #b0d9ee 0, #eaf4fa 100%);
 }

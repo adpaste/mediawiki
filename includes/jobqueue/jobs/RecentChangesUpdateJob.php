@@ -27,7 +27,7 @@ use MediaWiki\MediaWikiServices;
  * @since 1.25
  */
 class RecentChangesUpdateJob extends Job {
-	function __construct( Title $title, array $params ) {
+	public function __construct( Title $title, array $params ) {
 		parent::__construct( 'recentChangesUpdate', $title, $params );
 
 		if ( !isset( $params['type'] ) ) {
@@ -73,7 +73,7 @@ class RecentChangesUpdateJob extends Job {
 	protected function purgeExpiredRows() {
 		global $wgRCMaxAge, $wgUpdateRowsPerQuery;
 
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$lockKey = $dbw->getDomainID() . ':recentchanges-prune';
 		if ( !$dbw->lock( $lockKey, __METHOD__, 0 ) ) {
 			// already in progress
@@ -101,7 +101,7 @@ class RecentChangesUpdateJob extends Job {
 			}
 			if ( $rcIds ) {
 				$dbw->delete( 'recentchanges', [ 'rc_id' => $rcIds ], __METHOD__ );
-				Hooks::run( 'RecentChangesPurgeRows', [ $rows ] );
+				Hooks::runner()->onRecentChangesPurgeRows( $rows );
 				// There might be more, so try waiting for replica DBs
 				if ( !$factory->commitAndWaitForReplication(
 					__METHOD__, $ticket, [ 'timeout' => 3 ]
@@ -123,7 +123,7 @@ class RecentChangesUpdateJob extends Job {
 		// Pull in the full window of active users in this update
 		$window = $wgActiveUserDays * 86400;
 
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$factory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
 		$ticket = $factory->getEmptyTransactionTicket( __METHOD__ );
 
@@ -141,7 +141,8 @@ class RecentChangesUpdateJob extends Job {
 		// Get the last-updated timestamp for the cache
 		$cTime = $dbw->selectField( 'querycache_info',
 			'qci_timestamp',
-			[ 'qci_type' => 'activeusers' ]
+			[ 'qci_type' => 'activeusers' ],
+			__METHOD__
 		);
 		$cTimeUnix = $cTime ? wfTimestamp( TS_UNIX, $cTime ) : 1;
 
@@ -152,15 +153,14 @@ class RecentChangesUpdateJob extends Job {
 		$eTimestamp = min( $sTimestamp + $window, $nowUnix );
 
 		// Get all the users active since the last update
-		$actorQuery = ActorMigration::newMigration()->getJoin( 'rc_user' );
 		$res = $dbw->select(
-			[ 'recentchanges' ] + $actorQuery['tables'],
+			[ 'recentchanges', 'actor' ],
 			[
-				'rc_user_text' => $actorQuery['fields']['rc_user_text'],
+				'actor_name',
 				'lastedittime' => 'MAX(rc_timestamp)'
 			],
 			[
-				$actorQuery['fields']['rc_user'] . ' > 0', // actual accounts
+				'actor_user IS NOT NULL', // actual accounts
 				'rc_type != ' . $dbw->addQuotes( RC_EXTERNAL ), // no wikidata
 				'rc_log_type IS NULL OR rc_log_type != ' . $dbw->addQuotes( 'newusers' ),
 				'rc_timestamp >= ' . $dbw->addQuotes( $dbw->timestamp( $sTimestamp ) ),
@@ -168,14 +168,16 @@ class RecentChangesUpdateJob extends Job {
 			],
 			__METHOD__,
 			[
-				'GROUP BY' => [ $actorQuery['fields']['rc_user_text'] ],
+				'GROUP BY' => 'actor_name',
 				'ORDER BY' => 'NULL' // avoid filesort
 			],
-			$actorQuery['joins']
+			[
+				'actor' => [ 'JOIN', 'actor_id=rc_actor' ]
+			]
 		);
 		$names = [];
 		foreach ( $res as $row ) {
-			$names[$row->rc_user_text] = $row->lastedittime;
+			$names[$row->actor_name] = $row->lastedittime;
 		}
 
 		// Find which of the recently active users are already accounted for
@@ -185,9 +187,9 @@ class RecentChangesUpdateJob extends Job {
 				[
 					'qcc_type' => 'activeusers',
 					'qcc_namespace' => NS_USER,
-					'qcc_title' => array_keys( $names ),
+					'qcc_title' => array_map( 'strval', array_keys( $names ) ),
 					'qcc_value >= ' . $dbw->addQuotes( $nowUnix - $days * 86400 ), // TS_UNIX
-				 ],
+				],
 				__METHOD__
 			);
 			// Note: In order for this to be actually consistent, we would need
@@ -221,14 +223,13 @@ class RecentChangesUpdateJob extends Job {
 		$asOfTimestamp = min( $eTimestamp, (int)$dbw->trxTimestamp() );
 
 		// Touch the data freshness timestamp
-		$dbw->replace( 'querycache_info',
-			[ 'qci_type' ],
+		$dbw->replace(
+			'querycache_info',
+			'qci_type',
 			[ 'qci_type' => 'activeusers',
 				'qci_timestamp' => $dbw->timestamp( $asOfTimestamp ) ], // not always $now
 			__METHOD__
 		);
-
-		$dbw->unlock( $lockKey, __METHOD__ );
 
 		// Rotate out users that have not edited in too long (according to old data set)
 		$dbw->delete( 'querycachetwo',
@@ -238,5 +239,7 @@ class RecentChangesUpdateJob extends Job {
 			],
 			__METHOD__
 		);
+
+		$dbw->unlock( $lockKey, __METHOD__ );
 	}
 }

@@ -55,8 +55,9 @@ class MWFileProps {
 	 *   - minor_mime
 	 *
 	 * @param string $path Filesystem path to a file
-	 * @param string|bool $ext The file extension, or true to extract it from the filename.
-	 *             Set it to false to ignore the extension.
+	 * @param string|bool|null $ext The file extension, or true to extract it from the filename.
+	 *  Set it to false to ignore the extension. Might be null in case the file is going to be
+	 *  stashed.
 	 * @return array
 	 * @since 1.28
 	 */
@@ -72,7 +73,10 @@ class MWFileProps {
 			# MIME type according to file contents
 			$info['file-mime'] = $this->magic->guessMimeType( $path, false );
 			# Logical MIME type
-			$ext = ( $ext === true ) ? FileBackend::extensionFromPath( $path ) : $ext;
+			$ext = ( $ext === true ) ? FileBackend::extensionFromPath( $path ) : (string)$ext;
+
+			# XXX: MimeAnalyzer::improveTypeFromExtension() may return null (T253483).
+			# Unclear if callers of this method expect that.
 			$info['mime'] = $this->magic->improveTypeFromExtension( $info['file-mime'], $ext );
 
 			list( $info['major_mime'], $info['minor_mime'] ) = File::splitMime( $info['mime'] );
@@ -81,30 +85,12 @@ class MWFileProps {
 			# Height, width and metadata
 			$handler = MediaHandler::getHandler( $info['mime'] );
 			if ( $handler ) {
-				$info['metadata'] = $handler->getMetadata( $fsFile, $path );
-				/** @noinspection PhpMethodParametersCountMismatchInspection */
-				$gis = $handler->getImageSize( $fsFile, $path, $info['metadata'] );
-				if ( is_array( $gis ) ) {
-					$info = $this->extractImageSizeInfo( $gis ) + $info;
+				$sizeAndMetadata = $handler->getSizeAndMetadataWithFallback( $fsFile, $path );
+				if ( $sizeAndMetadata ) {
+					$info = $sizeAndMetadata + $info;
 				}
 			}
 		}
-
-		return $info;
-	}
-
-	/**
-	 * Exract image size information
-	 *
-	 * @param array $gis
-	 * @return array
-	 */
-	private function extractImageSizeInfo( array $gis ) {
-		$info = [];
-		# NOTE: $gis[2] contains a code for the image type. This is no longer used.
-		$info['width'] = $gis[0];
-		$info['height'] = $gis[1];
-		$info['bits'] = $gis['bits'] ?? 0;
 
 		return $info;
 	}
@@ -131,7 +117,7 @@ class MWFileProps {
 	 */
 	public function newPlaceholderProps() {
 		return FSFile::placeholderProps() + [
-			'metadata' => '',
+			'metadata' => [],
 			'width' => 0,
 			'height' => 0,
 			'bits' => 0,

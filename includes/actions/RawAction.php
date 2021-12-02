@@ -26,7 +26,12 @@
  * @file
  */
 
+use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\Logger\LoggerFactory;
+use MediaWiki\Permissions\PermissionManager;
+use MediaWiki\Revision\RevisionLookup;
+use MediaWiki\Revision\SlotRecord;
 
 /**
  * A simple method to retrieve the plain source of an article,
@@ -35,6 +40,42 @@ use MediaWiki\Logger\LoggerFactory;
  * @ingroup Actions
  */
 class RawAction extends FormlessAction {
+
+	/** @var HookRunner */
+	private $hookRunner;
+
+	/** @var Parser */
+	private $parser;
+
+	/** @var PermissionManager */
+	private $permissionManager;
+
+	/** @var RevisionLookup */
+	private $revisionLookup;
+
+	/**
+	 * @param Page $page
+	 * @param IContextSource $context
+	 * @param HookContainer $hookContainer
+	 * @param Parser $parser
+	 * @param PermissionManager $permissionManager
+	 * @param RevisionLookup $revisionLookup
+	 */
+	public function __construct(
+		Page $page,
+		IContextSource $context,
+		HookContainer $hookContainer,
+		Parser $parser,
+		PermissionManager $permissionManager,
+		RevisionLookup $revisionLookup
+	) {
+		parent::__construct( $page, $context );
+		$this->hookRunner = new HookRunner( $hookContainer );
+		$this->parser = $parser;
+		$this->permissionManager = $permissionManager;
+		$this->revisionLookup = $revisionLookup;
+	}
+
 	public function getName() {
 		return 'raw';
 	}
@@ -49,24 +90,23 @@ class RawAction extends FormlessAction {
 
 	/**
 	 * @suppress SecurityCheck-XSS Non html mime type
+	 * @return string|null
 	 */
-	function onView() {
+	public function onView() {
 		$this->getOutput()->disable();
 		$request = $this->getRequest();
 		$response = $request->response();
 		$config = $this->context->getConfig();
 
-		if ( !$request->checkUrlExtension() ) {
-			return;
-		}
-
-		if ( $this->getOutput()->checkLastModified( $this->page->getTouched() ) ) {
-			return; // Client cache fresh and headers sent, nothing more to do.
+		if ( $this->getOutput()->checkLastModified(
+			$this->getWikiPage()->getTouched()
+		) ) {
+			return null; // Client cache fresh and headers sent, nothing more to do.
 		}
 
 		$contentType = $this->getContentType();
 
-		$maxage = $request->getInt( 'maxage', $config->get( 'SquidMaxage' ) );
+		$maxage = $request->getInt( 'maxage', $config->get( 'CdnMaxAge' ) );
 		$smaxage = $request->getIntOrNull( 'smaxage' );
 		if ( $smaxage === null ) {
 			if (
@@ -75,7 +115,7 @@ class RawAction extends FormlessAction {
 				$contentType == 'text/javascript'
 			) {
 				// CSS/JSON/JS raw content has its own CDN max age configuration.
-				// Note: Title::getCdnUrls() includes action=raw for css/json/js
+				// Note: HtmlCacheUpdater::getUrls() includes action=raw for css/json/js
 				// pages, so if using the canonical url, this will get HTCP purges.
 				$smaxage = intval( $config->get( 'ForcedRawSMaxage' ) );
 			} else {
@@ -86,16 +126,13 @@ class RawAction extends FormlessAction {
 
 		// Set standard Vary headers so cache varies on cookies and such (T125283)
 		$response->header( $this->getOutput()->getVaryHeader() );
-		if ( $config->get( 'UseKeyHeader' ) ) {
-			$response->header( $this->getOutput()->getKeyHeader() );
-		}
 
 		// Output may contain user-specific data;
 		// vary generated content for open sessions on private wikis
-		$privateCache = !User::isEveryoneAllowed( 'read' ) &&
+		$privateCache = !$this->permissionManager->isEveryoneAllowed( 'read' ) &&
 			( $smaxage == 0 || MediaWiki\Session\SessionManager::getGlobalSession()->isPersistent() );
-		// Don't accidentally cache cookies if user is logged in (T55032)
-		$privateCache = $privateCache || $this->getUser()->isLoggedIn();
+		// Don't accidentally cache cookies if user is registered (T55032)
+		$privateCache = $privateCache || $this->getUser()->isRegistered();
 		$mode = $privateCache ? 'private' : 'public';
 		$response->header(
 			'Cache-Control: ' . $mode . ', s-maxage=' . $smaxage . ', max-age=' . $maxage
@@ -112,7 +149,7 @@ class RawAction extends FormlessAction {
 			$rootPage = strtok( $title->getText(), '/' );
 			$userFromTitle = User::newFromName( $rootPage, 'usable' );
 			if ( !$userFromTitle || $userFromTitle->getId() === 0 ) {
-				$elevated = $this->getUser()->isAllowed( 'editinterface' );
+				$elevated = $this->getContext()->getAuthority()->isAllowed( 'editinterface' );
 				$elevatedText = $elevated ? 'by elevated ' : '';
 				$log = LoggerFactory::getInstance( "security" );
 				$log->warning(
@@ -124,8 +161,7 @@ class RawAction extends FormlessAction {
 						'elevated' => $elevated
 					]
 				);
-				$msg = wfMessage( 'unregistered-user-config' );
-				throw new HttpError( 403, $msg );
+				throw new HttpError( 403, wfMessage( 'unregistered-user-config' ) );
 			}
 		}
 
@@ -165,13 +201,13 @@ class RawAction extends FormlessAction {
 			$response->statusHeader( 404 );
 		}
 
-		// Avoid PHP 7.1 warning of passing $this by reference
-		$rawAction = $this;
-		if ( !Hooks::run( 'RawPageViewBeforeOutput', [ &$rawAction, &$text ] ) ) {
-			wfDebug( __METHOD__ . ": RawPageViewBeforeOutput hook broke raw page output.\n" );
+		if ( !$this->hookRunner->onRawPageViewBeforeOutput( $this, $text ) ) {
+			wfDebug( __METHOD__ . ": RawPageViewBeforeOutput hook broke raw page output." );
 		}
 
 		echo $text;
+
+		return null;
 	}
 
 	/**
@@ -181,24 +217,21 @@ class RawAction extends FormlessAction {
 	 * @return string|bool
 	 */
 	public function getRawText() {
-		global $wgParser;
-
 		$text = false;
 		$title = $this->getTitle();
 		$request = $this->getRequest();
 
 		// Get it from the DB
-		$rev = Revision::newFromTitle( $title, $this->getOldId() );
+		$rev = $this->revisionLookup->getRevisionByTitle( $title, $this->getOldId() );
 		if ( $rev ) {
 			$lastmod = wfTimestamp( TS_RFC2822, $rev->getTimestamp() );
 			$request->response()->header( "Last-modified: $lastmod" );
 
 			// Public-only due to cache headers
-			$content = $rev->getContent();
+			$content = $rev->getContent( SlotRecord::MAIN );
 
 			if ( $content === null ) {
 				// revision not found (or suppressed)
-				$text = false;
 			} elseif ( !$content instanceof TextContent ) {
 				// non-text content
 				wfHttpError( 415, "Unsupported Media Type", "The requested page uses the content model `"
@@ -213,7 +246,6 @@ class RawAction extends FormlessAction {
 
 				if ( $content === null || $content === false ) {
 					// section not found (or section not supported, e.g. for JS, JSON, and CSS)
-					$text = false;
 				} else {
 					$text = $content->getText();
 				}
@@ -221,7 +253,7 @@ class RawAction extends FormlessAction {
 		}
 
 		if ( $text !== false && $text !== '' && $request->getRawVal( 'templates' ) === 'expand' ) {
-			$text = $wgParser->preprocess(
+			$text = $this->parser->preprocess(
 				$text,
 				$title,
 				ParserOptions::newFromContext( $this->getContext() )
@@ -238,23 +270,31 @@ class RawAction extends FormlessAction {
 	 */
 	public function getOldId() {
 		$oldid = $this->getRequest()->getInt( 'oldid' );
+		$rl = $this->revisionLookup;
 		switch ( $this->getRequest()->getText( 'direction' ) ) {
 			case 'next':
 				# output next revision, or nothing if there isn't one
-				$nextid = 0;
+				$nextRev = null;
 				if ( $oldid ) {
-					$nextid = $this->getTitle()->getNextRevisionID( $oldid );
+					$oldRev = $rl->getRevisionById( $oldid );
+					if ( $oldRev ) {
+						$nextRev = $rl->getNextRevision( $oldRev );
+					}
 				}
-				$oldid = $nextid ?: -1;
+				$oldid = $nextRev ? $nextRev->getId() : -1;
 				break;
 			case 'prev':
 				# output previous revision, or nothing if there isn't one
+				$prevRev = null;
 				if ( !$oldid ) {
 					# get the current revision so we can get the penultimate one
-					$oldid = $this->page->getLatest();
+					$oldid = $this->getWikiPage()->getLatest();
 				}
-				$previd = $this->getTitle()->getPreviousRevisionID( $oldid );
-				$oldid = $previd ?: -1;
+				$oldRev = $rl->getRevisionById( $oldid );
+				if ( $oldRev ) {
+					$prevRev = $rl->getPreviousRevision( $oldRev );
+				}
+				$oldid = $prevRev ? $prevRev->getId() : -1;
 				break;
 			case 'cur':
 				$oldid = 0;
@@ -270,9 +310,7 @@ class RawAction extends FormlessAction {
 	 * @return string
 	 */
 	public function getContentType() {
-		// Use getRawVal instead of getVal because we only
-		// need to match against known strings, there is no
-		// storing of localised content or other user input.
+		// Optimisation: Avoid slow getVal(), this isn't user-generated content.
 		$ctype = $this->getRequest()->getRawVal( 'ctype' );
 
 		if ( $ctype == '' ) {

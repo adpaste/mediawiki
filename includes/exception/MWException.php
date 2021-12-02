@@ -21,6 +21,9 @@
 /**
  * MediaWiki exception
  *
+ * @newable
+ * @stable to extend
+ *
  * @ingroup Exception
  */
 class MWException extends Exception {
@@ -33,11 +36,15 @@ class MWException extends Exception {
 		return $this->useMessageCache() &&
 		!empty( $GLOBALS['wgFullyInitialised'] ) &&
 		!empty( $GLOBALS['wgOut'] ) &&
-		!defined( 'MEDIAWIKI_INSTALL' );
+		!defined( 'MEDIAWIKI_INSTALL' ) &&
+		// Don't send a skinned HTTP 500 page to API clients.
+		!defined( 'MW_API' );
 	}
 
 	/**
 	 * Whether to log this exception in the exception debug log.
+	 *
+	 * @stable to override
 	 *
 	 * @since 1.23
 	 * @return bool
@@ -49,18 +56,17 @@ class MWException extends Exception {
 	/**
 	 * Can the extension use the Message class/wfMessage to get i18n-ed messages?
 	 *
+	 * @stable to override
+	 *
 	 * @return bool
 	 */
 	public function useMessageCache() {
-		global $wgLang;
-
 		foreach ( $this->getTrace() as $frame ) {
 			if ( isset( $frame['class'] ) && $frame['class'] === LocalisationCache::class ) {
 				return false;
 			}
 		}
-
-		return $wgLang instanceof Language;
+		return true;
 	}
 
 	/**
@@ -69,23 +75,22 @@ class MWException extends Exception {
 	 * @param string $key Message name
 	 * @param string $fallback Default message if the message cache can't be
 	 *                  called by the exception
-	 * The function also has other parameters that are arguments for the message
+	 * @param mixed ...$params To pass to wfMessage()
 	 * @return string Message with arguments replaced
 	 */
-	public function msg( $key, $fallback /*[, params...] */ ) {
+	public function msg( $key, $fallback, ...$params ) {
 		global $wgSitename;
-		$args = array_slice( func_get_args(), 2 );
 
 		// FIXME: Keep logic in sync with MWExceptionRenderer::msg.
 		$res = false;
 		if ( $this->useMessageCache() ) {
 			try {
-				$res = wfMessage( $key, $args )->text();
+				$res = wfMessage( $key, ...$params )->text();
 			} catch ( Exception $e ) {
 			}
 		}
 		if ( $res === false ) {
-			$res = wfMsgReplaceArgs( $fallback, $args );
+			$res = wfMsgReplaceArgs( $fallback, $params );
 			// If an exception happens inside message rendering,
 			// {{SITENAME}} sometimes won't be replaced.
 			$res = strtr( $res, [
@@ -99,6 +104,8 @@ class MWException extends Exception {
 	 * If $wgShowExceptionDetails is true, return a HTML message with a
 	 * backtrace to the error, otherwise show a message to ask to set it to true
 	 * to show that information.
+	 *
+	 * @stable to override
 	 *
 	 * @return string Html to output
 	 */
@@ -135,6 +142,8 @@ class MWException extends Exception {
 	 * If $wgShowExceptionDetails is true, return a text message with a
 	 * backtrace to the error.
 	 *
+	 * @stable to override
+	 *
 	 * @return string
 	 */
 	public function getText() {
@@ -152,6 +161,8 @@ class MWException extends Exception {
 	/**
 	 * Return the title of the page when reporting this error in a HTTP response.
 	 *
+	 * @stable to override
+	 *
 	 * @return string
 	 */
 	public function getPageTitle() {
@@ -160,6 +171,7 @@ class MWException extends Exception {
 
 	/**
 	 * Output the exception report using HTML.
+	 * @stable to override
 	 */
 	public function reportHTML() {
 		global $wgOut, $wgSitename;
@@ -199,15 +211,17 @@ class MWException extends Exception {
 	/**
 	 * Output a report about the exception and takes care of formatting.
 	 * It will be either HTML or plain text based on isCommandLine().
+	 *
+	 * @stable to override
 	 */
 	public function report() {
 		global $wgMimeType;
 
 		if ( defined( 'MW_API' ) ) {
-			// Unhandled API exception, we can't be sure that format printer is alive
 			self::header( 'MediaWiki-API-Error: internal_api_error_' . static::class );
-			wfHttpError( 500, 'Internal Server Error', $this->getText() );
-		} elseif ( self::isCommandLine() ) {
+		}
+
+		if ( self::isCommandLine() ) {
 			$message = $this->getText();
 			$this->writeToCommandLine( $message );
 		} else {
@@ -253,6 +267,7 @@ class MWException extends Exception {
 			header( $header );
 		}
 	}
+
 	private static function statusHeader( $code ) {
 		if ( !headers_sent() ) {
 			HttpStatus::header( $code );

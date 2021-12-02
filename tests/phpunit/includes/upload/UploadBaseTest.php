@@ -1,24 +1,24 @@
 <?php
 
+use MediaWiki\Interwiki\ClassicInterwikiLookup;
+
 /**
  * @group Upload
  */
-class UploadBaseTest extends MediaWikiTestCase {
+class UploadBaseTest extends MediaWikiIntegrationTestCase {
 
 	/** @var UploadTestHandler */
 	protected $upload;
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->upload = new UploadTestHandler;
 
-		$this->setMwGlobals( 'wgHooks', [
-			'InterwikiLoadPrefix' => [
-				function ( $prefix, &$data ) {
-					return false;
-				}
-			],
+		$this->setMwGlobals( [
+			'wgInterwikiCache' => ClassicInterwikiLookup::buildCdbHash( [
+				// no entries, no interwiki prefixes
+			] ),
 		] );
 	}
 
@@ -585,6 +585,42 @@ class UploadBaseTest extends MediaWikiTestCase {
 			[ '<?xml version="1.0" encoding="WINDOWS-1252"?><svg></svg>', false ],
 		];
 	}
+
+	/**
+	 * @covers UploadBase::detectScript
+	 * @dataProvider provideDetectScript
+	 */
+	public function testDetectScript( $filename, $mime, $extension, $expected, $message ) {
+		$result = $this->upload->detectScript( $filename, $mime, $extension );
+		$this->assertSame( $expected, $result, $message );
+	}
+
+	public static function provideDetectScript() {
+		global $IP;
+		return [
+			[
+				"$IP/tests/phpunit/data/upload/png-plain.png",
+				'image/png',
+				'png',
+				false,
+				'PNG with no suspicious things in it, should pass.'
+			],
+			[
+				"$IP/tests/phpunit/data/upload/png-embedded-breaks-ie5.png",
+				'image/png',
+				'png',
+				true,
+				'PNG with embedded data that IE5/6 interprets as HTML; should be rejected.'
+			],
+			[
+				"$IP/tests/phpunit/data/upload/jpeg-a-href-in-metadata.jpg",
+				'image/jpeg',
+				'jpeg',
+				false,
+				'JPEG with innocuous HTML in metadata from a flickr photo; should pass (T27707).'
+			],
+		];
+	}
 }
 
 class UploadTestHandler extends UploadBase {
@@ -604,6 +640,8 @@ class UploadTestHandler extends UploadBase {
 	 * Almost the same as UploadBase::detectScriptInSvg, except it's
 	 * public, works on an xml string instead of filename, and returns
 	 * the result instead of interpreting them.
+	 * @param string $svg
+	 * @return array
 	 */
 	public function checkSvgString( $svg ) {
 		$check = new XmlTypeCheck(
@@ -611,8 +649,8 @@ class UploadTestHandler extends UploadBase {
 			[ $this, 'checkSvgScriptCallback' ],
 			false,
 			[
-				'processing_instruction_handler' => 'UploadBase::checkSvgPICallback',
-				'external_dtd_handler' => 'UploadBase::checkSvgExternalDTD'
+				'processing_instruction_handler' => [ UploadBase::class, 'checkSvgPICallback' ],
+				'external_dtd_handler' => [ UploadBase::class, 'checkSvgExternalDTD' ],
 			]
 		);
 		return [ $check->wellFormed, $check->filterMatch ];
@@ -620,6 +658,7 @@ class UploadTestHandler extends UploadBase {
 
 	/**
 	 * Same as parent function, but override visibility to 'public'.
+	 * @inheritDoc
 	 */
 	public function detectScriptInSvg( $filename, $partial ) {
 		return parent::detectScriptInSvg( $filename, $partial );

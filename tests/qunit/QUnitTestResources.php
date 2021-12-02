@@ -1,68 +1,80 @@
 <?php
-
-/* Modules registered when $wgEnableJavaScriptTest is true */
+// These modules are only registered when $wgEnableJavaScriptTest is true
+// phpcs:disable Generic.Files.LineLength
 
 return [
 
-	/* Utilities */
-
-	'test.sinonjs' => [
+	'sinonjs' => [
 		'scripts' => [
-			'tests/qunit/suites/resources/test.sinonjs/index.js',
+			'tests/qunit/data/sinonjs-local.js',
 			'resources/lib/sinonjs/sinon.js',
 		],
 		'targets' => [ 'desktop', 'mobile' ],
 	],
 
-	'test.mediawiki.qunit.testrunner' => [
+	'mediawiki.qunit-testrunner' => [
 		'scripts' => [
 			'tests/qunit/data/testrunner.js',
 		],
 		'dependencies' => [
-			// Test runner configures QUnit but can't have it as dependency,
-			// see SpecialJavaScriptTest::viewQUnit.
-			'jquery.getAttrs',
 			'mediawiki.page.ready',
-			'mediawiki.page.startup',
-			'test.sinonjs',
+			'sinonjs',
 		],
 		'targets' => [ 'desktop', 'mobile' ],
 	],
 
-	/*
-		Test suites for MediaWiki core modules
-		These must have a dependency on test.mediawiki.qunit.testrunner!
-	*/
+	'mediawiki.language.testdata' => [
+		'localBasePath' => "{$GLOBALS['IP']}/resources/src/mediawiki.language/languages",
+		'remoteBasePath' => "{$GLOBALS['wgResourceBasePath']}/resources/src/mediawiki.language/languages",
+		'packageFiles' => [
+			[
+				'name' => 'mediawiki.jqueryMsg.testdata.js',
+				'file' => new ResourceLoaderFilePath( __DIR__ . '/data/mediawiki.jqueryMsg.testdata.js' ),
+			],
+			[
+				'name' => 'mediawiki.jqueryMsg.data.json',
+				'file' => new ResourceLoaderFilePath( __DIR__ . '/data/mediawiki.jqueryMsg.data.json' ),
+			],
+			'bs.js',
+			'dsb.js',
+			'fi.js',
+			'ga.js',
+			'hsb.js',
+			'hu.js',
+			'hy.js',
+			'la.js',
+			'os.js',
+			'sl.js',
+		]
+	],
 
-	'test.mediawiki.qunit.suites' => [
+	'test.MediaWiki' => [
 		'scripts' => [
-			'tests/qunit/suites/resources/startup.test.js',
+			'tests/qunit/suites/resources/startup/startup.test.js',
+			'tests/qunit/suites/resources/startup/mediawiki.test.js',
+			'tests/qunit/suites/resources/startup/mw.Map.test.js',
+			'tests/qunit/suites/resources/startup/mw.loader.test.js',
+			'tests/qunit/suites/resources/startup/mw.requestIdleCallback.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.accessKeyLabel.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.color.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.colorUtil.test.js',
-			'tests/qunit/suites/resources/jquery/jquery.getAttrs.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.highlightText.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.lengthLimit.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.makeCollapsible.test.js',
-			'tests/qunit/suites/resources/jquery/jquery.tabIndex.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.tablesorter.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.tablesorter.parsers.test.js',
 			'tests/qunit/suites/resources/jquery/jquery.textSelection.test.js',
-			'tests/qunit/data/mediawiki.jqueryMsg.data.js',
-			'tests/qunit/suites/resources/mediawiki/mediawiki.requestIdleCallback.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.errorLogger.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.jqueryMsg.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.jscompat.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.messagePoster.factory.test.js',
-			'tests/qunit/suites/resources/mediawiki/mediawiki.RegExp.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.String.byteLength.test.js',
+			'tests/qunit/suites/resources/mediawiki/mediawiki.String.charAt.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.String.trimByteLength.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.storage.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.template.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.template.mustache.test.js',
-			'tests/qunit/suites/resources/mediawiki/mediawiki.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.base.test.js',
-			'tests/qunit/suites/resources/mediawiki/mediawiki.loader.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.html.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.inspect.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.Title.test.js',
@@ -80,15 +92,17 @@ return [
 			'tests/qunit/suites/resources/mediawiki.api/mediawiki.api.parse.test.js',
 			'tests/qunit/suites/resources/mediawiki.api/mediawiki.api.upload.test.js',
 			'tests/qunit/suites/resources/mediawiki.api/mediawiki.api.watch.test.js',
-			'tests/qunit/suites/resources/mediawiki.api/mediawiki.ForeignApi.test.js',
+			'tests/qunit/suites/resources/mediawiki.api/mediawiki.rest.test.js',
+			'tests/qunit/suites/resources/mediawiki.ForeignApi/mediawiki.ForeignApi.test.js',
+			'tests/qunit/suites/resources/mediawiki.ForeignApi/mediawiki.ForeignRest.test.js',
 			'tests/qunit/suites/resources/mediawiki.special/mediawiki.special.recentchanges.test.js',
 			'tests/qunit/suites/resources/mediawiki.rcfilters/dm.FiltersViewModel.test.js',
 			'tests/qunit/suites/resources/mediawiki.rcfilters/dm.FilterItem.test.js',
 			'tests/qunit/suites/resources/mediawiki.rcfilters/dm.SavedQueryItemModel.test.js',
 			'tests/qunit/suites/resources/mediawiki.rcfilters/dm.SavedQueriesModel.test.js',
 			'tests/qunit/suites/resources/mediawiki.rcfilters/UriProcessor.test.js',
-			'tests/qunit/suites/resources/mediawiki.widgets/' .
-				'MediaSearch/mediawiki.widgets.APIResultsQueue.test.js',
+			'tests/qunit/suites/resources/mediawiki.widgets/MediaSearch/mediawiki.widgets.APIResultsQueue.test.js',
+			'tests/qunit/suites/resources/mediawiki.widgets/Table/mediawiki.widgets.TableWidget.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.language.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.cldr.test.js',
 			'tests/qunit/suites/resources/mediawiki/mediawiki.cookie.test.js',
@@ -96,21 +110,16 @@ return [
 			'tests/qunit/suites/resources/mediawiki/mediawiki.visibleTimeout.test.js',
 		],
 		'dependencies' => [
-			'jquery.accessKeyLabel',
 			'jquery.color',
-			'jquery.colorUtil',
-			'jquery.getAttrs',
 			'jquery.highlightText',
 			'jquery.lengthLimit',
 			'jquery.makeCollapsible',
-			'jquery.tabIndex',
 			'jquery.tablesorter',
 			'jquery.textSelection',
 			'mediawiki.api',
 			'mediawiki.ForeignApi.core',
 			'mediawiki.jqueryMsg',
 			'mediawiki.messagePoster',
-			'mediawiki.RegExp',
 			'mediawiki.String',
 			'mediawiki.storage',
 			'mediawiki.Title',
@@ -124,13 +133,15 @@ return [
 			'mediawiki.special.recentchanges',
 			'mediawiki.rcfilters.filters.dm',
 			'mediawiki.language',
+			'mediawiki.language.testdata',
 			'mediawiki.cldr',
 			'mediawiki.cookie',
 			'mediawiki.experiments',
 			'mediawiki.inspect',
 			'mediawiki.visibleTimeout',
 			'mediawiki.widgets.MediaSearch',
-			'test.mediawiki.qunit.testrunner',
+			'mediawiki.widgets.Table',
+			'mediawiki.qunit-testrunner',
 		],
 	]
 ];

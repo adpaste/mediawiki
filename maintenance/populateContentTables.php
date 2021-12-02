@@ -21,12 +21,13 @@
 
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Storage\BlobAccessException;
 use MediaWiki\Storage\BlobStore;
 use MediaWiki\Storage\NameTableStore;
 use MediaWiki\Storage\SqlBlobStore;
 use Wikimedia\Assert\Assert;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ResultWrapper;
+use Wikimedia\Rdbms\IResultWrapper;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -72,10 +73,11 @@ class PopulateContentTables extends Maintenance {
 	}
 
 	private function initServices() {
-		$this->dbw = $this->getDB( DB_MASTER );
-		$this->contentModelStore = MediaWikiServices::getInstance()->getContentModelStore();
-		$this->slotRoleStore = MediaWikiServices::getInstance()->getSlotRoleStore();
-		$this->blobStore = MediaWikiServices::getInstance()->getBlobStore();
+		$this->dbw = $this->getDB( DB_PRIMARY );
+		$services = MediaWikiServices::getInstance();
+		$this->contentModelStore = $services->getContentModelStore();
+		$this->slotRoleStore = $services->getSlotRoleStore();
+		$this->blobStore = $services->getBlobStore();
 
 		// Don't trust the cache for the NameTableStores, in case something went
 		// wrong during a previous run (see T224949#5325895).
@@ -85,17 +87,7 @@ class PopulateContentTables extends Maintenance {
 	}
 
 	public function execute() {
-		global $wgMultiContentRevisionSchemaMigrationStage;
-
 		$t0 = microtime( true );
-
-		if ( ( $wgMultiContentRevisionSchemaMigrationStage & SCHEMA_COMPAT_WRITE_NEW ) === 0 ) {
-			$this->writeln(
-				'...cannot update while \$wgMultiContentRevisionSchemaMigrationStage '
-				. 'does not have the SCHEMA_COMPAT_WRITE_NEW bit set.'
-			);
-			return false;
-		}
 
 		$this->initServices();
 
@@ -222,8 +214,8 @@ class PopulateContentTables extends Maintenance {
 
 		$batchSize = $this->getBatchSize();
 
-		for ( $startId = $minmax->min; $startId <= $minmax->max; $startId += $batchSize ) {
-			$endId = min( $startId + $batchSize - 1, $minmax->max );
+		for ( $startId = (int)$minmax->min; $startId <= $minmax->max; $startId += $batchSize ) {
+			$endId = (int)min( $startId + $batchSize - 1, $minmax->max );
 			$rows = $this->dbw->select(
 				$tables,
 				$fields,
@@ -252,12 +244,12 @@ class PopulateContentTables extends Maintenance {
 	}
 
 	/**
-	 * @param ResultWrapper $rows
+	 * @param IResultWrapper $rows
 	 * @param int $startId
 	 * @param string $table
 	 * @return int|null
 	 */
-	private function populateContentTablesForRowBatch( ResultWrapper $rows, $startId, $table ) {
+	private function populateContentTablesForRowBatch( IResultWrapper $rows, $startId, $table ) {
 		$this->beginTransaction( $this->dbw, __METHOD__ );
 
 		if ( $this->contentRowMap === null ) {
@@ -284,7 +276,6 @@ class PopulateContentTables extends Maintenance {
 
 				if ( !isset( $map[$key] ) ) {
 					$this->fillMissingFields( $row, $model, $address );
-
 					$map[$key] = false;
 					$contentRows[] = [
 						'content_size' => (int)$row->len,
@@ -306,7 +297,11 @@ class PopulateContentTables extends Maintenance {
 					__METHOD__
 				);
 				foreach ( $res as $row ) {
-					$key = $row->content_model . ':' . $row->content_address;
+					$address = $row->content_address;
+					if ( substr( $address, 0, 4 ) === 'bad:' ) {
+						$address = substr( $address, 4 );
+					}
+					$key = $row->content_model . ':' . $address;
 					$map[$key] = $row->content_id;
 				}
 			}
@@ -366,11 +361,11 @@ class PopulateContentTables extends Maintenance {
 	 * Compute any missing fields in $row.
 	 * The way the missing values are computed must correspond to the way this is done in SlotRecord.
 	 *
-	 * @param object $row to be modified
+	 * @param stdClass $row to be modified
 	 * @param string $model
-	 * @param string $address
+	 * @param string &$address
 	 */
-	private function fillMissingFields( $row, $model, $address ) {
+	private function fillMissingFields( $row, $model, &$address ) {
 		if ( !isset( $row->content_model ) ) {
 			// just for completeness
 			$row->content_model = $model;
@@ -381,14 +376,16 @@ class PopulateContentTables extends Maintenance {
 			return;
 		}
 
-		$blob = $this->blobStore->getBlob( $address );
+		try {
+			$blob = $this->blobStore->getBlob( $address );
+		} catch ( BlobAccessException $e ) {
+			$address = 'bad:' . $address;
+			$blob = '';
+		}
 
 		if ( !isset( $row->len ) ) {
 			// NOTE: The nominal size of the content may not be the length of the raw blob.
-			$handler = ContentHandler::getForModelID( $model );
-			$content = $handler->unserializeContent( $blob );
-
-			$row->len = $content->getSize();
+			$row->len = ContentHandler::makeContent( $blob, null, $model )->getSize();
 		}
 
 		if ( !isset( $row->sha1 ) || $row->sha1 === '' ) {
@@ -397,5 +394,5 @@ class PopulateContentTables extends Maintenance {
 	}
 }
 
-$maintClass = 'PopulateContentTables';
+$maintClass = PopulateContentTables::class;
 require_once RUN_MAINTENANCE_IF_MAIN;

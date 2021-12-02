@@ -19,6 +19,8 @@
  *
  * @file
  */
+
+use Wikimedia\IPUtils;
 use Wikimedia\Rdbms\LikeMatch;
 
 /**
@@ -36,7 +38,7 @@ class LinkFilter {
 	 * Increment this when makeIndexes output changes. It'll cause
 	 * maintenance/refreshExternallinksIndex.php to run from update.php.
 	 */
-	const VERSION = 1;
+	public const VERSION = 1;
 
 	/**
 	 * Check whether $content contains a link to $filterEntry
@@ -91,7 +93,7 @@ class LinkFilter {
 
 	/**
 	 * Canonicalize a hostname for el_index
-	 * @param string $hose
+	 * @param string $host
 	 * @return string
 	 */
 	private static function indexifyHost( $host ) {
@@ -113,7 +115,7 @@ class LinkFilter {
 		}
 		$host = preg_replace_callback(
 			'<[^' . $okChars . ']>',
-			function ( $m ) {
+			static function ( $m ) {
 				return rawurlencode( $m[0] );
 			},
 			strtolower( $host )
@@ -122,22 +124,22 @@ class LinkFilter {
 		// IPv6? RFC 3986 syntax.
 		if ( preg_match( '/^\[([0-9a-f:*]+)\]$/', rawurldecode( $host ), $m ) ) {
 			$ip = $m[1];
-			if ( IP::isValid( $ip ) ) {
-				return 'V6.' . implode( '.', explode( ':', IP::sanitizeIP( $ip ) ) ) . '.';
+			if ( IPUtils::isValid( $ip ) ) {
+				return 'V6.' . implode( '.', explode( ':', IPUtils::sanitizeIP( $ip ) ) ) . '.';
 			}
 			if ( substr( $ip, -2 ) === ':*' ) {
 				$cutIp = substr( $ip, 0, -2 );
-				if ( IP::isValid( "{$cutIp}::" ) ) {
+				if ( IPUtils::isValid( "{$cutIp}::" ) ) {
 					// Wildcard IP doesn't contain "::", so multiple parts can be wild
 					$ct = count( explode( ':', $ip ) ) - 1;
 					return 'V6.' .
-						implode( '.', array_slice( explode( ':', IP::sanitizeIP( "{$cutIp}::" ) ), 0, $ct ) ) .
+						implode( '.', array_slice( explode( ':', IPUtils::sanitizeIP( "{$cutIp}::" ) ), 0, $ct ) ) .
 						'.*.';
 				}
-				if ( IP::isValid( "{$cutIp}:1" ) ) {
+				if ( IPUtils::isValid( "{$cutIp}:1" ) ) {
 					// Wildcard IP does contain "::", so only the last part is wild
 					return 'V6.' .
-						substr( implode( '.', explode( ':', IP::sanitizeIP( "{$cutIp}:1" ) ) ), 0, -1 ) .
+						substr( implode( '.', explode( ':', IPUtils::sanitizeIP( "{$cutIp}:1" ) ) ), 0, -1 ) .
 						'*.';
 				}
 			}
@@ -152,7 +154,7 @@ class LinkFilter {
 		// IPv4?
 		$b = '(?:0*25[0-5]|0*2[0-4][0-9]|0*1[0-9][0-9]|0*[0-9]?[0-9])';
 		if ( preg_match( "/^(?:{$b}\.){3}{$b}$|^(?:{$b}\.){1,3}\*$/", $host ) ) {
-			return 'V4.' . implode( '.', array_map( function ( $v ) {
+			return 'V4.' . implode( '.', array_map( static function ( $v ) {
 				return $v === '*' ? $v : (int)$v;
 			}, explode( '.', $host ) ) ) . '.';
 		}
@@ -292,7 +294,7 @@ class LinkFilter {
 		// The constant prefix is smaller than el_index_60, so we use a LIKE
 		// for a prefix search.
 		return [
-			"{$p}_index_60" . $db->buildLike( [ $index, $db->anyString() ] ),
+			"{$p}_index_60" . $db->buildLike( $index, $db->anyString() ),
 			"{$p}_index" . $db->buildLike( $like ),
 		];
 	}
@@ -311,6 +313,7 @@ class LinkFilter {
 	 */
 	public static function makeLikeArray( $filterEntry, $protocol = 'http://' ) {
 		$db = wfGetDB( DB_REPLICA );
+		$like = [];
 
 		$target = $protocol . $filterEntry;
 		$bits = wfParseUrl( $target );

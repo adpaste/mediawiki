@@ -20,6 +20,8 @@
 
 use MediaWiki\Linker\LinkRenderer;
 use MediaWiki\Linker\LinkTarget;
+use MediaWiki\MediaWikiServices;
+use MediaWiki\Page\PageIdentity;
 
 /**
  * Handles formatting for the "templates used on this page"
@@ -66,7 +68,9 @@ class TemplatesOnThisPageFormatter {
 		}
 
 		# Do a batch existence check
-		( new LinkBatch( $templates ) )->execute();
+		$linkBatchFactory = MediaWikiServices::getInstance()->getLinkBatchFactory();
+		$batch = $linkBatchFactory->newLinkBatch( $templates );
+		$batch->execute();
 
 		# Construct the HTML
 		$outText = '<div class="mw-templatesUsedExplanation">';
@@ -83,7 +87,7 @@ class TemplatesOnThisPageFormatter {
 		}
 		$outText .= "</div><ul>\n";
 
-		usort( $templates, 'Title::compare' );
+		usort( $templates, [ Title::class, 'compare' ] );
 		foreach ( $templates as $template ) {
 			$outText .= $this->formatTemplate( $template );
 		}
@@ -158,18 +162,18 @@ class TemplatesOnThisPageFormatter {
 	 * Return a link to the edit page, with the text
 	 * saying "view source" if the user can't edit the page
 	 *
-	 * @param Title $titleObj
+	 * @param PageIdentity $page
 	 * @return string
 	 */
-	private function buildEditLink( Title $titleObj ) {
-		if ( $titleObj->quickUserCan( 'edit', $this->context->getUser() ) ) {
+	private function buildEditLink( PageIdentity $page ) {
+		if ( $this->context->getAuthority()->probablyCan( 'edit', $page ) ) {
 			$linkMsg = 'editlink';
 		} else {
 			$linkMsg = 'viewsourcelink';
 		}
 
 		return $this->linkRenderer->makeLink(
-			$titleObj,
+			new TitleValue( $page->getNamespace(), $page->getDBkey() ),
 			$this->context->msg( $linkMsg )->text(),
 			[],
 			[ 'action' => 'edit' ]

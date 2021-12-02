@@ -13,7 +13,7 @@ use Wikimedia\TestingAccessWrapper;
  * @covers ApiLogin
  */
 class ApiLoginTest extends ApiTestCase {
-	public function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 
 		$this->tablesUsed[] = 'bot_passwords';
@@ -140,14 +140,57 @@ class ApiLoginTest extends ApiTestCase {
 		$this->assertSame( 'WrongToken', $ret[0]['login']['result'] );
 	}
 
+	public function testLostSession() {
+		$user = self::$users['sysop'];
+		$userName = $user->getUser()->getName();
+		$password = $user->getPassword();
+		$user->getUser()->logout();
+
+		$ret = $this->doApiRequest( [
+			'action' => 'query',
+			'meta' => 'tokens',
+			'type' => 'login',
+		] );
+
+		$this->assertArrayNotHasKey( 'warnings', $ret );
+
+		// Lose the session
+		MediaWiki\Session\SessionManager::getGlobalSession()->clear();
+		$ret[2] = [];
+
+		$ret = $this->doApiRequest( [
+			'action' => 'login',
+			'lgtoken' => $ret[0]['query']['tokens']['logintoken'],
+			'lgname' => $userName,
+			'lgpassword' => $password,
+			'errorformat' => 'raw',
+		], $ret[2] );
+
+		$this->assertSame( [
+			'result' => 'Failed',
+			'reason' => [
+				'code' => 'sessionlost',
+				'key' => 'authpage-cannot-login-continue',
+				'params' => [],
+			],
+		], $ret[0]['login'] );
+	}
+
 	public function testBadPass() {
 		$user = self::$users['sysop'];
 		$userName = $user->getUser()->getName();
 		$user->getUser()->logout();
 
-		$ret = $this->doUserLogin( $userName, 'bad' );
+		$ret = $this->doUserLogin( $userName, 'bad', [ 'errorformat' => 'raw' ] );
 
-		$this->assertSame( 'Failed', $ret[0]['login']['result'] );
+		$this->assertSame( [
+			'result' => 'Failed',
+			'reason' => [
+				'code' => 'wrongpassword',
+				'key' => 'wrongpassword',
+				'params' => [],
+			],
+		], $ret[0]['login'] );
 	}
 
 	/**
@@ -192,7 +235,7 @@ class ApiLoginTest extends ApiTestCase {
 
 		$this->mergeMwGlobalArrayValue( 'wgAuthManagerConfig', [
 			'secondaryauth' => [ [
-				'factory' => function () use ( $mockProvider ) {
+				'factory' => static function () use ( $mockProvider ) {
 					return $mockProvider;
 				},
 			] ],
@@ -210,54 +253,6 @@ class ApiLoginTest extends ApiTestCase {
 			'reason' => ApiErrorFormatter::stripMarkup( wfMessage(
 				'api-login-fail-aborted' . ( $enableBotPasswords ? '' : '-nobotpw' ) )->text() ),
 		] ], $ret[0] );
-	}
-
-	/**
-	 * @todo Should this test just be deleted?
-	 * @group Broken
-	 */
-	public function testGotCookie() {
-		$this->markTestIncomplete( "The server can't do external HTTP requests, "
-			. "and the internal one won't give cookies" );
-
-		global $wgServer, $wgScriptPath;
-
-		$user = self::$users['sysop'];
-		$userName = $user->getUser()->getName();
-		$password = $user->getPassword();
-
-		$req = MWHttpRequest::factory(
-			self::$apiUrl . '?action=login&format=json',
-			[
-				'method' => 'POST',
-				'postData' => [
-					'lgname' => $userName,
-					'lgpassword' => $password,
-				],
-			],
-			__METHOD__
-		);
-		$req->execute();
-
-		$content = json_decode( $req->getContent() );
-
-		$this->assertSame( 'NeedToken', $content->login->result );
-
-		$req->setData( [
-			'lgtoken' => $content->login->token,
-			'lgname' => $userName,
-			'lgpassword' => $password,
-		] );
-		$req->execute();
-
-		$cj = $req->getCookieJar();
-		$serverName = parse_url( $wgServer, PHP_URL_HOST );
-		$this->assertNotEquals( false, $serverName );
-		$serializedCookie = $cj->serializeToHttpRequest( $wgScriptPath, $serverName );
-		$this->assertRegExp(
-			'/_session=[^;]*; .*UserID=[0-9]*; .*UserName=' . $userName . '; .*Token=/',
-			$serializedCookie
-		);
 	}
 
 	/**
@@ -296,7 +291,9 @@ class ApiLoginTest extends ApiTestCase {
 		);
 
 		$user = self::$users['sysop'];
-		$centralId = CentralIdLookup::factory()->centralIdFromLocalUser( $user->getUser() );
+		$centralId = $this->getServiceContainer()
+			->getCentralIdLookup()
+			->centralIdFromLocalUser( $user->getUser() );
 		$this->assertNotSame( 0, $centralId, 'sanity check' );
 
 		$password = 'ngfhmjm64hv0854493hsj5nncjud2clk';
@@ -304,7 +301,7 @@ class ApiLoginTest extends ApiTestCase {
 		// A is unsalted MD5 (thus fast) ... we don't care about security here, this is test only
 		$passwordHash = $passwordFactory->newFromPlaintext( $password );
 
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->insert(
 			'bot_passwords',
 			[
@@ -351,7 +348,7 @@ class ApiLoginTest extends ApiTestCase {
 	}
 
 	public function testBotPasswordLocked() {
-		$this->setTemporaryHook( 'UserIsLocked', function ( User $unused, &$isLocked ) {
+		$this->setTemporaryHook( 'UserIsLocked', static function ( User $unused, &$isLocked ) {
 			$isLocked = true;
 			return true;
 		} );
@@ -366,7 +363,7 @@ class ApiLoginTest extends ApiTestCase {
 
 	public function testNoSameOriginSecurity() {
 		$this->setTemporaryHook( 'RequestHasSameOriginSecurity',
-			function () {
+			static function () {
 				return false;
 			}
 		);

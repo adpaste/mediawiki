@@ -40,7 +40,7 @@ class ApiQueryCategoryInfo extends ApiQueryBase {
 		}
 		$categories = $alltitles[NS_CATEGORY];
 
-		$titles = $this->getPageSet()->getGoodAndMissingTitles();
+		$titles = $this->getPageSet()->getGoodAndMissingPages();
 		$cattitles = [];
 		foreach ( $categories as $c ) {
 			/** @var Title $t */
@@ -67,7 +67,7 @@ class ApiQueryCategoryInfo extends ApiQueryBase {
 		] );
 		$this->addWhere( [ 'cat_title' => $cattitles ] );
 
-		if ( !is_null( $params['continue'] ) ) {
+		if ( $params['continue'] !== null ) {
 			$title = $this->getDB()->addQuotes( $params['continue'] );
 			$this->addWhere( "cat_title >= $title" );
 		}

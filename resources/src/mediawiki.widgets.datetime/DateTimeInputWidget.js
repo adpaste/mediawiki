@@ -10,7 +10,7 @@
 	 *     @example
 	 *     // Example of a text input widget
 	 *     var dateTimeInput = new mw.widgets.datetime.DateTimeInputWidget( {} )
-	 *     $( 'body' ).append( dateTimeInput.$element );
+	 *     $( document.body ).append( dateTimeInput.$element );
 	 *
 	 * [1]: https://www.mediawiki.org/wiki/OOUI/Widgets/Inputs
 	 *
@@ -24,7 +24,7 @@
 	 * @constructor
 	 * @param {Object} [config] Configuration options
 	 * @cfg {string} [type='datetime'] Whether to act like a 'date', 'time', or 'datetime' input.
-	 *  Affects values stored in the relevant <input> and the formatting and
+	 *  Affects values stored in the relevant `<input>` and the formatting and
 	 *  interpretation of values passed to/from getValue() and setValue(). It's up
 	 *  to the user to configure the DateTimeFormatter correctly.
 	 * @cfg {Object|mw.widgets.datetime.DateTimeFormatter} [formatter={}] Configuration options for
@@ -630,7 +630,7 @@
 								e.keyCode === OO.ui.Keys.UP ? -1 : 1, 'wrap' )
 						);
 					}
-					if ( $field.is( ':input' ) ) {
+					if ( $field.is( 'input' ) ) {
 						$field.trigger( 'select' );
 					}
 					return false;
@@ -652,7 +652,7 @@
 			if ( this.getValueAsDate() === null ) {
 				this.setValue( this.formatter.getDefaultDate() );
 			}
-			if ( $field.is( ':input' ) ) {
+			if ( $field.is( 'input' ) ) {
 				$field.trigger( 'select' );
 			}
 

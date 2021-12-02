@@ -1,6 +1,7 @@
 <?php
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Revision\SlotRecord;
 use Wikimedia\TestingAccessWrapper;
 
 /**
@@ -10,11 +11,10 @@ use Wikimedia\TestingAccessWrapper;
  */
 class MessageCacheTest extends MediaWikiLangTestCase {
 
-	protected function setUp() {
+	protected function setUp(): void {
 		parent::setUp();
 		$this->configureLanguages();
-		MessageCache::destroyInstance();
-		MessageCache::singleton()->enable();
+		MediaWikiServices::getInstance()->getMessageCache()->enable();
 	}
 
 	/**
@@ -27,7 +27,7 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 		$this->setContentLang( 'de' );
 	}
 
-	function addDBDataOnce() {
+	public function addDBDataOnce() {
 		$this->configureLanguages();
 
 		// Set up messages and fallbacks ab -> ru -> de
@@ -60,9 +60,9 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 	 * @param string $lang Language and content of the created page
 	 * @param string|null $content Content of the created page, or null for a generic string
 	 *
-	 * @return Revision
+	 * @return RevisionRecord
 	 */
-	protected function makePage( $title, $lang, $content = null ) {
+	private function makePage( $title, $lang, $content = null ) {
 		if ( $content === null ) {
 			$content = $lang;
 		}
@@ -72,12 +72,19 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 
 		$title = Title::newFromText( $title, NS_MEDIAWIKI );
 		$wikiPage = new WikiPage( $title );
-		$contentHandler = ContentHandler::makeContent( $content, $title );
-		$status = $wikiPage->doEditContent( $contentHandler, "$lang translation test case" );
+		$content = ContentHandler::makeContent( $content, $title );
+
+		$updater = $wikiPage->newPageUpdater( $this->getTestSysop()->getUser() );
+		$updater->setContent(
+			SlotRecord::MAIN,
+			$content
+		);
+		$summary = CommentStoreComment::newUnsavedComment( "$lang translation test case" );
+		$inserted = $updater->saveRevision( $summary );
 
 		// sanity
-		$this->assertTrue( $status->isOK(), 'Create page ' . $title->getPrefixedDBkey() );
-		return $status->value['revision'];
+		$this->assertTrue( $updater->wasSuccessful(), 'Create page ' . $title->getPrefixedDBkey() );
+		return $inserted;
 	}
 
 	/**
@@ -86,11 +93,11 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 	 * @dataProvider provideMessagesForFallback
 	 */
 	public function testMessageFallbacks( $message, $lang, $expectedContent ) {
-		$result = MessageCache::singleton()->get( $message, true, $lang );
+		$result = MediaWikiServices::getInstance()->getMessageCache()->get( $message, true, $lang );
 		$this->assertEquals( $expectedContent, $result, "Message fallback failed." );
 	}
 
-	function provideMessagesForFallback() {
+	public function provideMessagesForFallback() {
 		return [
 			[ 'FallbackLanguageTest-Full', 'ab', 'ab' ],
 			[ 'FallbackLanguageTest-Partial', 'ab', 'ru' ],
@@ -108,12 +115,12 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 	}
 
 	public function testReplaceMsg() {
-		$messageCache = MessageCache::singleton();
+		$messageCache = MediaWikiServices::getInstance()->getMessageCache();
 		$message = 'go';
 		$uckey = MediaWikiServices::getInstance()->getContentLanguage()->ucfirst( $message );
 		$oldText = $messageCache->get( $message ); // "Ausführen"
 
-		$dbw = wfGetDB( DB_MASTER );
+		$dbw = wfGetDB( DB_PRIMARY );
 		$dbw->startAtomic( __METHOD__ ); // simulate request and block deferred updates
 		$messageCache->replace( $uckey, 'Allez!' );
 		$this->assertEquals( 'Allez!',
@@ -125,7 +132,7 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 		$this->makePage( 'Go', 'de', 'Race!' );
 		$dbw->endAtomic( __METHOD__ );
 
-		$this->assertEquals( 0,
+		$this->assertSame( 0,
 			DeferredUpdates::pendingUpdatesCount(),
 			'Post-commit deferred update triggers a run of all updates' );
 
@@ -150,15 +157,13 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 				]
 			]
 		] );
-		$this->overrideMwServices();
 
-		MessageCache::destroyInstance();
-		$messageCache = MessageCache::singleton();
+		$messageCache = MediaWikiServices::getInstance()->getMessageCache();
 		$messageCache->enable();
 
 		// Populate one key
 		$this->makePage( 'Key1', 'de', 'Value1' );
-		$this->assertEquals( 0,
+		$this->assertSame( 0,
 			DeferredUpdates::pendingUpdatesCount(),
 			'Post-commit deferred update triggers a run of all updates' );
 		$this->assertEquals( 'Value1', $messageCache->get( 'Key1' ), 'Key1 was successfully edited' );
@@ -171,7 +176,7 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 
 		// Populate the second key
 		$this->makePage( 'Key2', 'de', 'Value2' );
-		$this->assertEquals( 0,
+		$this->assertSame( 0,
 			DeferredUpdates::pendingUpdatesCount(),
 			'Post-commit deferred update triggers a run of all updates' );
 		$this->assertEquals( 'Value2', $messageCache->get( 'Key2' ), 'Key2 was successfully edited' );
@@ -205,35 +210,37 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 	}
 
 	public function testNoDBAccessContentLanguage() {
-		global $wgContLanguageCode;
+		global $wgLanguageCode;
 
 		$dbr = wfGetDB( DB_REPLICA );
 
-		MessageCache::singleton()->getMsgFromNamespace( 'allpages', $wgContLanguageCode );
+		$messageCache = MediaWikiServices::getInstance()->getMessageCache();
+		$messageCache->getMsgFromNamespace( 'allpages', $wgLanguageCode );
 
-		$this->assertEquals( 0, $dbr->trxLevel() );
+		$this->assertSame( 0, $dbr->trxLevel() );
 		$dbr->setFlag( DBO_TRX, $dbr::REMEMBER_PRIOR ); // make queries trigger TRX
 
-		MessageCache::singleton()->getMsgFromNamespace( 'go', $wgContLanguageCode );
+		$messageCache->getMsgFromNamespace( 'go', $wgLanguageCode );
 
 		$dbr->restoreFlags();
 
-		$this->assertEquals( 0, $dbr->trxLevel(), "No DB read queries (content language)" );
+		$this->assertSame( 0, $dbr->trxLevel(), "No DB read queries (content language)" );
 	}
 
 	public function testNoDBAccessNonContentLanguage() {
 		$dbr = wfGetDB( DB_REPLICA );
 
-		MessageCache::singleton()->getMsgFromNamespace( 'allpages/nl', 'nl' );
+		$messageCache = MediaWikiServices::getInstance()->getMessageCache();
+		$messageCache->getMsgFromNamespace( 'allpages/nl', 'nl' );
 
-		$this->assertEquals( 0, $dbr->trxLevel() );
+		$this->assertSame( 0, $dbr->trxLevel() );
 		$dbr->setFlag( DBO_TRX, $dbr::REMEMBER_PRIOR ); // make queries trigger TRX
 
-		MessageCache::singleton()->getMsgFromNamespace( 'go/nl', 'nl' );
+		$messageCache->getMsgFromNamespace( 'go/nl', 'nl' );
 
 		$dbr->restoreFlags();
 
-		$this->assertEquals( 0, $dbr->trxLevel(), "No DB read queries (non-content language)" );
+		$this->assertSame( 0, $dbr->trxLevel(), "No DB read queries (non-content language)" );
 	}
 
 	/**
@@ -250,18 +257,19 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 		// Create an out-of-sequence revision by importing a
 		// revision with an old timestamp. Hacky.
 		$importRevision = new WikiRevision( new HashConfig() );
-		$importRevision->setTitle( $r3->getTitle() );
+		$title = Title::newFromLinkTarget( $r3->getPageAsLinkTarget() );
+		$importRevision->setTitle( $title );
 		$importRevision->setComment( 'Imported edit' );
 		$importRevision->setTimestamp( '19991122001122' );
-		$importRevision->setText( 'IMPORTED OLD TEST' );
+		$content = ContentHandler::makeContent( 'IMPORTED OLD TEST', $title );
+		$importRevision->setContent( SlotRecord::MAIN, $content );
 		$importRevision->setUsername( 'ext>Alan Smithee' );
 
 		$importer = MediaWikiServices::getInstance()->getWikiRevisionOldRevisionImporterNoUpdates();
 		$importer->import( $importRevision );
 
 		// Now, load the message from the wiki page
-		MessageCache::destroyInstance();
-		$messageCache = MessageCache::singleton();
+		$messageCache = MediaWikiServices::getInstance()->getMessageCache();
 		$messageCache->enable();
 		$messageCache = TestingAccessWrapper::newFromObject( $messageCache );
 
@@ -273,4 +281,31 @@ class MessageCacheTest extends MediaWikiLangTestCase {
 		$this->assertSame( ' ' . 'Test drei', $cache[$key] );
 	}
 
+	/**
+	 * @dataProvider provideIsMainCacheable
+	 * @param string|null $code The language code
+	 * @param string $message The message key
+	 * @param bool $expected
+	 */
+	public function testIsMainCacheable( $code, $message, $expected ) {
+		$messageCache = TestingAccessWrapper::newFromObject(
+			MediaWikiServices::getInstance()->getMessageCache() );
+		$this->assertSame( $expected, $messageCache->isMainCacheable( $message, $code ) );
+	}
+
+	public function provideIsMainCacheable() {
+		$cases = [
+			// $message                $expected
+			[ 'allpages',              true ],
+			[ 'Allpages',              true ],
+			[ 'Allpages/bat',          true ],
+			[ 'Conversiontable/zh-tw', true ],
+			[ 'My_special_message',    false ],
+		];
+		foreach ( [ null, 'en', 'fr' ] as $code ) {
+			foreach ( $cases as $case ) {
+				yield array_merge( [ $code ], $case );
+			}
+		}
+	}
 }

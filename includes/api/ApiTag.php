@@ -19,8 +19,9 @@
  * @file
  */
 
-use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionStore;
+use Wikimedia\Rdbms\IDatabase;
+use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * @ingroup API
@@ -28,25 +29,47 @@ use MediaWiki\Revision\RevisionStore;
  */
 class ApiTag extends ApiBase {
 
+	use ApiBlockInfoTrait;
+
+	/** @var IDatabase */
+	private $dbr;
+
 	/** @var RevisionStore */
 	private $revisionStore;
 
-	public function execute() {
-		$this->revisionStore = MediaWikiServices::getInstance()->getRevisionStore();
+	/**
+	 * @param ApiMain $main
+	 * @param string $action
+	 * @param ILoadBalancer $loadBalancer
+	 * @param RevisionStore $revisionStore
+	 */
+	public function __construct(
+		ApiMain $main,
+		$action,
+		ILoadBalancer $loadBalancer,
+		RevisionStore $revisionStore
+	) {
+		parent::__construct( $main, $action );
+		$this->dbr = $loadBalancer->getConnectionRef( DB_REPLICA );
+		$this->revisionStore = $revisionStore;
+	}
 
+	public function execute() {
 		$params = $this->extractRequestParams();
 		$user = $this->getUser();
 
 		// make sure the user is allowed
 		$this->checkUserRightsAny( 'changetags' );
 
-		if ( $user->isBlocked() ) {
-			$this->dieBlocked( $user->getBlock() );
+		// Fail early if the user is sitewide blocked.
+		$block = $user->getBlock();
+		if ( $block && $block->isSitewide() ) {
+			$this->dieBlocked( $block );
 		}
 
 		// Check if user can add tags
 		if ( $params['tags'] ) {
-			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $user );
+			$ableToTag = ChangeTags::canAddTagsAccompanyingChange( $params['tags'], $this->getAuthority() );
 			if ( !$ableToTag->isOK() ) {
 				$this->dieStatus( $ableToTag );
 			}
@@ -75,14 +98,14 @@ class ApiTag extends ApiBase {
 		$this->getResult()->addValue( null, $this->getModuleName(), $ret );
 	}
 
-	protected static function validateLogId( $logid ) {
-		$dbr = wfGetDB( DB_REPLICA );
-		$result = $dbr->selectField( 'logging', 'log_id', [ 'log_id' => $logid ],
+	protected function validateLogId( $logid ) {
+		$result = $this->dbr->selectField( 'logging', 'log_id', [ 'log_id' => $logid ],
 			__METHOD__ );
 		return (bool)$result;
 	}
 
 	protected function processIndividual( $type, $params, $id ) {
+		$user = $this->getUser();
 		$idResult = [ $type => $id ];
 
 		// validate the ID
@@ -90,12 +113,37 @@ class ApiTag extends ApiBase {
 		switch ( $type ) {
 			case 'rcid':
 				$valid = RecentChange::newFromId( $id );
+				// TODO: replace use of PermissionManager
+				if ( $valid && $this->getPermissionManager()->isBlockedFrom( $user, $valid->getTitle() ) ) {
+					$idResult['status'] = 'error';
+					// @phan-suppress-next-line PhanTypeMismatchArgument
+					$idResult += $this->getErrorFormatter()->formatMessage( ApiMessage::create(
+						'apierror-blocked',
+						'blocked',
+						[ 'blockinfo' => $this->getBlockDetails( $user->getBlock() ) ]
+					) );
+					return $idResult;
+				}
 				break;
 			case 'revid':
 				$valid = $this->revisionStore->getRevisionById( $id );
+				// TODO: replace use of PermissionManager
+				if (
+					$valid &&
+					$this->getPermissionManager()->isBlockedFrom( $user, $valid->getPageAsLinkTarget() )
+				) {
+					$idResult['status'] = 'error';
+					// @phan-suppress-next-line PhanTypeMismatchArgument
+					$idResult += $this->getErrorFormatter()->formatMessage( ApiMessage::create(
+							'apierror-blocked',
+							'blocked',
+							[ 'blockinfo' => $this->getBlockDetails( $user->getBlock() ) ]
+					) );
+					return $idResult;
+				}
 				break;
 			case 'logid':
-				$valid = self::validateLogId( $id );
+				$valid = $this->validateLogId( $id );
 				break;
 		}
 
@@ -113,7 +161,8 @@ class ApiTag extends ApiBase {
 			( $type === 'logid' ? $id : null ),
 			null,
 			$params['reason'],
-			$this->getUser() );
+			$this->getAuthority()
+		);
 
 		if ( !$status->isOK() ) {
 			if ( $status->hasMessage( 'actionthrottledtext' ) ) {
@@ -124,7 +173,7 @@ class ApiTag extends ApiBase {
 			}
 		} else {
 			$idResult['status'] = 'success';
-			if ( is_null( $status->value->logId ) ) {
+			if ( $status->value->logId === null ) {
 				$idResult['noop'] = true;
 			} else {
 				$idResult['actionlogid'] = $status->value->logId;

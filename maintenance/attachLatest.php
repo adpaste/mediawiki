@@ -25,6 +25,7 @@
  */
 
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Revision\RevisionLookup;
 
 require_once __DIR__ . '/Maintenance.php';
 
@@ -45,7 +46,7 @@ class AttachLatest extends Maintenance {
 
 	public function execute() {
 		$this->output( "Looking for pages with page_latest set to 0...\n" );
-		$dbw = $this->getDB( DB_MASTER );
+		$dbw = $this->getDB( DB_PRIMARY );
 		$conds = [ 'page_latest' => 0 ];
 		if ( $this->hasOption( 'regenerate-all' ) ) {
 			$conds = '';
@@ -55,7 +56,12 @@ class AttachLatest extends Maintenance {
 			$conds,
 			__METHOD__ );
 
-		$lbFactory = MediaWikiServices::getInstance()->getDBLoadBalancerFactory();
+		$services = MediaWikiServices::getInstance();
+		$lbFactory = $services->getDBLoadBalancerFactory();
+		$dbDomain = $lbFactory->getLocalDomainID();
+		$wikiPageFactory = $services->getWikiPageFactory();
+		$revisionLookup = $services->getRevisionLookup();
+
 		$n = 0;
 		foreach ( $result as $row ) {
 			$pageId = intval( $row->page_id );
@@ -66,21 +72,23 @@ class AttachLatest extends Maintenance {
 				[ 'rev_page' => $pageId ],
 				__METHOD__ );
 			if ( !$latestTime ) {
-				$this->output( wfWikiID() . " $pageId [[$name]] can't find latest rev time?!\n" );
+				$this->output( "$dbDomain $pageId [[$name]] can't find latest rev time?!\n" );
 				continue;
 			}
 
-			$revision = Revision::loadFromTimestamp( $dbw, $title, $latestTime );
-			if ( is_null( $revision ) ) {
-				$this->output( wfWikiID()
-					. " $pageId [[$name]] latest time $latestTime, can't find revision id\n" );
+			$revRecord = $revisionLookup->getRevisionByTimestamp( $title, $latestTime, RevisionLookup::READ_LATEST );
+			if ( $revRecord === null ) {
+				$this->output(
+					"$dbDomain $pageId [[$name]] latest time $latestTime, can't find revision id\n"
+				);
 				continue;
 			}
-			$id = $revision->getId();
-			$this->output( wfWikiID() . " $pageId [[$name]] latest time $latestTime, rev id $id\n" );
+
+			$id = $revRecord->getId();
+			$this->output( "$dbDomain $pageId [[$name]] latest time $latestTime, rev id $id\n" );
 			if ( $this->hasOption( 'fix' ) ) {
-				$page = WikiPage::factory( $title );
-				$page->updateRevisionOn( $dbw, $revision );
+				$page = $wikiPageFactory->newFromTitle( $title );
+				$page->updateRevisionOn( $dbw, $revRecord );
 				$lbFactory->waitForReplication();
 			}
 			$n++;
