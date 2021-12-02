@@ -949,7 +949,7 @@ class MessageCache implements LoggerAwareInterface {
 
 		// Fandom change: Workaround T193271 performance regression by letting extensions signal
 		// that a particular message key cannot exist in the database
-		if $this->hookRunner->onMessageCache__get( &$lckey ) ) {
+		if ( $this->hookRunner->onMessageCache__get( $lckey ) ) {
 			return false;
 		}
 

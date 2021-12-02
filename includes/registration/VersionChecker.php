@@ -48,16 +48,6 @@ class VersionChecker {
 	/**
 	 * @var bool[] List of provided abilities
 	 */
-	private $abilities;
-
-	/**
-	 * @var string[] List of provided ability errors
-	 */
-	private $abilityErrors;
-
-	/**
-	 * @var bool[] List of provided abilities
-	 */
 	private $abilities = [];
 
 	/**

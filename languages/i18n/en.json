@@ -4401,6 +4401,7 @@
 	"mycustomjsredirectprotected": "You do not have permission to edit this JavaScript page because it is a redirect and it does not point inside your userspace.",
 	"deflate-invaliddeflate": "Content provided is not properly deflated",
 	"unprotected-js": "For security reasons JavaScript cannot be loaded from unprotected pages. Please only create javascript in the MediaWiki: namespace or as a User subpage",
+	"userlogout-continue": "Do you want to log out?",
 	"paramvalidator-baduser": "Invalid value \"$2\" for user parameter <var>$1</var>.",
 	"paramvalidator-help-type-user": "Type: {{PLURAL:$1|1=user|2=list of users}}, {{PLURAL:$3|by|by any of}} $2",
 	"paramvalidator-help-type-user-subtype-name": "user name",
@@ -4414,6 +4415,4 @@
 	"paramvalidator-help-type-title-must-exist": "Only accepts pages that exist.",
 	"paramvalidator-help-type-title-no-must-exist": "Accepts non-existent pages.",
 	"nonmain-slot-differences-therefore-readonly": "You cannot edit the wikitext on this revision of the page, as there have been changes to the data on the page since this revision that are not wikitext-based. [$1 To restore this revision click here.]"
-	"userlogout-continue": "If you wish to log out please [$1 continue to the log out page].",
-	"userlogout-sessionerror": "Log out failed due to session error. Please [$1 try again]."
 }

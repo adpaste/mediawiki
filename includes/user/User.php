@@ -423,7 +423,7 @@ class User implements Authority, UserIdentity, UserEmailContact {
 					$this->queryFlagsUsed = $flags;
 				}
 
-				list( $index, $options ) = DBAccessObjectUtils::getDBOptions( $flags );
+				[ $index, $options ] = DBAccessObjectUtils::getDBOptions( $flags );
 				$row = wfGetDB( $index )->selectRow(
 					'actor',
 					[ 'actor_id', 'actor_user', 'actor_name' ],
@@ -1313,7 +1313,7 @@ class User implements Authority, UserIdentity, UserEmailContact {
 			return false;
 		}
 
-		list( $index, $options ) = DBAccessObjectUtils::getDBOptions( $flags );
+		[ $index, $options ] = DBAccessObjectUtils::getDBOptions( $flags );
 		$db = wfGetDB( $index );
 
 		$userQuery = self::getQueryInfo();
@@ -1808,7 +1808,7 @@ class User implements Authority, UserIdentity, UserEmailContact {
 			// phan is confused because &can-bypass's value is a bool, so it assumes
 			// that $userLimit is also a bool here.
 			// @phan-suppress-next-line PhanTypeInvalidExpressionArrayDestructuring
-			list( $max, $period ) = $userLimit;
+			[ $max, $period ] = $userLimit;
 			$logger->debug( __METHOD__ . ": effective user limit: $max in {$period}s" );
 			$keys[$cache->makeKey( 'limiter', $action, 'user', $id )] = $userLimit;
 		}
@@ -1859,7 +1859,7 @@ class User implements Authority, UserIdentity, UserEmailContact {
 					// phan is confused because &can-bypass's value is a bool, so it assumes
 					// that $userLimit is also a bool here.
 					// @phan-suppress-next-line PhanTypeInvalidExpressionArrayDestructuring
-					list( $max, $period ) = $limit;
+					[ $max, $period ] = $limit;
 
 					$expiry = $now + (int)$period;
 					$count = 0;
@@ -2187,68 +2187,20 @@ class User implements Authority, UserIdentity, UserEmailContact {
 			$this->load();
 		}
 
-		// Currently $this->mActorId might be null if $this was loaded from a
-		// cache entry that was written when $wgActorTableSchemaMigrationStage
-		// was SCHEMA_COMPAT_OLD. Once that is no longer a possibility (i.e. when
-		// User::VERSION is incremented after $wgActorTableSchemaMigrationStage
-		// has been removed), that condition may be removed.
-		if ( $this->mActorId === null || !$this->mActorId && $dbw ) {
-			$q = [
-				'actor_user' => $this->getId() ?: null,
-				'actor_name' => (string)$this->getName(),
-			];
-			if ( $dbw ) {
-				if ( $q['actor_user'] === null && self::isUsableName( $q['actor_name'] ) ) {
-					throw new CannotCreateActorException(
-						'Cannot create an actor for a usable name that is not an existing user'
-					);
-				}
-				if ( $q['actor_name'] === '' ) {
-					throw new CannotCreateActorException( 'Cannot create an actor for a user with no name' );
-				}
-				/**
-				 * Fandom change
-				 * Add a hook to experiment with creating actors on a shared cluster. Actor
-				 * will be created there and ported to the local cluster with the same id.
-				 * In that case hook will return false preventing the execution on the insert
-				 * statement below as it relies on the autoincrement.
-				 *
-				 * PLATFORM-5898
-				 */
-				if ( Hooks::run( 'UserBeforeCreateActor', [
-					&$this->mActorId,
-					$dbw,
-					$q['actor_user'],
-					$q['actor_name'] ]
-				) ) {
-					$dbw->insert( 'actor', $q, __METHOD__, [ 'IGNORE' ] );
-					if ( $dbw->affectedRows() ) {
-						$this->mActorId = (int)$dbw->insertId();
-					} else {
-						// Outdated cache?
-						// Use LOCK IN SHARE MODE to bypass any MySQL REPEATABLE-READ snapshot.
-						$this->mActorId = (int)$dbw->selectField(
-							'actor',
-							'actor_id',
-							$q,
-							__METHOD__,
-							[ 'LOCK IN SHARE MODE' ]
-						);
-						if ( !$this->mActorId ) {
-							throw new CannotCreateActorException(
-								"Cannot create actor ID for user_id={$this->getId()} user_name={$this->getName()}"
-							);
-						}
-					}
-				}
-				$this->invalidateCache();
-			} else {
-				list( $index, $options ) = DBAccessObjectUtils::getDBOptions( $this->queryFlagsUsed );
-				$db = wfGetDB( $index );
-				$this->mActorId = (int)$db->selectField( 'actor', 'actor_id', $q, __METHOD__, $options );
-			}
-			$this->setItemLoaded( 'actor' );
+		if ( !$this->mActorId && $dbwOrWikiId instanceof IDatabase ) {
+			MediaWikiServices::getInstance()
+				->getActorStoreFactory()
+				->getActorNormalization( $dbwOrWikiId->getDomainID() )
+				->acquireActorId( $this, $dbwOrWikiId );
+			// acquireActorId will call setActorId on $this
+			Assert::postcondition(
+				$this->mActorId !== null,
+				"Failed to acquire actor ID for user id {$this->mId} name {$this->mName}"
+			);
 		}
+
+		return (int)$this->mActorId;
+	}
 
 	/**
 	 * Get the user's name escaped by underscores.
@@ -3425,7 +3377,7 @@ class User implements Authority, UserIdentity, UserEmailContact {
 			return 0;
 		}
 
-		list( $index, $options ) = DBAccessObjectUtils::getDBOptions( $flags );
+		[ $index, $options ] = DBAccessObjectUtils::getDBOptions( $flags );
 		$db = wfGetDB( $index );
 
 		$id = $db->selectField( 'user',

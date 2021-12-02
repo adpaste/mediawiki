@@ -463,11 +463,11 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 				'queryLogger' => $params['queryLogger'] ?? new NullLogger(),
 				'replLogger' => $params['replLogger'] ?? new NullLogger(),
 				'errorLogger' => $params['errorLogger'] ?? static function ( Throwable $e ) {
-					trigger_error( get_class( $e ) . ': ' . $e->getMessage(), E_USER_WARNING );
-				},
+						trigger_error( get_class( $e ) . ': ' . $e->getMessage(), E_USER_WARNING );
+					},
 				'deprecationLogger' => $params['deprecationLogger'] ?? static function ( $msg ) {
-					trigger_error( $msg, E_USER_DEPRECATED );
-				}
+						trigger_error( $msg, E_USER_DEPRECATED );
+					}
 			];
 
 			/** @var Database $conn */
@@ -534,7 +534,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		} elseif ( (string)$driver !== '' ) {
 			if ( !isset( $possibleDrivers[$driver] ) ) {
 				throw new InvalidArgumentException( __METHOD__ .
-					" type '$dbType' does not support driver '{$driver}'" );
+													" type '$dbType' does not support driver '{$driver}'" );
 			}
 
 			$class = $possibleDrivers[$driver];
@@ -549,7 +549,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 
 		if ( $class === false ) {
 			throw new InvalidArgumentException( __METHOD__ .
-				" no viable database extension found for type '$dbType'" );
+												" no viable database extension found for type '$dbType'" );
 		}
 
 		return $class;
@@ -714,12 +714,12 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 
 	public function writesOrCallbacksPending() {
 		return $this->trxLevel() && (
-			$this->trxDoneWrites ||
-			$this->trxPostCommitOrIdleCallbacks ||
-			$this->trxPreCommitOrIdleCallbacks ||
-			$this->trxEndCallbacks ||
-			$this->trxSectionCancelCallbacks
-		);
+				$this->trxDoneWrites ||
+				$this->trxPostCommitOrIdleCallbacks ||
+				$this->trxPreCommitOrIdleCallbacks ||
+				$this->trxEndCallbacks ||
+				$this->trxSectionCancelCallbacks
+			);
 	}
 
 	public function preCommitCallbacksPending() {
@@ -792,11 +792,11 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 	public function pendingWriteAndCallbackCallers() {
 		$fnames = $this->pendingWriteCallers();
 		foreach ( [
-			$this->trxPostCommitOrIdleCallbacks,
-			$this->trxPreCommitOrIdleCallbacks,
-			$this->trxEndCallbacks,
-			$this->trxSectionCancelCallbacks
-		] as $callbacks ) {
+					  $this->trxPostCommitOrIdleCallbacks,
+					  $this->trxPreCommitOrIdleCallbacks,
+					  $this->trxEndCallbacks,
+					  $this->trxSectionCancelCallbacks
+				  ] as $callbacks ) {
 			foreach ( $callbacks as $callback ) {
 				$fnames[] = $callback[1];
 			}
@@ -1004,7 +1004,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 					// (empty ones we can silently roll back)
 					if ( $this->writesOrCallbacksPending() ) {
 						$error = "$fname: " .
-							"expected mass rollback of all peer transactions (DBO_TRX set)";
+								 "expected mass rollback of all peer transactions (DBO_TRX set)";
 					}
 				} else {
 					// Manual transactions should have been committed or rolled
@@ -1330,26 +1330,52 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		return $ret;
 	}
 
-	if ( $this->isWriteQuery( $sql ) ) {
-		/**
-		 * Fandom change - start (@author ttomalak)
-		 * Apply @mszabo patch https://gerrit.wikimedia.org/r/c/mediawiki/core/+/617741 to
-		 * allow Temporary table creation on DB_REPLICA for eg. SMW
-		 * PLATFORM-4964
-		 */
-		# Do not treat temporary table writes as "meaningful writes" that need committing.
-		# Profile them as reads. Integration tests can override this behavior via $flags.
-		$pseudoPermanent = $this->hasFlags( $flags, self::QUERY_PSEUDO_PERMANENT );
-		$tableType = $this->registerTempTableWrite( $sql, $pseudoPermanent );
-		$isEffectiveWrite = ( $tableType !== self::TEMP_NORMAL );
-		# DBConnRef uses QUERY_REPLICA_ROLE to enforce the replica role for raw SQL queries
-		if ( $isEffectiveWrite ) {
-			$this->assertIsWritableMaster();
+	/**
+	 * Execute a query, retrying it if there is a recoverable connection loss
+	 *
+	 * This is similar to query() except:
+	 *   - It does not prevent all non-ROLLBACK queries if there is a corrupted transaction
+	 *   - It does not disallow raw queries that are supposed to use dedicated IDatabase methods
+	 *   - It does not throw exceptions for common error cases
+	 *
+	 * This is meant for internal use with Database subclasses.
+	 *
+	 * @param string $sql Original SQL query
+	 * @param string $fname Name of the calling function
+	 * @param int $flags Bit field of class QUERY_* constants
+	 * @return array An n-tuple of:
+	 *   - mixed|bool: An object, resource, or true on success; false on failure
+	 *   - string: The result of calling lastError()
+	 *   - int: The result of calling lastErrno()
+	 *   - bool: Whether a rollback is needed to allow future non-rollback queries
+	 * @throws DBUnexpectedError
+	 */
+	final protected function executeQuery( $sql, $fname, $flags ) {
+		$this->assertHasConnectionHandle();
 
-			if ( $this->hasFlags( $flags, self::QUERY_REPLICA_ROLE ) ) {
-				throw new DBReadOnlyRoleError( $this, "Cannot write; target role is DB_REPLICA" );
+		$priorTransaction = $this->trxLevel();
+
+		if ( $this->isWriteQuery( $sql, $flags ) ) {
+			// Do not treat temporary table writes as "meaningful writes" since they are only
+			// visible to one session and are not permanent. Profile them as reads. Integration
+			// tests can override this behavior via $flags.
+			$pseudoPermanent = $this->fieldHasBit( $flags, self::QUERY_PSEUDO_PERMANENT );
+			$tempTableChanges = $this->getTempTableWrites( $sql, $pseudoPermanent );
+			$isPermWrite = !$tempTableChanges;
+			foreach ( $tempTableChanges as list( $tmpType ) ) {
+				$isPermWrite = $isPermWrite || ( $tmpType !== self::$TEMP_NORMAL );
 			}
-			/** Fandom change - end */
+
+			// Permit temporary table writes on replica DB connections
+			// but require a writable primary DB connection for any persistent writes.
+			if ( $isPermWrite ) {
+				$this->assertIsWritablePrimary();
+
+				// DBConnRef uses QUERY_REPLICA_ROLE to enforce the replica role for raw SQL queries
+				if ( $this->fieldHasBit( $flags, self::QUERY_REPLICA_ROLE ) ) {
+					throw new DBReadOnlyRoleError( $this, "Cannot write; target role is DB_REPLICA" );
+				}
+			}
 		} else {
 			// No permanent writes in this query
 			$isPermWrite = false;
@@ -1584,8 +1610,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 			throw new DBTransactionStateError(
 				$this,
 				"Cannot execute query from $fname while session state is out of sync.\n\n" .
-					$this->csmError->getMessage() . "\n" .
-					$this->csmError->getTraceAsString()
+				$this->csmError->getMessage() . "\n" .
+				$this->csmError->getTraceAsString()
 			);
 		}
 
@@ -2027,13 +2053,13 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 				$from = '';
 			} else {
 				$from = ' FROM ' .
-					$this->tableNamesWithIndexClauseOrJOIN(
-						$table, $useIndexes, $ignoreIndexes, $join_conds );
+						$this->tableNamesWithIndexClauseOrJOIN(
+							$table, $useIndexes, $ignoreIndexes, $join_conds );
 			}
 		} elseif ( $table != '' ) {
 			$from = ' FROM ' .
-				$this->tableNamesWithIndexClauseOrJOIN(
-					[ $table ], $useIndexes, $ignoreIndexes, [] );
+					$this->tableNamesWithIndexClauseOrJOIN(
+						[ $table ], $useIndexes, $ignoreIndexes, [] );
 		} else {
 			$from = '';
 		}
@@ -2059,7 +2085,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 			$sql = "SELECT $startOpts $fields $from $useIndex $ignoreIndex $preLimitTail";
 		} elseif ( is_string( $conds ) ) {
 			$sql = "SELECT $startOpts $fields $from $useIndex $ignoreIndex " .
-				"WHERE $conds $preLimitTail";
+				   "WHERE $conds $preLimitTail";
 		} else {
 			throw new DBUnexpectedError( $this, __METHOD__ . ' called with incorrect parameters' );
 		}
@@ -2295,8 +2321,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 				// Passing a list of strings for single-column unique keys is too
 				// easily confused with passing the columns of composite unique key
 				$this->queryLogger->warning( __METHOD__ .
-					" called with deprecated parameter style: " .
-					"the unique key array should be a string or array of string arrays",
+											 " called with deprecated parameter style: " .
+											 "the unique key array should be a string or array of string arrays",
 					[ 'exception' => new RuntimeException() ] );
 				return $uniqueKeys;
 			} elseif ( is_array( $uniqueKey ) ) {
@@ -3027,8 +3053,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		# $tableName might be empty if this is called from Database::replaceVars()
 		$tableName = "{$prefix}{$table}";
 		if ( $format === 'quoted'
-			&& !$this->isQuotedIdentifier( $tableName )
-			&& $tableName !== ''
+			 && !$this->isQuotedIdentifier( $tableName )
+			 && $tableName !== ''
 		) {
 			$tableName = $this->addIdentifierQuotes( $tableName );
 		}
@@ -3215,8 +3241,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 				// A parenthesized group
 				if ( count( $table ) > 1 ) {
 					$joinedTable = '(' .
-						$this->tableNamesWithIndexClauseOrJOIN(
-							$table, $use_index, $ignore_index, $join_conds ) . ')';
+								   $this->tableNamesWithIndexClauseOrJOIN(
+									   $table, $use_index, $ignore_index, $join_conds ) . ')';
 				} else {
 					// Degenerate case
 					$innerTable = reset( $table );
@@ -3379,7 +3405,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		}
 
 		return ' LIKE ' .
-			$this->addQuotes( $s ) . ' ESCAPE ' . $this->addQuotes( $escapeChar ) . ' ';
+			   $this->addQuotes( $s ) . ' ESCAPE ' . $this->addQuotes( $escapeChar ) . ' ';
 	}
 
 	public function anyChar() {
@@ -3808,8 +3834,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		// This version works in MySQL and SQLite. It will very likely need to be
 		// overridden for most other RDBMS subclasses.
 		return "$sql LIMIT "
-			. ( ( is_numeric( $offset ) && $offset != 0 ) ? "{$offset}," : "" )
-			. "{$limit} ";
+			   . ( ( is_numeric( $offset ) && $offset != 0 ) ? "{$offset}," : "" )
+			   . "{$limit} ";
 	}
 
 	/**
@@ -3862,7 +3888,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		// If there's just one condition and no subordering, hand off to
 		// selectSQLText directly.
 		if ( count( $conds ) === 1 &&
-			( !isset( $options['INNER ORDER BY'] ) || !$this->unionSupportsOrderAndLimit() )
+			 ( !isset( $options['INNER ORDER BY'] ) || !$this->unionSupportsOrderAndLimit() )
 		) {
 			return $this->selectSQLText(
 				$table, $vars, $conds[0] + $extra_conds, $fname, $options, $join_conds
@@ -4241,7 +4267,6 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 			if ( in_array( $entry[2], $sectionIds, true ) ) {
 				$callback = $entry[0];
 				$this->trxEndCallbacks[$key][0] = function () use ( $callback ) {
-					// @phan-suppress-next-line PhanInfiniteRecursion No recursion at all here, phan is confused
 					return $callback( self::TRIGGER_ROLLBACK, $this );
 				};
 				// This "on resolution" callback no longer belongs to a section.
@@ -4586,7 +4611,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 		$sectionId = new AtomicSectionIdentifier;
 		$this->trxAtomicLevels[] = [ $fname, $sectionId, $savepointId ];
 		$this->queryLogger->debug( 'startAtomic: entering level ' .
-			( count( $this->trxAtomicLevels ) - 1 ) . " ($fname)" );
+								   ( count( $this->trxAtomicLevels ) - 1 ) . " ($fname)" );
 
 		$this->completeCriticalSection( __METHOD__, $cs );
 
@@ -4690,7 +4715,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 
 			if ( $excisedFnames ) {
 				$this->queryLogger->debug( "cancelAtomic: canceling level $pos ($savedFname) " .
-					"and descendants " . implode( ', ', $excisedFnames ) );
+										   "and descendants " . implode( ', ', $excisedFnames ) );
 			} else {
 				$this->queryLogger->debug( "cancelAtomic: canceling level $pos ($savedFname)" );
 			}
@@ -6013,7 +6038,7 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 	 */
 	public function __sleep() {
 		throw new RuntimeException( 'Database serialization may cause problems, since ' .
-			'the connection is not restored on wakeup' );
+									'the connection is not restored on wakeup' );
 	}
 
 	/**

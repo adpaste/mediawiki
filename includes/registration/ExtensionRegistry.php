@@ -221,12 +221,8 @@ class ExtensionRegistry {
 		}
 
 		$cache = $this->getCache();
-		// Fandom change: Use makeGlobalKey() to allow sharing the cache
-		// between wikis using the same set of extensions
-		$key = $cache->makeGlobalKey(
-			'registration',
-			md5( json_encode( $this->queued + $versions ) )
-		);
+		// See if this queue is in APC
+		$key = $this->makeCacheKey( $cache, 'main' );
 		$data = $cache->get( $key );
 		if ( !$data ) {
 			$data = $this->readFromQueue( $this->queued );
@@ -567,7 +563,7 @@ class ExtensionRegistry {
 		// if a specific constraint is requested, but no version is set, throw an exception
 		if ( !isset( $this->loaded[$name]['version'] ) ) {
 			$msg = "{$name} does not expose its version, but an extension or a skin"
-					. " requires: {$constraint}.";
+				   . " requires: {$constraint}.";
 			throw new LogicException( $msg );
 		}
 
