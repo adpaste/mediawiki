@@ -53,8 +53,6 @@ class Category {
 	/** @var ReadOnlyMode */
 	private $readOnlyMode;
 
-	const ROW_COUNT_SMALL = 100;
-
 	private function __construct() {
 		$services = MediaWikiServices::getInstance();
 		$this->loadBalancer = $services->getDBLoadBalancer();
