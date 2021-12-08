@@ -1220,8 +1220,11 @@ class EditPage {
 			$undo = $request->getInt( 'undo' );
 
 			if ( $undo > 0 && $undoafter > 0 ) {
-				$undorev = Revision::newFromId( $undo );
-				$oldrev = Revision::newFromId( $undoafter );
+				// The use of newFromTitle() is intentional, as allowing access to
+				// arbitrary revisions on arbitrary pages bypass partial visibility restrictions (T297322).
+				$undorev = Revision::newFromTitle( $this->mTitle, $undo );
+				$oldrev = Revision::newFromTitle( $this->mTitle, $undoafter );
+
 				$undoMsg = null;
 
 				# Sanity check, make sure it's the right page,
