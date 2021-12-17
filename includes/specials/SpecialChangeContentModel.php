@@ -255,6 +255,14 @@ class SpecialChangeContentModel extends FormSpecialPage {
 			return $status;
 		}
 
+		// T271037
+		if ( !$status->isOK() ) {
+			if ( !$status->getErrors() ) {
+				$status->fatal( 'hookaborted' );
+			}
+			return $status;
+		}
+
 		$status = $page->doEditContent(
 			$newContent,
 			$reason,
