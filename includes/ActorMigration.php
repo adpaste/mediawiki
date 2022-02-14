@@ -266,13 +266,21 @@ class ActorMigration {
 						}
 						$set[$to] = $extra[$from];
 					}
-					$dbw->upsert(
+					/**
+					 * Fandom change - start (@author ttomalak)
+					 * Upsert can very often cause deadlock during multiple inserts at the same
+					 * time as it locks whole table. Instead it should be safe make this as and
+					 * insert as all of the records created by this callback should be
+					 * auto-incremented.
+					 *
+					 * PLATFORM-5707
+					 */
+					$dbw->insert(
 						$t['table'],
 						[ $t['pk'] => $pk ] + $set,
-						[ $t['pk'] ],
-						$set,
 						$func
 					);
+					/** Fandom change - end */
 				};
 			} else {
 				$ret[$actor] = $id;
