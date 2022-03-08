@@ -2167,6 +2167,13 @@ class Language {
 				$userTZ = new DateTimeZone( $data[2] );
 				$date = new DateTime( $ts, new DateTimeZone( 'UTC' ) );
 				$date->setTimezone( $userTZ );
+
+				// Don't generate a timestamp that's too large for sprintfDate() to handle,
+				// see T32148.
+				if ( $date->format( 'Y' ) >= '10000' ) {
+					return $ts;
+				}
+
 				return $date->format( 'YmdHis' );
 			} catch ( Exception $e ) {
 				// Unrecognized timezone, default to 'Offset' with the stored offset.
@@ -2209,6 +2216,13 @@ class Language {
 			(int)substr( $ts, 4, 2 ), # Month
 			(int)substr( $ts, 6, 2 ), # Day
 			(int)substr( $ts, 0, 4 ) ); # Year
+
+		// Don't generate a timestamp that's too large for sprintfDate() to handle,
+		// see T32148.
+		if ( date( 'Y', $t ) >= '10000' ) {
+			Wikimedia\restoreWarnings();
+			return $ts;
+		}
 
 		$date = date( 'YmdHis', $t );
 		Wikimedia\restoreWarnings();
