@@ -20,7 +20,8 @@
 			"Itzedubaba",
 			"Lamma64",
 			"Nura A Sani",
-			"Omar Ali"
+			"Omar Ali",
+			"Bello Na'im"
 		]
 	},
 	"tog-underline": "Zana layin link",
@@ -198,7 +199,7 @@
 	"delete": "Soke",
 	"undelete_short": "Wanda ba'a goge ba {{PLURAL:$1|gyara daya|$1 gyararraki}}",
 	"viewdeleted_short": "Duma {{PLURAL:$1|goge gyara daya|$1 goge gyararraki}}",
-	"protect": "A kare",
+	"protect": "Karewa",
 	"protect_change": "sauyawa",
 	"unprotect": "Canza kariya",
 	"newpage": "Sabon shafi",
@@ -471,6 +472,9 @@
 	"newuserlogpage": "Rajistan sabbin akwantoci",
 	"rightslog": "Rajistan bayar da izini ga ma'aikata",
 	"action-edit": "gyara wannan shafi",
+	"action-move": "Gusarwa",
+	"action-delete": "Soke",
+	"action-protect": "Karewa",
 	"nchanges": "{{PLURAL:$1|sauyi|sauye-sauye}} $1",
 	"enhancedrc-history": "Tarihi",
 	"recentchanges": "Sauye-sauyen baya-bayan nan",
