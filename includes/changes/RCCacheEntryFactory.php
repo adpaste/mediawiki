@@ -25,6 +25,8 @@ use MediaWiki\Revision\RevisionRecord;
 
 class RCCacheEntryFactory {
 
+	private const LINK_CACHE_SIZE = 512;
+
 	/** @var IContextSource */
 	private $context;
 
@@ -35,6 +37,11 @@ class RCCacheEntryFactory {
 	 * @var LinkRenderer
 	 */
 	private $linkRenderer;
+
+	/** @var MapCacheLRU */
+	private $userLinkCache;
+	/** @var MapCacheLRU */
+	private $userToolLinksCache;
 
 	/**
 	 * @param IContextSource $context
@@ -47,6 +54,9 @@ class RCCacheEntryFactory {
 		$this->context = $context;
 		$this->messages = $messages;
 		$this->linkRenderer = $linkRenderer;
+
+		$this->userLinkCache = new MapCacheLRU( self::LINK_CACHE_SIZE );
+		$this->userToolLinksCache = new MapCacheLRU( self::LINK_CACHE_SIZE );
 	}
 
 	/**
@@ -82,17 +92,22 @@ class RCCacheEntryFactory {
 		$cacheEntry->userlink = $this->getUserLink( $cacheEntry );
 
 		if ( !ChangesList::isDeleted( $cacheEntry, RevisionRecord::DELETED_USER ) ) {
-			$cacheEntry->usertalklink = Linker::userToolLinks(
+			$cacheEntry->usertalklink = $this->userToolLinksCache->getWithSetCallback(
 				$cacheEntry->mAttribs['rc_user'],
-				$cacheEntry->mAttribs['rc_user_text'],
-				// Should the contributions link be red if the user has no edits (using default)
-				false,
-				// Customisation flags (using default 0)
-				0,
-				// User edit count (using default )
-				null,
-				// do not wrap the message in parentheses
-				false
+				static function () use ( $cacheEntry ) {
+					return Linker::userToolLinks(
+						$cacheEntry->mAttribs['rc_user'],
+						$cacheEntry->mAttribs['rc_user_text'],
+						// Should the contributions link be red if the user has no edits (using default)
+						false,
+						// Customisation flags (using default 0)
+						0,
+						// User edit count (using default )
+						null,
+						// do not wrap the message in parentheses
+						false
+					);
+				}
 			);
 		}
 
@@ -282,16 +297,22 @@ class RCCacheEntryFactory {
 	 */
 	private function getUserLink( RecentChange $cacheEntry ) {
 		if ( ChangesList::isDeleted( $cacheEntry, RevisionRecord::DELETED_USER ) ) {
-			$userLink = ' <span class="history-deleted">' .
+			return ' <span class="history-deleted">' .
 				$this->context->msg( 'rev-deleted-user' )->escaped() . '</span>';
-		} else {
-			// @phan-suppress-next-line SecurityCheck-DoubleEscaped Triggered by Linker?
-			$userLink = Linker::userLink(
-				$cacheEntry->mAttribs['rc_user'],
-				$cacheEntry->mAttribs['rc_user_text'],
-				ExternalUserNames::getLocal( $cacheEntry->mAttribs['rc_user_text'] )
-			);
 		}
+
+		$cachedUserLink = $this->userLinkCache->get( $cacheEntry->mAttribs['rc_user'] );
+		if ( $cachedUserLink !== null ) {
+			return $cachedUserLink;
+		}
+
+		$userLink = Linker::userLink(
+			$cacheEntry->mAttribs['rc_user'],
+			$cacheEntry->mAttribs['rc_user_text'],
+			ExternalUserNames::getLocal( $cacheEntry->mAttribs['rc_user_text'] )
+		);
+
+		$this->userLinkCache->set( $cacheEntry->mAttribs['rc_user'], $userLink );
 
 		return $userLink;
 	}

@@ -62,6 +62,11 @@ class ChangesList extends ContextSource {
 	protected $filterGroups;
 
 	/**
+	 * @var string[]
+	 */
+	private $tagsFormatCache = [];
+
+	/**
 	 * @param IContextSource $context
 	 * @param ChangesListFilterGroup[] $filterGroups Array of ChangesListFilterGroup objects (currently optional)
 	 */
@@ -360,7 +365,16 @@ class ChangesList extends ContextSource {
 		}
 		$formattedSizeClass .= ' mw-diff-bytes';
 
-		$formattedTotalSize = $context->msg( 'rc-change-size-new' )->numParams( $new )->text();
+		static $fastTotalSize = [];
+		if ( !isset( $fastTotalSize[$code] ) ) {
+			$fastTotalSize[$code] = $context->msg( 'rc-change-size-new' )->plain() === '$1';
+		}
+
+		if ( $fastTotalSize[$code] ) {
+			$formattedTotalSize = $lang->formatNum( $new );
+		} else {
+			$formattedTotalSize = $context->msg( 'rc-change-size-new' )->numParams( $new )->text();
+		}
 
 		return Html::element( $tag,
 			[ 'dir' => 'ltr', 'class' => $formattedSizeClass, 'title' => $formattedTotalSize ],
@@ -827,11 +841,17 @@ class ChangesList extends ContextSource {
 			return;
 		}
 
-		list( $tagSummary, $newClasses ) = ChangeTags::formatSummaryRow(
-			$rc->mAttribs['ts_tags'],
-			'changeslist',
-			$this->getContext()
-		);
+		$tags = $rc->mAttribs['ts_tags'];
+		if ( !isset( $this->tagsFormatCache[$tags] ) ) {
+			$this->tagsFormatCache[$tags] = ChangeTags::formatSummaryRow(
+				$rc->mAttribs['ts_tags'],
+				'changeslist',
+				$this->getContext()
+			);
+		}
+
+		list( $tagSummary, $newClasses ) = $this->tagsFormatCache[$tags];
+
 		$classes = array_merge( $classes, $newClasses );
 		$s .= ' ' . $tagSummary;
 	}
