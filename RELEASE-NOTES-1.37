@@ -1,10 +1,45 @@
 = MediaWiki 1.37 =
 
-== MediaWiki 1.37.3 ==
+== MediaWiki 1.37.4 ==
 
 THIS IS NOT A RELEASE YET
 
+=== Changes since MediaWiki 1.37.3 ===
+
+== MediaWiki 1.37.3 ==
+
+This is a security and maintenance release of the MediaWiki 1.37 branch.
+
 === Changes since MediaWiki 1.37.2 ===
+* Localisation updates.
+* (T289879) Type hints for ArrayAccess and JsonSerializable.
+* (T304783) TemplateParser: avoid warnings when called by NoLocalSettings.
+* Rebuilt vendor with composer 2.3.3.
+* Fix old_name in UserLogoutComplete hook.
+* (T289879) Address some deprecations for PHP 8.1.
+* (T193565) UserGroupManager: Fix dbDomain in addUserToGroup() deferred update.
+* (T309114) LocalFile::prerenderThumbnails: Limit the number of thumbnail jobs
+  triggered.
+* (T307982) Updated wikimedia/parsoid from v0.14.0 to v0.14.1.
+* (T308471) SECURITY: Escape welcomeuser message passed to showSuccessPage().
+* (T308473) SECURITY: Escape contributions-title msg for use within page title.
+* (T311272) Call parent constructor of AddSite maintenance script first.
+* MediaWiki: Don't eagerly initialize action name.
+* Updated wikimedia/shellbox from v2.0.0 to v2.1.1.
+* (T311384, CVE-2022-27776) Updated guzzlehttp/guzzle from 7.2.0 to 7.4.5.
+* (T289926) Avoid passing null to trim() in SkinTemplate.
+* (T311473) rollbackEdits: Pass user identity to RollbackPage.
+* (T307282) Avoid passing null to strcasecmp(), for PHP 8.1.
+* (T311551) ShellboxClientFactory::getUrl(): Check if $this->key is null.
+* (T311552) ChangesListSpecialPage: Don't pass null to FormatJson::decode().
+* (T311569) FileBackend::isStoragePath() Handle being passed null.
+* (T311544) Pass int to ApiUsageException::newWithMessage()'s $httpCode param.
+* (T311678) SpecialEditWatchlist: Prevent passing null to strtolower().
+* (T281741) ChangeTags: Fix adding CSS classes for hidden tags.
+* (T296642) changetags: Fix management of a '0' tag.
+* (T311554) ChangeTags: Return early in formatSummaryRow() if $tags === null.
+* (T303033) Handle null in ChangeTags::modifyDisplayQuery.
+* Updated wikimedia/common-passwords from 0.3.0 to 0.4.0.
 
 == MediaWiki 1.37.2 ==
 
@@ -216,12 +251,14 @@ For notes on 1.36.x and older releases, see HISTORY.
 * Updated psr/container from v1.0.0 to v1.1.1.
 * Updated wikimedia/minify from v2.2.2 to v2.2.4.
 * Updated wikimedia/object-factory from v3.0.0 to v3.0.2.
-* Updated wikimedia/parsoid from v0.13.1 to v0.14.0.
+* Updated wikimedia/parsoid from v0.13.1 to v0.14.1.
 * Updated wikimedia/relpath from v2.1.1 to v3.0.0.
 * Updated wikimedia/remex-html from v2.3.1 to v2.3.2.
-* Updated wikimedia/shellbox from v1.0.4 to v2.0.0.
+* Updated wikimedia/shellbox from v1.0.4 to v2.1.1.
 * Updated wikimedia/wait-condition-loop from v2.0.1 to v2.0.2.
 * Updated zordius/lightncandy from v1.2.5 to v1.2.6.
+* Updated guzzlehttp/guzzle from 7.2.0 to 7.4.5.
+* Updated wikimedia/common-passwords from 0.3.0 to 0.4.0.
 
 ===== Changed development-only external libraries =====
 * Updated qunit from 2.10.0 to 2.16.0.
