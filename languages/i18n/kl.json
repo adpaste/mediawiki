@@ -7,7 +7,9 @@
 			"Kaniina (on kl.wikipedia.org)",
 			"Qaqqalik",
 			"לערי ריינהארט",
-			"아라"
+			"아라",
+			"StarrySky",
+			"Amire80"
 		]
 	},
 	"sunday": "Sapaat",
@@ -90,7 +92,7 @@
 	"protect_change": "allannguutit",
 	"unprotect": "Illersorunnaaruk",
 	"newpage": "Qupperneq nutaaq",
-	"talkpagelinktext": "Oqallinneq",
+	"talkpagelinktext": "oqallinneq",
 	"personaltools": "Namminermut sannatit",
 	"talk": "Oqallinneq",
 	"views": "Takutitat",
@@ -132,6 +134,7 @@
 	"nstab-template": "Ilisserut",
 	"nstab-help": "Ikiuutit",
 	"nstab-category": "Sumut atassuseq",
+	"mainpage-nstab": "Saqqaa",
 	"viewsource": "Toqqavia takuuk",
 	"protectedpagetext": "Una qupperneq allaffigineqarnissamut illersugaavoq.",
 	"viewsourcetext": "Qupperneq takusinnaavat aamma sanarfia kopeersinnaavat:",
