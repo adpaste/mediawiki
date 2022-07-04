@@ -229,13 +229,15 @@
 			"AnupamM",
 			"Danniel07",
 			"DiegoAmbrocio",
-			"TehFrog"
+			"TehFrog",
+			"Enly M",
+			"Francodiaz7"
 		]
 	},
 	"tog-underline": "Subrayar enlaces:",
-	"tog-hideminor": "Ocultar las ediciones menores en cambios recientes",
+	"tog-hideminor": "Ocultar las ediciones menores de cambios recientes",
 	"tog-hidepatrolled": "Ocultar las ediciones verificadas de cambios recientes",
-	"tog-newpageshidepatrolled": "Ocultar, de la lista de páginas nuevas, las páginas verificadas",
+	"tog-newpageshidepatrolled": "Ocultar la páginas verificadas de la lista de páginas nuevas.",
 	"tog-hidecategorization": "Ocultar la categorización de páginas",
 	"tog-extendwatchlist": "Mostrar todos los cambios en la lista de seguimiento, no solo los más recientes",
 	"tog-usenewrc": "Agrupar los cambios por página en cambios recientes y en la lista de seguimiento",
@@ -282,8 +284,8 @@
 	"underline-default": "Configuración predeterminada de la apariencia o el navegador",
 	"editfont-style": "Tipo de letra del área de edición:",
 	"editfont-monospace": "Tipo de letra monoespaciado",
-	"editfont-sansserif": "Tipo de letra Sans-serif",
-	"editfont-serif": "Tipo de letra con Serif",
+	"editfont-sansserif": "Fuente Sans-serif",
+	"editfont-serif": "Fuente Serif",
 	"sunday": "domingo",
 	"monday": "lunes",
 	"tuesday": "martes",
@@ -1030,7 +1032,7 @@
 	"viewpagelogs-lowercase": "ver los registros de esta página",
 	"nohistory": "No hay historial de ediciones de esta página.",
 	"currentrev": "Revisión actual",
-	"currentrev-asof": "Revisión actual del $1",
+	"currentrev-asof": "Revisión actual - $1",
 	"revisionasof": "Revisión del $1",
 	"revision-info": "Revisión del $1 de {{GENDER:$6|$2}}$7",
 	"previousrevision": "← Revisión anterior",
@@ -1059,7 +1061,7 @@
 	"rev-deleted-event": "(detalles del registro eliminados)",
 	"rev-deleted-user-contribs": "[nombre de usuario o dirección IP eliminada, edición ocultada de la lista de contribuciones]",
 	"rev-deleted-text-permission": "Esta revisión ha sido <strong>eliminada</strong>.\nPara más información, consulta el [{{fullurl:{{#Special:Log}}/delete|page=$1}} registro de borrados].",
-	"rev-suppressed-text": "Esta revisión de página ha sido <strong>eliminada</strong>.",
+	"rev-suppressed-text": "Esta revisión de página ha sido <strong>suprimida</strong>.",
 	"rev-suppressed-text-permission": "Esta revisión ha sido <strong>suprimida</strong>.\nPara más información, consulta el [{{fullurl:{{#Special:Log}}/suppress|page=$1}} registro de supresiones].",
 	"rev-deleted-text-unhide": "Esta revisión ha sido <strong>eliminada</strong>.\nPara más información, consulta el [{{fullurl:{{#Special:Log}}/delete|page={{FULLPAGENAMEE}}}} registro de borrados].\nComo administrador, aún puedes [$1 ver esta revisión] si lo deseas.",
 	"rev-suppressed-text-unhide": "Esta revisión ha sido <strong>suprimida</strong>.\nPara más información, consulta el [{{fullurl:{{#Special:Log}}/suppress|page={{FULLPAGENAMEE}}}} registro de supresiones].\nComo supresor, aún puedes [$1 ver esta revisión] si lo deseas.",
@@ -2398,7 +2400,7 @@
 	"categoriespagetext": "{{PLURAL:$1|La siguiente categoría existe|Las siguientes $1 categorías existen}} en la wiki y pueden o no estar sin uso.\nVéase también las [[Special:WantedCategories|Categorías requeridas]].",
 	"categoriesfrom": "Mostrar categorías que empiecen por:",
 	"deletedcontributions": "Contribuciones borradas de usuario",
-	"deletedcontributions-title": "Contribuciones borradas por $1",
+	"deletedcontributions-title": "Contribuciones borradas de $1",
 	"sp-deletedcontributions-contribs": "contribuciones",
 	"linksearch": "Búsqueda de enlaces externos",
 	"linksearch-pat": "Patrón de búsqueda:",
@@ -4207,5 +4209,5 @@
 	"paramvalidator-help-type-title": "Tipo: título de página",
 	"paramvalidator-help-type-title-must-exist": "Sólo acepta páginas que existen.",
 	"paramvalidator-help-type-title-no-must-exist": "Acepta páginas inexistentes.",
-	"nonmain-slot-differences-therefore-readonly": "No puedes editar el wikitexto en esta revisión de página, ya que ha habido cambios en los datos de la página desde esta revisión que no están basados en wikitexto. [$1 Para restaurar esta revisión, has clic aquí.]"
+	"nonmain-slot-differences-therefore-readonly": "No se puede editar el wikitexto en esta revisión, ya que ha habido cambios posteriores en los datos de la página que no están basados en wikitexto. Es posible [$1 restaurar esta revisión.]"
 }

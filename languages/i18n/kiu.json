@@ -12,7 +12,8 @@
 			"Marmase",
 			"Mirzali",
 			"Orbot707",
-			"아라"
+			"아라",
+			"Amire80"
 		]
 	},
 	"tog-underline": "Bınê gırey de xete bonce:",
@@ -162,7 +163,7 @@
 	"protect_change": "bıvurne",
 	"unprotect": "Rake",
 	"newpage": "Pela newiye",
-	"talkpagelinktext": "Hurênayis",
+	"talkpagelinktext": "hurênayiş",
 	"specialpage": "Pela xısusiye",
 	"personaltools": "Hacetê keşi",
 	"talk": "Hurênayis",
@@ -848,10 +849,10 @@
 	"restriction-level-autoconfirmed": "nêm sevekiyo",
 	"restriction-level-all": "kamci be sewiya",
 	"undelete": "Pelunê esteriyau basna",
-	"undeletepage": "Pelunê esteriyau bıvine u peyser biya",
+	"undeletepage": "Pelunê esteriyayu bıvine u peyser biya",
 	"undeletepagetitle": "'''Ni, [[:$1|$1]] be çımraviarnaunê pele ra yenê pêra'''.",
 	"viewdeletedpage": "Pelunê esteriyau bıvine",
-	"undelete-fieldset-title": "Çımraviarnau peyser biya",
+	"undelete-fieldset-title": "Çımraviyarnayisu peyser biya",
 	"undeletebtn": "Peyser biya",
 	"undeletelink": "bıvêne/peyser biya",
 	"undeleteviewlink": "bıvêne",
