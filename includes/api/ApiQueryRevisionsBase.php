@@ -194,7 +194,7 @@ abstract class ApiQueryRevisionsBase extends ApiQueryGeneratorBase {
 			// Check whether the revision exists and is readable,
 			// DifferenceEngine returns a rather ambiguous empty
 			// string if that's not the case
-			if ( $params['diffto'] != 0 ) {
+			if ( is_numeric( $params['diffto'] ) && $params['diffto'] != 0 ) {
 				$difftoRev = $this->revisionStore->getRevisionById( $params['diffto'] );
 				if ( !$difftoRev ) {
 					$this->dieWithError( [ 'apierror-nosuchrevid', $params['diffto'] ] );
