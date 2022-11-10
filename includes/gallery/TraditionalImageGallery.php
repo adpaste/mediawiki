@@ -78,6 +78,18 @@ class TraditionalImageGallery extends ImageGalleryBase {
 			$lb->execute();
 		}
 
+		// Resolve files in batch if we're not in a parsing context, e.g. on category pages.
+		if ( !$resolveFilesViaParser ) {
+			$filePages = [];
+			foreach ( $this->mImages as [ $title, /* see below */ ] ) {
+				$filePages[] = $title;
+			}
+
+			$filesBatch = $repoGroup->findFiles( $filePages );
+		} else {
+			$filesBatch = [];
+		}
+
 		$lang = $this->getRenderLang();
 		$enableLegacyMediaDOM = $this->getConfig()->get( 'ParserEnableLegacyMediaDOM' );
 
@@ -97,7 +109,7 @@ class TraditionalImageGallery extends ImageGalleryBase {
 					# Fetch and register the file (file title may be different via hooks)
 					list( $img, $nt ) = $this->mParser->fetchFileAndTitle( $nt, $options );
 				} else {
-					$img = $repoGroup->findFile( $nt );
+					$img = $filesBatch[$nt->getDBkey()] ?? false;
 				}
 			} else {
 				$img = false;

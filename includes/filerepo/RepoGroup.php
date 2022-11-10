@@ -239,6 +239,15 @@ class RepoGroup {
 			$images = array_merge( $images, $repo->findFiles( $items, $flags ) );
 		}
 
+		/** @var File|bool $file */
+		foreach ( $images as $dbKey => $file ) {
+			// Cache file data or file nonexistence in process cache, to match findFile().
+			// This allows findFile() to reuse the results of this batch lookup.
+			if ( !$file || $file->isCacheable() ) {
+				$this->cache->setField( $dbKey, '' /* latest */, $file );
+			}
+		}
+
 		return $images;
 	}
 
