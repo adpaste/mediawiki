@@ -508,7 +508,7 @@ class Article implements Page {
 
 		/**
 		 * Fandom change - start (@author miwaniszczuk) - UGC-4161
-		 * Make EditSectionLink Hook run for semi-protected pages
+		 * Make EditSectionLink Hook run for pages without restrictions and for users with edit permission
 		 */
 		$restrictionStore = MediaWikiServices::getInstance()->getRestrictionStore();
 
@@ -522,7 +522,7 @@ class Article implements Page {
 				)
 			);
 		} elseif ( $this->viewIsRenderAction || !$this->isCurrent() ||
-			( empty( $restrictionStore->getRestrictions( $this->getTitle(), 'edit' ) ) &&
+			( !empty( $restrictionStore->getRestrictions( $this->getTitle(), 'edit' ) ) &&
 				!$authority->probablyCan( 'edit', $this->getTitle() ) )
 		) {
 			$poOptions['enableSectionEditLinks'] = false;
