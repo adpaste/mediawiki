@@ -107,7 +107,7 @@ class RCCacheEntryFactory {
 			 * unnecessary to process it for each RC record separately.
 			 */
 			$cacheEntry->usertalklink = $this->userTalkLinks->getWithSetCallback(
-				$cacheEntry->mAttribs['rc_user'],
+				$cacheEntry->mAttribs['rc_user_text'],
 				fn() => Linker::userToolLinks(
 					$cacheEntry->mAttribs['rc_user'],
 					$cacheEntry->mAttribs['rc_user_text'],
@@ -324,7 +324,7 @@ class RCCacheEntryFactory {
 			 * @see RCCacheEntryFactory::newFromRecentChange
 			 */
 			$userLink = $this->userLinks->getWithSetCallback(
-				$cacheEntry->mAttribs['rc_user'],
+				$cacheEntry->mAttribs['rc_user_text'],
 				fn() => Linker::userLink(
 					$cacheEntry->mAttribs['rc_user'],
 					$cacheEntry->mAttribs['rc_user_text'],
