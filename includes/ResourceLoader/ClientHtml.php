@@ -466,7 +466,7 @@ RLPAGEMODULES = {$pageModulesJson};
 						// Must setModules() before createLoaderURL()
 						$url = $rl->createLoaderURL( $source, $context, $extraQuery );
 
-						$preloadMode = $context->getRequest()->getVal( 'mw_test_preload' );
+						$preloadMode = $_GET['mw_preload'];
 						$preload = null;
 						// Decide whether to use 'style' or 'script' element
 						if ( $only === Module::TYPE_STYLES ) {
