@@ -466,10 +466,26 @@ RLPAGEMODULES = {$pageModulesJson};
 						// Must setModules() before createLoaderURL()
 						$url = $rl->createLoaderURL( $source, $context, $extraQuery );
 
+						$preloadMode = $context->getRequest()->getVal( 'mw_test_preload' );
+						$preload = null;
 						// Decide whether to use 'style' or 'script' element
 						if ( $only === Module::TYPE_STYLES ) {
+							if ( in_array( $preloadMode, [ "all", "styles" ] ) ) {
+								$preload = Html::element( 'link', [
+									'rel' => 'preload',
+									'as' => 'style',
+									'href' => $url,
+								] );
+							}
 							$chunk = Html::linkedStyle( $url );
 						} elseif ( $context->getRaw() ) {
+							if ( in_array( $preloadMode, [ "all", "scripts" ] ) ) {
+								$preload = Html::element( 'link', [
+									'rel' => 'preload',
+									'as' => 'script',
+									'href' => $url,
+								] );
+							}
 							// This request is asking for the module to be delivered standalone,
 							// (aka "raw") without communicating to any mw.loader client.
 							// For:
@@ -488,6 +504,9 @@ RLPAGEMODULES = {$pageModulesJson};
 						if ( $group == Module::GROUP_NOSCRIPT ) {
 							$chunks[] = Html::rawElement( 'noscript', [], $chunk );
 						} else {
+							if ($preload !== null) {
+								$chunks[] = $preload;
+							}
 							$chunks[] = $chunk;
 						}
 					}
