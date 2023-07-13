@@ -3203,6 +3203,7 @@ class EditPage implements IEditObject {
 
 		// Add a check for Unicode support
 		$out->addHTML( Html::hidden( 'wpUnicodeCheck', self::UNICODE_CHECK ) );
+		$out->addHTML( Html::hidden( 'forceflame', 'lol-page-edit' ) );
 
 		// Add an empty field to trip up spambots
 		$out->addHTML(
