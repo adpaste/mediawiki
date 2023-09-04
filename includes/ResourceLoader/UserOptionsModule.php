@@ -74,7 +74,15 @@ class UserOptionsModule extends Module {
 			$script .= 'mw.user.options.set(' . $context->encodeJson( $options ) . ');' . "\n";
 		}
 
-		return $script;
+		if ( $context->getDebug() ) {
+			return $script;
+		}
+
+		// Fandom change: Disable implicit minification and perform it ourselves
+		// to prevent it from being cached in APCu.
+		// Since this module contains user-specific data, it has extremely high cardinality.
+		return ResourceLoader::FILTER_NOMIN .
+			ResourceLoader::filter( 'minify-js', $script, [ 'cache' => false ] );
 	}
 
 	/**
