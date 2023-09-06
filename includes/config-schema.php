@@ -425,6 +425,7 @@ return [
 			'MaximumMovedPages' => 100,
 			'ForceDeferredUpdatesPreSend' => false,
 			'MultiShardSiteStats' => false,
+			'CacheLazyAttributes' => true,
 			'CacheDirectory' => false,
 			'MainCacheType' => 0,
 			'MessageCacheType' => -1,
