@@ -322,9 +322,14 @@ class ExtensionRegistry {
 	 * Save lazy attributes in the cache
 	 *
 	 * @param BagOStuff $cache
+	 * @param string $attrib
 	 * @param array $data
 	 */
-	protected function saveLazyAttributesToCache( BagOStuff $cache, string $attrib, array $data ) {
+	protected function saveLazyAttributesToCache(
+		BagOStuff $cache,
+		string $attrib,
+		array $data
+	): void {
 		global $wgDevelopmentWarnings;
 		if ( $data['warnings'] && $wgDevelopmentWarnings ) {
 			// If warnings were shown, don't cache it
@@ -333,7 +338,7 @@ class ExtensionRegistry {
 
 		$cache->set(
 			$this->makeCacheKey( $cache, 'lazy-attrib', $attrib ),
-			$data,
+			$result['attributes'][$attrib] ?? [],
 			self::CACHE_EXPIRY
 		);
 	}
@@ -629,7 +634,7 @@ class ExtensionRegistry {
 		$result = $this->readFromQueue( $paths );
 		$data = $result['attributes'][$name] ?? [];
 		/** Fandom change - start (@author ttomalak) - APCu */
-		$this->saveLazyAttributesToCache( $cache, $name, $data );
+		$this->saveLazyAttributesToCache( $cache, $name, $result );
 		/** Fandom change - end */
 		$this->lazyAttributes[$name] = $data;
 
