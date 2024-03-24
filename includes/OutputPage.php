@@ -609,8 +609,13 @@ class OutputPage extends ContextSource {
 	 *
 	 * @param string|array $modules Module name (string) or array of module names
 	 */
-	public function addModules( $modules ) {
-		$this->mModules = array_merge( $this->mModules, (array)$modules );
+	public function addModules( $modules, $useVite = true ) {
+		if ( $useVite ) {
+			// Add modules to Vite (if enabled)
+			Fandom\Vite\Vite::getInstance()->addModules( $modules );
+		} else {
+			$this->mModules = array_merge( $this->mModules, (array)$modules );
+		}
 	}
 
 	/**
