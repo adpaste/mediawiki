@@ -1804,7 +1804,8 @@ class LocalFile extends File {
 		$props['description'] = $comment;
 		$props['timestamp'] = wfTimestamp( TS_MW, $timestamp ); // DB -> TS_MW
 		$this->setProps( $props );
-		if ( !$this->isValidMajorMimeType() ) {
+		$mimeAnalyzer = MediaWikiServices::getInstance()->getMimeAnalyzer();
+		if ( !$mimeAnalyzer->isValidMajorMimeType( $this->major_mime ) ) {
 			$this->major_mime = 'unknown';
 		}
 
@@ -2677,28 +2678,6 @@ class LocalFile extends File {
 	protected function readOnlyFatalStatus() {
 		return $this->getRepo()->newFatal( 'filereadonlyerror', $this->getName(),
 			$this->getRepo()->getName(), $this->getRepo()->getReadOnlyReason() );
-	}
-
-	/**
-	 * Check if major_mime has a value accepted by enum in a database schema.
-	 * @return bool
-	 */
-	public function isValidMajorMimeType(): bool {
-		// From maintenance/tables-generated.sql => img_major_mime
-		$types = [
-			'unknown',
-			'application',
-			'audio',
-			'image',
-			'text',
-			'video',
-			'message',
-			'model',
-			'multipart',
-			'chemical'
-		];
-
-		return in_array( $this->major_mime, $types );
 	}
 
 	/**
