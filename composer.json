@@ -81,7 +81,12 @@
 		"wikimedia/wait-condition-loop": "2.0.2",
 		"wikimedia/wrappedstring": "4.0.1",
 		"wikimedia/xmp-reader": "0.8.6",
-		"zordius/lightncandy": "1.2.6"
+		"zordius/lightncandy": "1.2.6",
+		"open-telemetry/sdk": "1.0.8",
+		"open-telemetry/api": "1.0.3",
+		"open-telemetry/sem-conv": "1.24.0",
+		"open-telemetry/context": "1.0.2",
+		"open-telemetry/exporter-otlp": "1.0.4"
 	},
 	"require-dev": {
 		"composer/spdx-licenses": "1.5.7",
@@ -173,7 +178,9 @@
 		"allow-plugins": {
 			"composer/package-versions-deprecated": true,
 			"wikimedia/composer-merge-plugin": true,
-			"composer/installers": true
+			"composer/installers": true,
+			"dealerdirect/phpcodesniffer-composer-installer": true,
+			"php-http/discovery": false
 		}
 	},
 	"extra": {

@@ -40,6 +40,7 @@ class TestSetup {
 		global $wgMWLoggerDefaultSpi;
 		global $wgAuthManagerConfig;
 		global $wgShowExceptionDetails, $wgShowHostnames;
+		global $wgOpenTelemetryConfig;
 
 		$wgShowExceptionDetails = true;
 		$wgShowHostnames = true;
@@ -104,6 +105,9 @@ class TestSetup {
 
 		// Single-iteration PBKDF2 session secret derivation, for speed.
 		$wgSessionPbkdf2Iterations = 1;
+
+		// Disable tracing in tests.
+		$wgOpenTelemetryConfig = null;
 
 		// Generic AuthManager configuration for testing
 		$wgAuthManagerConfig = [

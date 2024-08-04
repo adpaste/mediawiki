@@ -19,6 +19,7 @@
  */
 
 use MediaWiki\Config\ServiceOptions;
+use OpenTelemetry\API\Trace\NoopTracer;
 use Wikimedia\Rdbms\DatabaseDomain;
 use Wikimedia\Rdbms\DatabaseFactory;
 use Wikimedia\Rdbms\LBFactorySimple;
@@ -41,7 +42,8 @@ class MWLBFactoryTest extends MediaWikiUnitTestCase {
 			new WANObjectCache( [ 'cache' => new EmptyBagOStuff() ] ),
 			new CriticalSectionProvider( RequestTimeout::singleton(), 1, null, null ),
 			new NullStatsdDataFactory(),
-			new DatabaseFactory()
+			new DatabaseFactory(),
+			new NoopTracer(),
 		);
 	}
 

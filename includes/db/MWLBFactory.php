@@ -25,6 +25,7 @@ use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
 use MediaWiki\Config\ServiceOptions;
 use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MainConfigNames;
+use OpenTelemetry\API\Trace\TracerInterface;
 use Wikimedia\Rdbms\ChronologyProtector;
 use Wikimedia\Rdbms\DatabaseDomain;
 use Wikimedia\Rdbms\DatabaseFactory;
@@ -100,6 +101,10 @@ class MWLBFactory {
 	 * @var DatabaseFactory
 	 */
 	private $databaseFactory;
+	/**
+	 * @var TracerInterface
+	 */
+	private $tracer;
 
 	/**
 	 * @param ServiceOptions $options
@@ -110,6 +115,7 @@ class MWLBFactory {
 	 * @param CriticalSectionProvider $csProvider
 	 * @param StatsdDataFactoryInterface $statsdDataFactory
 	 * @param DatabaseFactory $databaseFactory
+	 * @param TracerInterface $tracer
 	 */
 	public function __construct(
 		ServiceOptions $options,
@@ -119,7 +125,8 @@ class MWLBFactory {
 		WANObjectCache $wanCache,
 		CriticalSectionProvider $csProvider,
 		StatsdDataFactoryInterface $statsdDataFactory,
-		DatabaseFactory $databaseFactory
+		DatabaseFactory $databaseFactory,
+		TracerInterface $tracer
 	) {
 		$this->options = $options;
 		$this->readOnlyMode = $readOnlyMode;
@@ -129,6 +136,7 @@ class MWLBFactory {
 		$this->csProvider = $csProvider;
 		$this->statsdDataFactory = $statsdDataFactory;
 		$this->databaseFactory = $databaseFactory;
+		$this->tracer = $tracer;
 	}
 
 	/**
@@ -155,6 +163,7 @@ class MWLBFactory {
 			'queryLogger' => LoggerFactory::getInstance( 'DBQuery' ),
 			'connLogger' => LoggerFactory::getInstance( 'DBConnection' ),
 			'perfLogger' => LoggerFactory::getInstance( 'DBPerformance' ),
+			'tracer' => $this->tracer,
 			'errorLogger' => [ MWExceptionHandler::class, 'logException' ],
 			'deprecationLogger' => [ static::class, 'logDeprecation' ],
 			'statsdDataFactory' => $this->statsdDataFactory,

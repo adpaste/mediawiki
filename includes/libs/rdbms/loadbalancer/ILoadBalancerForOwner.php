@@ -58,6 +58,7 @@ interface ILoadBalancerForOwner extends ILoadBalancer {
 	 *  - connLogger: PSR-3 logger instance [optional]
 	 *  - queryLogger: PSR-3 logger instance [optional]
 	 *  - perfLogger: PSR-3 logger instance [optional]
+	 *  - tracer: OpenTelemetry tracer (OpenTelemetry\API\Trace\TracerInterface) instance [optional]
 	 *  - errorLogger : Callback that takes an Exception and logs it [optional]
 	 *  - deprecationLogger: Callback to log a deprecation warning [optional]
 	 *  - roundStage: STAGE_POSTCOMMIT_* class constant; for internal use [optional]

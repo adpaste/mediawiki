@@ -1840,6 +1840,7 @@ return [
 			'MetricsTarget' => null,
 			'MetricsFormat' => null,
 			'MetricsPrefix' => 'mediawiki',
+			'OpenTelemetryConfig' => null,
 			'PageInfoTransclusionLimit' => 50,
 			'ParserTestFiles' => [
 			],
@@ -2776,6 +2777,10 @@ return [
 			],
 			'MetricsPrefix' => 'string',
 			'ParserTestFiles' => 'object',
+			'OpenTelemetryConfig' => [
+				'object',
+				'null',
+			],
 			'OpenSearchTemplates' => 'object',
 			'NamespacesToBeSearchedDefault' => 'object',
 			'SitemapNamespaces' => [

@@ -26,6 +26,8 @@ use Generator;
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
 use LogicException;
 use NullStatsdDataFactory;
+use OpenTelemetry\API\Trace\NoopTracer;
+use OpenTelemetry\API\Trace\TracerProviderInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
@@ -60,6 +62,8 @@ abstract class LBFactory implements ILBFactory {
 	private $queryLogger;
 	/** @var LoggerInterface */
 	private $perfLogger;
+	/** @var TracerProviderInterface */
+	private $tracer;
 	/** @var callable Error logger */
 	private $errorLogger;
 	/** @var callable Deprecation logger */
@@ -186,6 +190,7 @@ abstract class LBFactory implements ILBFactory {
 		$this->profiler = $conf['profiler'] ?? null;
 		$this->trxProfiler = $conf['trxProfiler'] ?? new TransactionProfiler();
 		$this->statsd = $conf['statsdDataFactory'] ?? new NullStatsdDataFactory();
+		$this->tracer = $conf['tracer'] ?? new NoopTracer();
 
 		$this->csProvider = $conf['criticalSectionProvider'] ?? null;
 
@@ -761,7 +766,8 @@ abstract class LBFactory implements ILBFactory {
 				$this->getChronologyProtector()->applySessionReplicationPosition( $lb );
 			},
 			'roundStage' => $initStage,
-			'criticalSectionProvider' => $this->csProvider
+			'criticalSectionProvider' => $this->csProvider,
+			'tracer' => $this->tracer,
 		];
 	}
 

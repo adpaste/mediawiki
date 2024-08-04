@@ -3309,6 +3309,12 @@ class MainConfigNames {
 	public const MetricsPrefix = 'MetricsPrefix';
 
 	/**
+	 * Name constant for the OpenTelemetryConfig setting, for use with Config::get()
+	 * @see MainConfigSchema::OpenTelemetryConfig
+	 */
+	public const OpenTelemetryConfig = 'OpenTelemetryConfig';
+
+	/**
 	 * Name constant for the PageInfoTransclusionLimit setting, for use with Config::get()
 	 * @see MainConfigSchema::PageInfoTransclusionLimit
 	 */

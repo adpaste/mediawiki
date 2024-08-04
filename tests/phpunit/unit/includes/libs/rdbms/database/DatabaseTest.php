@@ -2,6 +2,7 @@
 
 use MediaWiki\Tests\Unit\Libs\Rdbms\AddQuoterMock;
 use MediaWiki\Tests\Unit\Libs\Rdbms\SQLPlatformTestHelper;
+use OpenTelemetry\API\Trace\NoopTracer;
 use Wikimedia\Rdbms\Database;
 use Wikimedia\Rdbms\DatabaseDomain;
 use Wikimedia\Rdbms\DatabaseMysqli;
@@ -444,6 +445,7 @@ class DatabaseTest extends PHPUnit\Framework\TestCase {
 			) ) ) )
 			->getMock();
 		$wdb = TestingAccessWrapper::newFromObject( $db );
+		$wdb->tracer = new NoopTracer();
 		$wdb->connLogger = new \Psr\Log\NullLogger();
 		$wdb->queryLogger = new \Psr\Log\NullLogger();
 		$wdb->replLogger = new \Psr\Log\NullLogger();

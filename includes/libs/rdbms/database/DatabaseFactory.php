@@ -21,6 +21,8 @@ namespace Wikimedia\Rdbms;
 
 use HashBagOStuff;
 use InvalidArgumentException;
+use OpenTelemetry\API\Trace\NoopTracer;
+use OpenTelemetry\API\Trace\TracerInterface;
 use Psr\Log\NullLogger;
 use Throwable;
 
@@ -119,7 +121,8 @@ class DatabaseFactory {
 				},
 				'deprecationLogger' => $params['deprecationLogger'] ?? static function ( $msg ) {
 					trigger_error( $msg, E_USER_DEPRECATED );
-				}
+				},
+				'tracer' => $params['tracer'] ?? new NoopTracer(),
 			];
 
 			/** @var Database $conn */

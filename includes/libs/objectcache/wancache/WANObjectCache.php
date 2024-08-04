@@ -20,6 +20,9 @@
  */
 
 use Liuggio\StatsdClient\Factory\StatsdDataFactoryInterface;
+use MediaWiki\Tracer\ScopedSpan;
+use OpenTelemetry\API\Trace\NoopTracer;
+use OpenTelemetry\API\Trace\TracerInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -162,6 +165,9 @@ class WANObjectCache implements
 	private $keyHighQps;
 	/** @var float Max tolerable bytes/second to spend on a cache write stampede for a key */
 	private $keyHighUplinkBps;
+
+	/** @var TracerInterface */
+	private $tracer;
 
 	/** @var array<int,array> List of (key, UNIX timestamp) tuples for get() cache misses */
 	private $missLog;
@@ -317,6 +323,7 @@ class WANObjectCache implements
 	 *   - cache    : BagOStuff object for a persistent cache
 	 *   - logger   : LoggerInterface object
 	 *   - stats    : StatsdDataFactoryInterface object
+	 *   - tracer   : OpenTelemetry tracer (OpenTelemetry\API\Trace\TracerInterface) instance
 	 *   - asyncHandler : A function that takes a callback and runs it later. If supplied,
 	 *       whenever a preemptive refresh would be triggered in getWithSetCallback(), the
 	 *       current cache value is still used instead. However, the async-handler function
@@ -365,6 +372,7 @@ class WANObjectCache implements
 		$this->setLogger( $params['logger'] ?? new NullLogger() );
 		$this->stats = $params['stats'] ?? new NullStatsdDataFactory();
 		$this->asyncHandler = $params['asyncHandler'] ?? null;
+		$this->tracer = $params['tracer'] ?? new NoopTracer();
 
 		$this->missLog = array_fill( 0, 10, [ '', 0.0 ] );
 
@@ -447,6 +455,7 @@ class WANObjectCache implements
 	 * @return mixed Value of cache key; false on failure
 	 */
 	final public function get( $key, &$curTTL = null, array $checkKeys = [], &$info = [] ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		// Note that an undeclared variable passed as $info starts as null (not the default).
 		// Also, if no $info parameter is provided, then it doesn't matter how it changes here.
 		$legacyInfo = ( $info !== self::PASS_BY_REF );
@@ -505,6 +514,7 @@ class WANObjectCache implements
 		array $checkKeys = [],
 		&$info = []
 	) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $keys, $checkKeys );
 		// Note that an undeclared variable passed as $info starts as null (not the default).
 		// Also, if no $info parameter is provided, then it doesn't matter how it changes here.
 		$legacyInfo = ( $info !== self::PASS_BY_REF );
@@ -783,6 +793,7 @@ class WANObjectCache implements
 	 * @return bool Success
 	 */
 	final public function set( $key, $value, $ttl = self::TTL_INDEFINITE, array $opts = [] ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		$now = $this->getCurrentTime();
 		$dataReplicaLag = $opts['lag'] ?? 0;
 		$dataSnapshotLag = isset( $opts['since'] ) ? max( 0, $now - $opts['since'] ) : 0;
@@ -976,6 +987,7 @@ class WANObjectCache implements
 	 * @return bool True if the item was purged or not found, false on failure
 	 */
 	final public function delete( $key, $ttl = self::HOLDOFF_TTL ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		// Purge values must be stored under the value key so that WANObjectCache::set()
 		// can atomically merge values without accidentally undoing a recent purge and thus
 		// violating the holdoff TTL restriction.
@@ -1025,6 +1037,7 @@ class WANObjectCache implements
 	 * @return float UNIX timestamp
 	 */
 	final public function getCheckKeyTime( $key ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		return $this->getMultiCheckKeyTime( [ $key ] )[$key];
 	}
 
@@ -1090,6 +1103,7 @@ class WANObjectCache implements
 	 * @since 1.31
 	 */
 	final public function getMultiCheckKeyTime( array $keys ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $keys );
 		$checkSisterKeysByKey = [];
 		foreach ( $keys as $key ) {
 			$checkSisterKeysByKey[$key] = $this->makeSisterKey( $key, self::TYPE_TIMESTAMP );
@@ -1147,6 +1161,7 @@ class WANObjectCache implements
 	 * @return bool True if the item was purged or not found, false on failure
 	 */
 	final public function touchCheckKey( $key, $holdoff = self::HOLDOFF_TTL ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		$checkSisterKey = $this->makeSisterKey( $key, self::TYPE_TIMESTAMP );
 
 		$now = $this->getCurrentTime();
@@ -1187,6 +1202,7 @@ class WANObjectCache implements
 	 * @return bool True if the item was purged or not found, false on failure
 	 */
 	final public function resetCheckKey( $key ) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		$checkSisterKey = $this->makeSisterKey( $key, self::TYPE_TIMESTAMP );
 		$ok = $this->relayNonVolatilePurge( $checkSisterKey );
 
@@ -1502,6 +1518,7 @@ class WANObjectCache implements
 	final public function getWithSetCallback(
 		$key, $ttl, $callback, array $opts = [], array $cbParams = []
 	) {
+		$scope = $this->startOperationSpan( __FUNCTION__, $key );
 		$version = $opts['version'] ?? null;
 		$pcTTL = $opts['pcTTL'] ?? self::TTL_UNCACHEABLE;
 		$pCache = ( $pcTTL >= 0 )
@@ -2053,6 +2070,7 @@ class WANObjectCache implements
 	final public function getMultiWithSetCallback(
 		ArrayIterator $keyedIds, $ttl, callable $callback, array $opts = []
 	) {
+		$scope = $this->startOperationSpan( __FUNCTION__, '' );
 		// Batch load required keys into the in-process warmup cache
 		$this->warmupCache = $this->fetchWrappedValuesForWarmupCache(
 			$this->getNonProcessCachedMultiKeys( $keyedIds, $opts ),
@@ -2156,6 +2174,7 @@ class WANObjectCache implements
 	final public function getMultiWithUnionSetCallback(
 		ArrayIterator $keyedIds, $ttl, callable $callback, array $opts = []
 	) {
+		$scope = $this->startOperationSpan( __FUNCTION__, '' );
 		$checkKeys = $opts['checkKeys'] ?? [];
 		$minAsOf = $opts['minAsOf'] ?? self::MIN_TIMESTAMP_NONE;
 
@@ -3148,5 +3167,38 @@ class WANObjectCache implements
 		foreach ( $this->processCaches as $pCache ) {
 			$pCache->setMockTime( $time );
 		}
+	}
+
+	/**
+	 * Convenience function to start an OpenTelemetry span for the given operation.
+	 * The span is deactivated and ended once the returned object goes out of scope.
+	 *
+	 * @param string $opName Name of the operation to instrument (e.g. GET)
+	 * @param string|string[] $keys Cache keys related to the operation
+	 * @param string[]|string[][] $checkKeys 1/2D array of check keys related to the operation
+	 *
+	 * @return ScopedSpan
+	 */
+	private function startOperationSpan( $opName, $keys, $checkKeys = [] ) {
+		$keys = is_array( $keys ) ? implode( ' ', $keys ) : $keys;
+		$span = $this->tracer->spanBuilder( "WANObjectCache::$opName" )
+			->setAttributes( [
+				'org.wikimedia.wancache.keys' => $keys,
+			] )
+			->startSpan();
+
+		if ( count( $checkKeys ) > 0 ) {
+			$checkKeys = array_map(
+				static fn ( $checkKeyOrGroup ) => is_array( $checkKeyOrGroup ) ?
+					implode( ' ', $checkKeyOrGroup ) :
+					$checkKeyOrGroup,
+				$checkKeys
+			);
+			$span->setAttribute(
+				'org.wikimedia.wancache.checkKeys', implode( ' ', $checkKeys )
+			);
+		}
+
+		return ScopedSpan::newActive( $span );
 	}
 }

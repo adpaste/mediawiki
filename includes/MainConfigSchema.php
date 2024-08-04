@@ -9572,6 +9572,29 @@ class MainConfigSchema {
 	];
 
 	/**
+	 * Configuration for OpenTelemetry instrumentation, or `null` to disable it.
+	 * Possible keys:
+	 * - `samplingProbability`: probability of sampling a trace, between 0 and 1.
+	 * - `serviceName`: name of the service being instrumented.
+	 * - `endpoint`: URL of the OpenTelemetry collector to send trace data to.
+	 * This has to be an endpoint accepting OTLP data over HTTP (not gRPC).
+	 *
+	 * An example config to send data to a local OpenTelemetry or Jaeger collector instance:
+	 * ```
+	 * $wgOpenTelemetryConfig = [
+	 *  'samplingProbability' => 0.1,
+	 *  'serviceName' => 'mediawiki-local',
+	 *  'endpoint' => 'http://127.0.0.1:4318/v1/traces',
+	 * ];
+	 * ```
+	 * @since 1.43
+	 */
+	public const OpenTelemetryConfig = [
+		'default' => null,
+		'type' => 'map|null'
+	];
+
+	/**
 	 * InfoAction retrieves a list of transclusion links (both to and from).
 	 *
 	 * This number puts a limit on that query in the case of highly transcluded

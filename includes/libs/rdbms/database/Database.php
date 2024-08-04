@@ -22,6 +22,11 @@ namespace Wikimedia\Rdbms;
 use BagOStuff;
 use InvalidArgumentException;
 use LogicException;
+use MediaWiki\Tracer\ScopedSpan;
+use OpenTelemetry\API\Trace\NoopTracer;
+use OpenTelemetry\API\Trace\SpanKind;
+use OpenTelemetry\API\Trace\TracerInterface;
+use OpenTelemetry\SemConv\TraceAttributes;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -59,6 +64,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 	protected $profiler;
 	/** @var TransactionManager */
 	private $transactionManager;
+	/** @var TracerInterface */
+	private $tracer;
 
 	/** @var DatabaseDomain */
 	protected $currentDomain;
@@ -279,6 +286,8 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 			$this->currentDomain,
 			$this->errorLogger
 		);
+		$this->tracer = $params['tracer'] ?? new NoopTracer();
+		// Children classes must set $this->replicationReporter.
 	}
 
 	/**
@@ -1190,6 +1199,35 @@ abstract class Database implements IDatabase, IMaintainableDatabase, LoggerAware
 				$this->getServerName(),
 				$this->getDomainID()
 			);
+		}
+
+		// Clear any overrides from a prior "query method". Note that this does not affect
+		// any such methods that are currently invoking query() itself since those query
+		// methods set these fields before returning.
+		$this->lastEmulatedAffectedRows = null;
+		$this->lastEmulatedInsertId = null;
+
+		// Record an OTEL span for this query.
+		// limited by the current implementation - we can't easily extract all the metadata from the query at this point
+		$verbs = preg_split( "/\s/", $summarySql, 2 );
+		$spanName = "{$verbs[0]} {$this->getDBname()}";
+		$span = $this->tracer->spanBuilder( $spanName )
+			->setSpanKind( SpanKind::KIND_CLIENT )
+			->startSpan();
+		$spanScope = ScopedSpan::new( $span );
+
+		if ( $span->isRecording() ) {
+			$span->setAttributes( [
+				TraceAttributes::DB_NAME => $this->getDBname(),
+				TraceAttributes::DB_OPERATION => $verbs[0],
+				TraceAttributes::DB_STATEMENT => $generalizedSql->stringify(),
+				TraceAttributes::DB_SYSTEM => $this->getType(),
+				TraceAttributes::SERVER_ADDRESS => $this->getServerName(),
+			] );
+
+//			if ( $writeTableName !== null ) {
+//				$span->setAttribute( TraceAttributes::DB_SQL_TABLE, $writeTableName );
+//			}
 		}
 
 		if ( $multiMode ) {

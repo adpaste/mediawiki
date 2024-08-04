@@ -157,6 +157,7 @@ use MediaWiki\Storage\RevertedTagUpdateManager;
 use MediaWiki\Storage\SqlBlobStore;
 use MediaWiki\Tidy\RemexDriver;
 use MediaWiki\Tidy\TidyDriverBase;
+use MediaWiki\Tracer\TracerFactory;
 use MediaWiki\User\ActorNormalization;
 use MediaWiki\User\ActorStore;
 use MediaWiki\User\ActorStoreFactory;
@@ -178,6 +179,10 @@ use MediaWiki\User\UserOptionsLookup;
 use MediaWiki\User\UserOptionsManager;
 use MediaWiki\Utils\UrlUtils;
 use MediaWiki\Watchlist\WatchlistManager;
+use MediaWiki\WikiMap\WikiMap;
+use OpenTelemetry\API\Trace\Propagation\TraceContextPropagator;
+use OpenTelemetry\API\Trace\TracerInterface;
+use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use Wikimedia\DependencyStore\KeyValueDependencyStore;
 use Wikimedia\DependencyStore\SqlModuleDependencyStore;
 use Wikimedia\Message\IMessageFormatterFactory;
@@ -597,7 +602,8 @@ return [
 			$wanCache,
 			$services->getCriticalSectionProvider(),
 			$services->getStatsdDataFactory(),
-			$services->getDatabaseFactory()
+			$services->getDatabaseFactory(),
+			$services->getTracer(),
 		);
 	},
 
@@ -1009,6 +1015,7 @@ return [
 		$wanParams['cache'] = $store;
 		$wanParams['logger'] = $logger;
 		$wanParams['secret'] = $wanParams['secret'] ?? $mainConfig->get( MainConfigNames::SecretKey );
+		$wanParams['tracer'] = $services->getTracer();
 		if ( !$GLOBALS[ 'wgCommandLineMode' ] ) {
 			// Send the statsd data post-send on HTTP requests; avoid in CLI mode (T181385)
 			$wanParams['stats'] = $services->getStatsdDataFactory();
@@ -1952,6 +1959,22 @@ return [
 
 	'TitleParser' => static function ( MediaWikiServices $services ): TitleParser {
 		return $services->getService( '_MediaWikiTitleCodec' );
+	},
+
+	'TraceContextPropagator' => static function (): TextMapPropagatorInterface {
+		return new TraceContextPropagator();
+	},
+
+	'Tracer' => static function ( MediaWikiServices $services ): TracerInterface {
+		return $services->getTracerFactory()->getTracer();
+	},
+
+	'TracerFactory' => static function ( MediaWikiServices $services ): TracerFactory {
+		$httpClient = new Client();
+		return new TracerFactory(
+			$httpClient,
+			new ServiceOptions( TracerFactory::CONSTRUCTOR_OPTIONS, $services->getMainConfig() )
+		);
 	},
 
 	'TrackingCategories' => static function ( MediaWikiServices $services ): TrackingCategories {

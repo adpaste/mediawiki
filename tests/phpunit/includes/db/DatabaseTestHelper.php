@@ -2,6 +2,7 @@
 
 use MediaWiki\Tests\Unit\Libs\Rdbms\AddQuoterMock;
 use MediaWiki\Tests\Unit\Libs\Rdbms\SQLPlatformTestHelper;
+use OpenTelemetry\API\Trace\NoopTracer;
 use Psr\Log\NullLogger;
 use Wikimedia\Rdbms\Database;
 use Wikimedia\Rdbms\DatabaseDomain;
@@ -63,6 +64,7 @@ class DatabaseTestHelper extends Database {
 			'connLogger' => new NullLogger(),
 			'queryLogger' => new NullLogger(),
 			'replLogger' => new NullLogger(),
+			'tracer' => new NoopTracer(),
 			'errorLogger' => static function ( Exception $e ) {
 				wfWarn( get_class( $e ) . ': ' . $e->getMessage() );
 			},

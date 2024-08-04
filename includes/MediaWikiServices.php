@@ -131,6 +131,7 @@ use MediaWiki\Storage\PageEditStash;
 use MediaWiki\Storage\PageUpdaterFactory;
 use MediaWiki\Storage\RevertedTagUpdateManager;
 use MediaWiki\Tidy\TidyDriverBase;
+use MediaWiki\Tracer\TracerFactory;
 use MediaWiki\User\ActorNormalization;
 use MediaWiki\User\ActorStore;
 use MediaWiki\User\ActorStoreFactory;
@@ -159,6 +160,8 @@ use ObjectCache;
 use OldRevisionImporter;
 use PageProps;
 use Parser;
+use OpenTelemetry\API\Trace\TracerInterface;
+use OpenTelemetry\Context\Propagation\TextMapPropagatorInterface;
 use ParserCache;
 use ParserFactory;
 use PasswordFactory;
@@ -1834,6 +1837,27 @@ class MediaWikiServices extends ServiceContainer {
 	 */
 	public function getTitleParser(): TitleParser {
 		return $this->getService( 'TitleParser' );
+	}
+
+	/**
+	 * @since 1.43
+	 */
+	public function getTraceContextPropagator(): TextMapPropagatorInterface {
+		return $this->getService( 'TraceContextPropagator' );
+	}
+
+	/**
+	 * @since 1.43
+	 */
+	public function getTracer(): TracerInterface {
+		return $this->getService( 'Tracer' );
+	}
+
+	/**
+	 * @since 1.43
+	 */
+	public function getTracerFactory(): TracerFactory {
+		return $this->getService( 'TracerFactory' );
 	}
 
 	/**
