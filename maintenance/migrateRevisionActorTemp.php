@@ -48,16 +48,16 @@ class MigrateRevisionActorTemp extends LoggedUpdateMaintenance {
 		$updated = 0;
 		$start = (int)$this->getOption( 'start', 0 );
 		if ( $start > 0 ) {
-			$conds[] = $dbw->expr( 'rev_id', '>=', $start );
+			$conds[] = $dbw->expr( 'revactor_rev', '>=', $start );
 		}
 		while ( true ) {
 			$res = $dbw->newSelectQueryBuilder()
 				->select( [ 'rev_id', 'rev_actor', 'revactor_actor' ] )
-				->from( 'revision' )
-				->join( 'revision_actor_temp', null, 'rev_id=revactor_rev' )
+				->from( 'revision_actor_temp' )
+				->join( 'revision', null, 'rev_id=revactor_rev' )
 				->where( $conds )
 				->limit( $batchSize )
-				->orderBy( 'rev_id' )
+				->orderBy( 'revactor_rev' )
 				->caller( __METHOD__ )
 				->fetchResultSet();
 
@@ -88,7 +88,7 @@ class MigrateRevisionActorTemp extends LoggedUpdateMaintenance {
 
 			// @phan-suppress-next-line PhanTypeSuspiciousStringExpression last is not-null when used
 			$this->output( "... rev_id=$last, updated $updated\n" );
-			$conds = [ $dbw->expr( 'rev_id', '>', $last ) ];
+			$conds = [ $dbw->expr( 'revactor_rev', '>', $last ) ];
 
 			// Sleep between batches for replication to catch up
 			$this->waitForReplication();
