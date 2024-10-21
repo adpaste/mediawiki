@@ -1,8 +1,11 @@
 <?php
 
+namespace MediaWiki\Api;
+
 use MediaWiki\Content\IContentHandlerFactory;
 use MediaWiki\Page\ContentModelChangeFactory;
 use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\Rdbms\IDBAccessObject;
 
 /**
  * Api module to change the content model of existing pages
@@ -15,11 +18,8 @@ use Wikimedia\ParamValidator\ParamValidator;
  */
 class ApiChangeContentModel extends ApiBase {
 
-	/** @var IContentHandlerFactory */
-	private $contentHandlerFactory;
-
-	/** @var ContentModelChangeFactory */
-	private $contentModelChangeFactory;
+	private IContentHandlerFactory $contentHandlerFactory;
+	private ContentModelChangeFactory $contentModelChangeFactory;
 
 	/**
 	 * @param ApiMain $main
@@ -74,15 +74,11 @@ class ApiChangeContentModel extends ApiBase {
 		}
 
 		// Everything passed, make the conversion
-		try {
-			$status = $changer->doContentModelChange(
-				$this->getContext(),
-				$params['summary'],
-				$params['bot']
-			);
-		} catch ( ThrottledError $te ) {
-			$this->dieWithError( 'apierror-ratelimited' );
-		}
+		$status = $changer->doContentModelChange(
+			$this->getContext(),
+			$params['summary'] ?? '',
+			$params['bot']
+		);
 
 		if ( !$status->isGood() ) {
 			// Failed
@@ -94,9 +90,9 @@ class ApiChangeContentModel extends ApiBase {
 			'result' => 'Success',
 			'title' => $title->getPrefixedText(),
 			'pageid' => $title->getArticleID(),
-			'contentmodel' => $title->getContentModel( Title::READ_LATEST ),
+			'contentmodel' => $title->getContentModel( IDBAccessObject::READ_LATEST ),
 			'logid' => $logid,
-			'revid' => $title->getLatestRevID( Title::READ_LATEST ),
+			'revid' => $title->getLatestRevID( IDBAccessObject::READ_LATEST ),
 		];
 
 		$this->getResult()->addValue( null, $this->getModuleName(), $result );
@@ -158,3 +154,6 @@ class ApiChangeContentModel extends ApiBase {
 		];
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiChangeContentModel::class, 'ApiChangeContentModel' );

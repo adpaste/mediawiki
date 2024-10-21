@@ -20,6 +20,8 @@
  * @file
  */
 
+namespace MediaWiki\Api;
+
 use MediaWiki\Auth\AuthenticationRequest;
 use MediaWiki\Auth\AuthManager;
 use MediaWiki\MainConfigNames;
@@ -31,11 +33,12 @@ use MediaWiki\MainConfigNames;
  */
 class ApiRemoveAuthenticationData extends ApiBase {
 
+	/** @var string */
 	private $authAction;
+	/** @var string */
 	private $operation;
 
-	/** @var AuthManager */
-	private $authManager;
+	private AuthManager $authManager;
 
 	/**
 	 * @param ApiMain $main
@@ -60,7 +63,7 @@ class ApiRemoveAuthenticationData extends ApiBase {
 	}
 
 	public function execute() {
-		if ( !$this->getUser()->isRegistered() ) {
+		if ( !$this->getUser()->isNamed() ) {
 			$this->dieWithError( 'apierror-mustbeloggedin-removeauth', 'notloggedin' );
 		}
 
@@ -126,3 +129,6 @@ class ApiRemoveAuthenticationData extends ApiBase {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Manage_authentication_data';
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiRemoveAuthenticationData::class, 'ApiRemoveAuthenticationData' );

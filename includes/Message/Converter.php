@@ -3,10 +3,9 @@
 namespace MediaWiki\Message;
 
 use InvalidArgumentException;
-use Message;
-use ReflectionClass;
 use Wikimedia\Message\ListParam;
 use Wikimedia\Message\MessageParam;
+use Wikimedia\Message\MessageSpecifier;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Message\ParamType;
 use Wikimedia\Message\ScalarParam;
@@ -16,22 +15,6 @@ use Wikimedia\Message\ScalarParam;
  * @since 1.35
  */
 class Converter {
-
-	/** @var string[]|null ParamType constants */
-	private static $constants = null;
-
-	/**
-	 * Return the ParamType constants
-	 * @return string[]
-	 */
-	private static function getTypes() {
-		if ( self::$constants === null ) {
-			$rc = new ReflectionClass( ParamType::class );
-			self::$constants = array_values( $rc->getConstants() );
-		}
-
-		return self::$constants;
-	}
 
 	/**
 	 * Allow the Message class to be mocked in tests by constructing objects in
@@ -47,10 +30,10 @@ class Converter {
 
 	/**
 	 * Convert a Message to a MessageValue
-	 * @param Message $m
+	 * @param MessageSpecifier $m
 	 * @return MessageValue
 	 */
-	public function convertMessage( Message $m ) {
+	public function convertMessage( MessageSpecifier $m ) {
 		$mv = new MessageValue( $m->getKey() );
 		foreach ( $m->getParams() as $param ) {
 			$mv->params( $this->convertParam( $param ) );
@@ -64,7 +47,7 @@ class Converter {
 	 * @return MessageParam
 	 */
 	private function convertParam( $param ) {
-		if ( $param instanceof Message ) {
+		if ( $param instanceof MessageSpecifier ) {
 			return new ScalarParam( ParamType::TEXT, $this->convertMessage( $param ) );
 		}
 		if ( !is_array( $param ) ) {
@@ -79,7 +62,7 @@ class Converter {
 			return new ListParam( $param['type'], $convertedElements );
 		}
 
-		foreach ( self::getTypes() as $type ) {
+		foreach ( ParamType::cases() as $type ) {
 			if ( $type !== ParamType::LIST && isset( $param[$type] ) ) {
 				return new ScalarParam( $type, $param[$type] );
 			}

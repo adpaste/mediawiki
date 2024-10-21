@@ -1,6 +1,8 @@
 <?php
 
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * @since 1.31

@@ -1,4 +1,7 @@
 <?php
+
+use Wikimedia\ObjectCache\BagOStuff;
+
 /**
  * Extract-and-Expand Key Derivation Function (HKDF). A cryptographically
  * secure key expansion function based on RFC 5869.
@@ -245,7 +248,6 @@ class CryptHKDF {
 	 * @param string &$lastK Set by this function to the last block of the expansion.
 	 *    In MediaWiki, this is used to seed future Extractions.
 	 * @return string Cryptographically secure random string $bytes long
-	 * @throws InvalidArgumentException
 	 */
 	private static function HKDFExpand( $hash, $prk, $info, $bytes, &$lastK = '' ) {
 		$hashLen = self::$hashLength[$hash];

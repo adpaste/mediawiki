@@ -45,21 +45,31 @@
 	"config-restart": "Da, pokreni ponovo",
 	"config-welcome": "Medijaviki je besplatni softverski paket otvorenog koda napisan u PHP-u. Služi kao platforma za Vikipediju i druge Vikimedijine projekte koje svaki mjesec koriste stotine milijuna ljudi. Lokaliziran je na više od 350 jezika, a njegova pouzdanost i robustan skup značajki priskrbili su mu veliku i živahnu zajednicu korisnika i programera trećih strana.\n=== Provjere okoline ===\nSada ćemo obaviti osnovne provjere kako bismo utvrdili je li okruženje prikladno za instalaciju Medijavikija. Ne zaboravite navesti ove informacije ako tražite pomoć s dovršavanjem instalacije.",
 	"config-welcome-section-copyright": "=== Autorska prava i uvjeti ===\n\n$1\n\nTo je slobodni softver (free software); možete ga redistribuirati i/ili mijenjati pod uvjetima GNU-ove opće javne licence (GNU General Public License) Zaklade za slobodni softver (Free Software Foundation); verzija 2 ili bilo koja kasnija verzija licence (po vašem izboru).\n\nOvaj se program nudi u nadi da će biti koristan, ali '''bez ikakvog jamstva'''; čak i implicirano jamstvo '''sposobnosti prodaje''' ili '''prikladnosti za određenu svrhu'''.\nViše informacija ćete naći u tekstu GNU-ove opće javne licence.\n\nTrebali ste primiti [$2 primjerak GNU-ove opće javne licence] zajedno s programima; ako ga ne primite, pišite nam na Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA. ili [https://www.gnu.org/copyleft/gpl.html pročitajte je ovdje].",
+<<<<<<<< HEAD:includes/installer/i18n/sh.json
+	"config-sidebar": "* [https://www.mediawiki.org Početna strana MediaWikija]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Contents Vodič za korisnike]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Contents Vodič za administratore]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:FAQ ČPP]",
+========
 	"config-sidebar": "* [https://www.mediawiki.org Početna stranica MediaWikija]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Contents Vodič za korisnike]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Contents Vodič za administratore]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:FAQ ČPP]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Communication Potraži pomoć]\n* [https://phabricator.wikimedia.org/ Fabrikator]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/How_to_contribute Contribute]",
+>>>>>>>> upstream/master:includes/installer/i18n/sh-latn.json
 	"config-sidebar-relnotes": "Napomene o izdanju",
 	"config-sidebar-license": "Kopiranje",
 	"config-sidebar-upgrade": "Nadogradnja",
 	"config-env-good": "Okruženje je provjereno.\nMožete instalirati MediaWiki.",
 	"config-env-bad": "Okruženje je provjereno.\nNe možete instalirati MediaWiki.",
 	"config-env-php": "PHP $1 je instaliran.",
+<<<<<<<< HEAD:includes/installer/i18n/sh.json
+	"config-unicode-using-intl": "S dodatkom [https://php.net/manual/en/book.intl.php dodatak PHP intl] za normalizaciju Unikoda.",
+	"config-unicode-update-warning": "'''Upozorenje:''' Uspostavljena verzija omotnice Unicode normalizacije koristi stariju verziju biblioteke [http://site.icu-project.org/ projekta ICU].\nDa biste koristili Unicode, trebate napraviti [https://www.mediawiki.org/wiki/Special:MyLanguage/Unicode_normalization_considerations nadogradnju].",
+	"config-no-db": "Nisam mogao pronaći odgovarajući upravljački program za bazu podataka! Morat ćete uspostaviti upravljački program za PHP-bazu.\n{{PLURAL:$2|Podržana je sljedeća vrsta|Podržane su sljedeće vrste}} baze: $1.\n\nAko ste sami kompilirali PHP, omogućite bazni klijent u postavkama - npr. s <code>./configure --with-mysqli</code>.\nAko ovaj PHP uspostavite iz Debian ili Ubuntu paketa, tada ćete ga morati uspostaviti, npr., paket <code>php-mysql</code>.",
+========
+	"config-env-icu": "ICU $1 je instaliran (podržava Unicode $2).",
 	"config-no-db": "Nisam mogao pronaći odgovarajući upravljački program za bazu podataka! Morat ćete instalirati upravljački program za PHP-bazu.\n{{PLURAL:$2|Podržana je sljedeća vrsta|Podržane su sljedeće vrste}} baze: $1.\n\nAko ste sami kompilirali PHP, omogućite bazni klijent u postavkama - npr. s <code>./configure --with-mysqli</code>.\nAko ovaj PHP uspostavite iz Debian ili Ubuntu paketa, tada ćete ga morati instalirati, npr., paket <code>php-mysql</code>.",
+>>>>>>>> upstream/master:includes/installer/i18n/sh-latn.json
 	"config-outdated-sqlite": "<strong>Upozorenje</strong>: imate SQLite $2. Najstarija dopuštena verzija je $1. Stoga, SQLite će biti nedostupan.",
 	"config-no-fts3": "'''Upozorenje''': SQLite se kompilira bez modula [//sqlite.org/fts3.html FTS3] - za tu bazu podataka neće biti mogućnosti pretrage.",
 	"config-memory-raised": "<code>memory_limit</code> za PHP iznosi $1, povišen na $2.",
 	"config-memory-bad": "<strong>Upozorenje:</strong> <code>memory_limit</code> za PHP iznosi $1.\nOvo je vjerovatno premalo.\nUspostava možda neće uspjeti!",
 	"config-apc": "[https://www.php.net/apc APC] je instaliran",
 	"config-apcu": "[https://www.php.net/apcu APCu] je instaliran",
-	"config-wincache": "[https://www.iis.net/downloads/microsoft/wincache-extension WinCache] je instaliran",
 	"config-no-cache-apcu": "<strong>Upozorenje:</strong> Nisam mogao naći [https://www.php.net/apcu APCu] ili [https://www.iis.net/downloads/microsoft/wincache-extension WinCache].\nKeširanje objekata nije omogućeno.",
 	"config-mod-security": "'''Upozorenje''': na vašem serveru je omogućen [https://modsecurity.org/ mod_security]. Ako nije postavljeno kako treba, to može uzrokovati probleme s programom MediaWikija i drugim programima koji korisnicima omogućuju objavljivanje proizvoljnog sadržaja.\nPogledajte [https://modsecurity.org/documentation/ mod_security dokumentaciju] ili kontaktirajte domaćin ako naiđete na slučajne greške.",
 	"config-diff3-bad": "Nisam pronašao usporednik za tekst GNU razl3 (GNU diff3). Za sada ovo možete zanemariti, ali kontradikcije u uređivanju mogu postati češće.",
@@ -167,7 +177,6 @@
 	"config-profile-private": "Privatan viki",
 	"config-license": "Autorska prava i licenca:",
 	"config-license-none": "Bez podnožja za licencu",
-	"config-license-cc-choose": "Odaberite drugu licencu Creative Commonsa na vaš izbor",
 	"config-email-settings": "Podešavanja e-pošte",
 	"config-enable-email": "Omogući odlaznu e-poštu",
 	"config-email-user": "Omogući slanje e-poruka među korisnicima",
@@ -184,8 +193,6 @@
 	"config-upload-deleted-help": "Odaberite u kojem folderu će se arhivirati izbrisane datoteke.\nNajbolje bi bilo ako taj nije dostupan putem svemrežja.",
 	"config-logo-preview-main": "Glavna stranica",
 	"config-instantcommons": "Omogući Instant Commons",
-	"config-cc-again": "Odaberite ponovo...",
-	"config-cc-not-chosen": "Odaberite željenu licencu Creative Commons i kliknite na „proceed”.",
 	"config-advanced-settings": "Napredna podešavanja",
 	"config-cache-options": "Podešavanja za međuspremanje objekta:",
 	"config-cache-none": "Nema međuspremanja (ne uklanja se nijedna funkcija, ali može uticati na brzinu na veće wiki lokacije)",
@@ -207,7 +214,6 @@
 	"config-install-schema": "Pravim šemu",
 	"config-install-pg-schema-not-exist": "PostgreSQL-šema ne postoji.",
 	"config-install-pg-schema-failed": "Pravljenje natabela nije uspelo.\nUvjerite se da korisnik „$1” može da zapisuje u šemi „$2”.",
-	"config-install-pg-commit": "Usproveđivanje promjena",
 	"config-install-user": "Pravim korisnika baze podataka",
 	"config-install-user-alreadyexists": "Korisnik \"$1\" već postoji",
 	"config-install-user-create-failed": "Pravljenje korisnika \"$1\" nije uspjelo: $2",
@@ -217,9 +223,6 @@
 	"config-install-tables": "Pravljenje tabela, prvi korak",
 	"config-install-tables-exist": "<strong>Upozorenje:</strong> Izgleda da MediaWiki tabele već postoje.\nPreskočim pravljenje.",
 	"config-install-tables-failed": "<strong>Greška:</strong> Pravljenje tabele nije uspjelo zbog sljedeće greške: $1",
-	"config-install-tables-manual": "Pravljenje tabela, drugi korak",
-	"config-install-manual-tables-exist": "<strong>Upozorenje:</strong> Izgleda da MediaWiki tabele već postoje.\nPreskočim pravljenje.",
-	"config-install-manual-tables-failed": "<strong>Greška:</strong> Pravljenje tabele nije uspjelo zbog sljedeće greške: $1",
 	"config-install-interwiki": "Popunjavam predodređene međuprojektne tabele",
 	"config-install-interwiki-list": "Nisam mogao pronaći datoteku <code>interwiki.list</code>.",
 	"config-install-interwiki-exists": "<strong>Upozorenje:</strong> Tabela međuwikija već ima unose.\nPreskočim podrazumevano-zadanu listu.",
@@ -245,6 +248,7 @@
 	"config-screenshot": "ekranski snimak",
 	"config-extension-not-found": "Nisam mogao naći datoteku registracije za dodatak „$1”",
 	"config-extension-dependency": "Naišao na grešku sa zavisnošću pri instaliranju dodatka „$1”: $2",
+	"config-ext-skins-more-info": "više informacija",
 	"mainpagetext": "<strong>MediaWiki je instaliran.</strong>",
-	"mainpagedocfooter": "Za informacije o korištenju wiki softvera konzultirajte [https://meta.wikimedia.org/wiki/Help:Contents Vodič za korisnike].\n\n== Uvod u rad ==\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Configuration_settings Lista konfiguracije postavki]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:FAQ MediaWiki FAQ]\n* [https://lists.wikimedia.org/postorius/lists/mediawiki-announce.lists.wikimedia.org/ Lista primatelja izdanja MediaWikija]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Localisation#Translation_resources Lokalizirajte MediaWiki za svoj jezik]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Combating_spam Saznajte kako se boriti protiv spama na svojem wikiju]"
+	"mainpagedocfooter": "Za informacije o korištenju wiki softvera konzultirajte [https://www.mediawiki.org/wiki/Special:MyLanguage/Help:Contents Vodič za korisnike].\n\n== Uvod u rad ==\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Configuration_settings Lista konfiguracije postavki]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:FAQ MediaWiki FAQ]\n* [https://lists.wikimedia.org/postorius/lists/mediawiki-announce.lists.wikimedia.org/ Lista primatelja izdanja MediaWikija]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Localisation#Translation_resources Lokalizirajte MediaWiki za svoj jezik]\n* [https://www.mediawiki.org/wiki/Special:MyLanguage/Manual:Combating_spam Saznajte kako se boriti protiv spama na svojem wikiju]"
 }

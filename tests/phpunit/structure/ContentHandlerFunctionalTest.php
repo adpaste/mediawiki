@@ -19,13 +19,16 @@
  */
 
 use MediaWiki\Content\Renderer\ContentParseParams;
+use MediaWiki\Content\TextContentHandler;
 use MediaWiki\Content\Transform\PreloadTransformParamsValue;
 use MediaWiki\Content\Transform\PreSaveTransformParamsValue;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\ParserOutput;
 use Wikimedia\TestingAccessWrapper;
 
 /**
  * @group Database
+ * @coversNothing
  */
 class ContentHandlerFunctionalTest extends MediaWikiIntegrationTestCase {
 
@@ -69,7 +72,6 @@ class ContentHandlerFunctionalTest extends MediaWikiIntegrationTestCase {
 
 			$title = $this->getExistingTestPage()->getTitle();
 			$content = $handler->makeEmptyContent();
-			$this->assertInstanceOf( ParserOutput::class, $content->getParserOutput( $title ) );
 
 			$gpoParams = new ContentParseParams( $title );
 			$this->assertInstanceOf(
@@ -95,11 +97,6 @@ class ContentHandlerFunctionalTest extends MediaWikiIntegrationTestCase {
 			$popts = ParserOptions::newFromAnon();
 			$content = $handler->makeEmptyContent();
 
-			$this->assertInstanceOf(
-				Content::class,
-				$content->preSaveTransform( $title, $user, $popts )
-			);
-
 			$pstParams = new PreSaveTransformParamsValue( $title, $user, $popts );
 			$this->assertInstanceOf(
 				Content::class,
@@ -122,11 +119,6 @@ class ContentHandlerFunctionalTest extends MediaWikiIntegrationTestCase {
 			$title = $this->getExistingTestPage()->getTitle();
 			$popts = ParserOptions::newFromAnon();
 			$content = $handler->makeEmptyContent();
-
-			$this->assertInstanceOf(
-				Content::class,
-				$content->preloadTransform( $title, $popts, [] )
-			);
 
 			$pltParams = new PreloadTransformParamsValue( $title, $popts, [] );
 			$this->assertInstanceOf(

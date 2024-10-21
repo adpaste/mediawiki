@@ -18,9 +18,12 @@
  * @file
  */
 
+use MediaWiki\Context\RequestContext;
 use MediaWiki\EditPage\Constraint\EditFilterMergedContentHookConstraint;
 use MediaWiki\EditPage\Constraint\IEditConstraint;
 use MediaWiki\HookContainer\HookContainer;
+use MediaWiki\Status\Status;
+use MediaWiki\User\User;
 use Wikimedia\TestingAccessWrapper;
 
 /**

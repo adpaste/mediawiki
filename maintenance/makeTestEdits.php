@@ -20,9 +20,12 @@
  * @file
  * @ingroup Maintenance
  */
+// @codeCoverageIgnoreStart
 require_once __DIR__ . '/Maintenance.php';
+// @codeCoverageIgnoreEnd
 
-use MediaWiki\MediaWikiServices;
+use MediaWiki\Title\Title;
+use MediaWiki\User\User;
 
 /**
  * Make test edits for a user to populate a test wiki
@@ -47,8 +50,7 @@ class MakeTestEdits extends Maintenance {
 
 		$count = $this->getOption( 'count' );
 		$namespace = (int)$this->getOption( 'namespace', 0 );
-		$services = MediaWikiServices::getInstance();
-		$lbFactory = $services->getDBLoadBalancerFactory();
+		$services = $this->getServiceContainer();
 		$wikiPageFactory = $services->getWikiPageFactory();
 
 		for ( $i = 0; $i < $count; ++$i ) {
@@ -61,7 +63,7 @@ class MakeTestEdits extends Maintenance {
 
 			$this->output( "Edited $title\n" );
 			if ( $i && ( $i % $this->getBatchSize() ) == 0 ) {
-				$lbFactory->waitForReplication();
+				$this->waitForReplication();
 			}
 		}
 
@@ -69,5 +71,7 @@ class MakeTestEdits extends Maintenance {
 	}
 }
 
+// @codeCoverageIgnoreStart
 $maintClass = MakeTestEdits::class;
 require_once RUN_MAINTENANCE_IF_MAIN;
+// @codeCoverageIgnoreEnd

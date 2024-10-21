@@ -21,9 +21,16 @@
  * @defgroup Redis Redis
  */
 
+namespace Wikimedia\Redis;
+
+use Exception;
+use InvalidArgumentException;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Redis;
+use RedisException;
+use RuntimeException;
 
 /**
  * Helper class to manage Redis connections.
@@ -173,10 +180,10 @@ class RedisConnectionPool implements LoggerAwareInterface {
 	 * @param string $server A hostname/port combination or the absolute path of a UNIX socket.
 	 *                       If a hostname is specified but no port, port 6379 will be used.
 	 * @param LoggerInterface|null $logger PSR-3 logger instance. [optional]
-	 * @return RedisConnRef|Redis|bool Returns false on failure
+	 * @return RedisConnRef|Redis|false Returns false on failure
 	 * @throws InvalidArgumentException
 	 */
-	public function getConnection( $server, LoggerInterface $logger = null ) {
+	public function getConnection( $server, ?LoggerInterface $logger = null ) {
 		// The above @return also documents 'Redis' for convenience with IDEs.
 		// RedisConnRef uses PHP magic methods, which wouldn't be recognised.
 
@@ -193,7 +200,7 @@ class RedisConnectionPool implements LoggerAwareInterface {
 				// Server is dead
 				$logger->debug(
 					'Server "{redis_server}" is marked down for another ' .
-					( $this->downServers[$server] - $now ) . 'seconds',
+					( $this->downServers[$server] - $now ) . ' seconds',
 					[ 'redis_server' => $server ]
 				);
 
@@ -228,10 +235,10 @@ class RedisConnectionPool implements LoggerAwareInterface {
 			// TCP connection
 			if ( preg_match( '/^\[(.+)\]:(\d+)$/', $server, $m ) ) {
 				// (ip, port)
-				list( $host, $port ) = [ $m[1], (int)$m[2] ];
+				[ $host, $port ] = [ $m[1], (int)$m[2] ];
 			} elseif ( preg_match( '/^((?:[\w]+\:\/\/)?[^:]+):(\d+)$/', $server, $m ) ) {
 				// (ip, uri or path, port)
-				list( $host, $port ) = [ $m[1], (int)$m[2] ];
+				[ $host, $port ] = [ $m[1], (int)$m[2] ];
 				if (
 					substr( $host, 0, 6 ) === 'tls://'
 					&& version_compare( phpversion( 'redis' ), '5.0.0' ) < 0
@@ -242,7 +249,7 @@ class RedisConnectionPool implements LoggerAwareInterface {
 				}
 			} else {
 				// (ip or path, port)
-				list( $host, $port ) = [ $server, 6379 ];
+				[ $host, $port ] = [ $server, 6379 ];
 			}
 		}
 
@@ -402,8 +409,8 @@ class RedisConnectionPool implements LoggerAwareInterface {
 	 * Make sure connections are closed
 	 */
 	public function __destruct() {
-		foreach ( $this->connections as $server => &$serverConnections ) {
-			foreach ( $serverConnections as $key => &$connection ) {
+		foreach ( $this->connections as &$serverConnections ) {
+			foreach ( $serverConnections as &$connection ) {
 				try {
 					/** @var Redis $conn */
 					$conn = $connection['conn'];
@@ -416,3 +423,6 @@ class RedisConnectionPool implements LoggerAwareInterface {
 		}
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( RedisConnectionPool::class, 'RedisConnectionPool' );

@@ -1,10 +1,12 @@
 <?php
 
+use MediaWiki\Config\Config;
+use MediaWiki\Config\ServiceOptions;
 use MediaWiki\HookContainer\HookContainer;
 use MediaWiki\HookContainer\HookRunner;
 use MediaWiki\MainConfigNames;
+use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\UserIdentity;
-use MediaWiki\User\UserOptionsLookup;
 
 /**
  * Configuration handling class for SearchEngine.
@@ -14,11 +16,19 @@ use MediaWiki\User\UserOptionsLookup;
  */
 class SearchEngineConfig {
 
+	/** @internal For use by ServiceWiring.php ONLY */
+	public const CONSTRUCTOR_OPTIONS = [
+		MainConfigNames::NamespacesToBeSearchedDefault,
+		MainConfigNames::SearchTypeAlternatives,
+		MainConfigNames::SearchType,
+	];
+
 	/**
 	 * Config object from which the settings will be derived.
 	 * @var Config
 	 */
 	private $config;
+	private ServiceOptions $options;
 
 	/**
 	 * Current language
@@ -47,20 +57,21 @@ class SearchEngineConfig {
 	private $userOptionsLookup;
 
 	/**
-	 * @param Config $config
+	 * @param ServiceOptions $options
 	 * @param Language $lang
 	 * @param HookContainer $hookContainer
 	 * @param array $mappings
 	 * @param UserOptionsLookup $userOptionsLookup
 	 */
 	public function __construct(
-		Config $config,
+		ServiceOptions $options,
 		Language $lang,
 		HookContainer $hookContainer,
 		array $mappings,
 		UserOptionsLookup $userOptionsLookup
 	) {
-		$this->config = $config;
+		$options->assertRequiredOptions( self::CONSTRUCTOR_OPTIONS );
+		$this->options = $options;
 		$this->language = $lang;
 		$this->engineMappings = $mappings;
 		$this->hookRunner = new HookRunner( $hookContainer );
@@ -69,9 +80,11 @@ class SearchEngineConfig {
 
 	/**
 	 * Retrieve original config.
+	 * @deprecated since 1.43, use ServiceOptions instead with DI.
 	 * @return Config
 	 */
 	public function getConfig() {
+		wfDeprecated( __METHOD__, '1.43' );
 		return $this->config;
 	}
 
@@ -116,7 +129,7 @@ class SearchEngineConfig {
 	 * @return int[] Namespace IDs
 	 */
 	public function defaultNamespaces() {
-		return array_keys( $this->config->get( MainConfigNames::NamespacesToBeSearchedDefault ),
+		return array_keys( $this->options->get( MainConfigNames::NamespacesToBeSearchedDefault ),
 			true );
 	}
 
@@ -127,8 +140,8 @@ class SearchEngineConfig {
 	 * @return array
 	 */
 	public function getSearchTypes() {
-		$alternatives = $this->config->get( MainConfigNames::SearchTypeAlternatives ) ?: [];
-		array_unshift( $alternatives, $this->config->get( MainConfigNames::SearchType ) );
+		$alternatives = $this->options->get( MainConfigNames::SearchTypeAlternatives ) ?: [];
+		array_unshift( $alternatives, $this->options->get( MainConfigNames::SearchType ) );
 
 		return $alternatives;
 	}
@@ -139,7 +152,7 @@ class SearchEngineConfig {
 	 * @return string|null
 	 */
 	public function getSearchType() {
-		return $this->config->get( MainConfigNames::SearchType );
+		return $this->options->get( MainConfigNames::SearchType );
 	}
 
 	/**
@@ -176,7 +189,7 @@ class SearchEngineConfig {
 	public function namespacesAsText( $namespaces ) {
 		$formatted = array_map( [ $this->language, 'getFormattedNsText' ], $namespaces );
 		foreach ( $formatted as $key => $ns ) {
-			if ( empty( $ns ) ) {
+			if ( !$ns ) {
 				$formatted[$key] = wfMessage( 'blanknamespace' )->text();
 			}
 		}

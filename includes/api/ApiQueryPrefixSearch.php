@@ -20,14 +20,17 @@
  * @since 1.23
  */
 
+namespace MediaWiki\Api;
+
+use SearchEngine;
+use SearchEngineConfig;
+use SearchEngineFactory;
+
 /**
  * @ingroup API
  */
 class ApiQueryPrefixSearch extends ApiQueryGeneratorBase {
-	use SearchApi;
-
-	/** @var array list of api allowed params */
-	private $allowedParams;
+	use \MediaWiki\Api\SearchApi;
 
 	/**
 	 * @param ApiQuery $query
@@ -114,12 +117,7 @@ class ApiQueryPrefixSearch extends ApiQueryGeneratorBase {
 	}
 
 	public function getAllowedParams() {
-		if ( $this->allowedParams !== null ) {
-			return $this->allowedParams;
-		}
-		$this->allowedParams = $this->buildCommonApiParams();
-
-		return $this->allowedParams;
+		return $this->buildCommonApiParams();
 	}
 
 	public function getSearchProfileParams() {
@@ -142,3 +140,6 @@ class ApiQueryPrefixSearch extends ApiQueryGeneratorBase {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Prefixsearch';
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiQueryPrefixSearch::class, 'ApiQueryPrefixSearch' );

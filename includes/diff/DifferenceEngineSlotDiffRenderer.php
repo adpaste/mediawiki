@@ -20,7 +20,9 @@
  * @file
  * @ingroup DifferenceEngine
  */
+use MediaWiki\Context\DerivativeContext;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Output\OutputPage;
 
 /**
  * B/C adapter for turning a DifferenceEngine into a SlotDiffRenderer.
@@ -52,7 +54,7 @@ class DifferenceEngineSlotDiffRenderer extends SlotDiffRenderer {
 	}
 
 	/** @inheritDoc */
-	public function getDiff( Content $oldContent = null, Content $newContent = null ) {
+	public function getDiff( ?Content $oldContent = null, ?Content $newContent = null ) {
 		$this->normalizeContents( $oldContent, $newContent );
 		return $this->differenceEngine->generateContentDiffBody( $oldContent, $newContent );
 	}

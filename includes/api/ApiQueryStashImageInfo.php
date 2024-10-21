@@ -20,7 +20,13 @@
  * @file
  */
 
-use MediaWiki\BadFileLookup;
+namespace MediaWiki\Api;
+
+use MediaWiki\Language\Language;
+use MediaWiki\Page\File\BadFileLookup;
+use RepoGroup;
+use UploadStashBadPathException;
+use UploadStashFileNotFoundException;
 use Wikimedia\ParamValidator\ParamValidator;
 
 /**
@@ -30,8 +36,7 @@ use Wikimedia\ParamValidator\ParamValidator;
  */
 class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 
-	/** @var RepoGroup */
-	private $repoGroup;
+	private RepoGroup $repoGroup;
 
 	/**
 	 * @param ApiQuery $query
@@ -97,7 +102,7 @@ class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 		}
 	}
 
-	private static $propertyFilter = [
+	private const PROPERTY_FILTER = [
 		'user', 'userid', 'comment', 'parsedcomment',
 		'mediatype', 'archivename', 'uploadwarning',
 	];
@@ -109,10 +114,7 @@ class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 	 * @return array
 	 */
 	public static function getPropertyNames( $filter = null ) {
-		if ( $filter === null ) {
-			$filter = self::$propertyFilter;
-		}
-		return parent::getPropertyNames( $filter );
+		return parent::getPropertyNames( $filter ?? self::PROPERTY_FILTER );
 	}
 
 	/**
@@ -122,10 +124,7 @@ class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 	 * @return array
 	 */
 	public static function getPropertyMessages( $filter = null ) {
-		if ( $filter === null ) {
-			$filter = self::$propertyFilter;
-		}
-		return parent::getPropertyMessages( $filter );
+		return parent::getPropertyMessages( $filter ?? self::PROPERTY_FILTER );
 	}
 
 	public function getAllowedParams() {
@@ -179,3 +178,6 @@ class ApiQueryStashImageInfo extends ApiQueryImageInfo {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Stashimageinfo';
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiQueryStashImageInfo::class, 'ApiQueryStashImageInfo' );

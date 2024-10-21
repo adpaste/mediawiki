@@ -1,8 +1,6 @@
 <?php
 /** Traditional Chinese (中文（繁體）)
  *
- * To improve a translation please visit https://translatewiki.net
- *
  * @file
  * @ingroup Languages
  *
@@ -219,6 +217,7 @@ $specialPageAliases = [
 	'Recentchanges'             => [ '最近變更', '最近更改' ],
 	'Recentchangeslinked'       => [ '已連結的最近變更', '相關變更', '連出更改' ],
 	'Redirect'                  => [ '重新導向', '重定向' ],
+	'Renameuser'                => [ '重新命名使用者' ],
 	'ResetTokens'               => [ '重設密鑰', '覆寫令牌' ],
 	'Revisiondelete'            => [ '修訂刪除', '刪除或恢復版本' ],
 	'RunJobs'                   => [ '執行作業', '運行工作' ],
@@ -288,7 +287,7 @@ $magicWords = [
 	'img_thumbnail'             => [ '1', '縮圖', '缩略图', 'thumbnail', 'thumb' ],
 	'img_top'                   => [ '1', '垂直置頂', 'top' ],
 	'img_width'                 => [ '1', '$1像素', '$1px' ],
-	'language'                  => [ '0', '#語言:', '#语言:', '#LANGUAGE:' ],
+	'language'                  => [ '0', '#語言', '#语言', '#LANGUAGE' ],
 	'localurl'                  => [ '0', '本地URL:', 'LOCALURL:' ],
 	'localurle'                 => [ '0', '本地URLE:', 'LOCALURLE:' ],
 	'msg'                       => [ '0', '訊息:', 'MSG:' ],
@@ -324,6 +323,19 @@ $magicWords = [
 	'talkspace'                 => [ '1', '對話空間', '讨论空间', '讨论名字空间', 'TALKSPACE' ],
 	'toc'                       => [ '0', '__目錄__', '__目录__', '__TOC__' ],
 	'url_query'                 => [ '0', '查詢', 'QUERY' ],
+];
+
+$datePreferences = [
+	'default',
+	'ISO 8601',
+];
+
+$defaultDateFormat = 'zh';
+
+$dateFormats = [
+	'zh time' => 'H:i',
+	'zh date' => 'Y年n月j日 (l)',
+	'zh both' => 'Y年n月j日 (D) H:i',
 ];
 
 $bookstoreList = [

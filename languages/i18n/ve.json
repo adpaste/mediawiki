@@ -2,6 +2,7 @@
 	"@metadata": {
 		"authors": [
 			"Ajeje Brazorf",
+			"Amire80",
 			"Fierodelveneto",
 			"Johannes Rohr (on ve.wikipedia.org)",
 			"Node ue"
@@ -15,9 +16,7 @@
 	"nstab-mediawiki": "Mulaedza",
 	"error": "Vhukhakhi",
 	"yourname": "Dzina ḽa mushumisi:",
-	"yourpassword": "Phasiwede:",
 	"changepassword": "Shandukisani phasiwede",
-	"username": "Dzina ḽa mushumisi:",
 	"newpages-username": "Dzina ḽa mushumisi:",
 	"version-other": "Zwiṅwe"
 }

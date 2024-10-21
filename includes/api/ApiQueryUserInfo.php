@@ -20,13 +20,20 @@
  * @file
  */
 
+namespace MediaWiki\Api;
+
+use MediaWiki\Config\Config;
 use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Permissions\PermissionStatus;
+use MediaWiki\SpecialPage\SpecialPage;
+use MediaWiki\User\Options\UserOptionsLookup;
 use MediaWiki\User\TalkPageNotificationManager;
 use MediaWiki\User\UserEditTracker;
 use MediaWiki\User\UserGroupManager;
 use MediaWiki\User\UserIdentity;
-use MediaWiki\User\UserOptionsLookup;
+use MediaWiki\Utils\MWTimestamp;
+use MediaWiki\Watchlist\WatchedItemStore;
 use Wikimedia\ParamValidator\ParamValidator;
 
 /**
@@ -46,28 +53,11 @@ class ApiQueryUserInfo extends ApiQueryBase {
 	/** @var array */
 	private $prop = [];
 
-	/**
-	 * @var TalkPageNotificationManager
-	 */
-	private $talkPageNotificationManager;
-
-	/**
-	 * @var WatchedItemStore
-	 */
-	private $watchedItemStore;
-
-	/**
-	 * @var UserEditTracker
-	 */
-	private $userEditTracker;
-
-	/**
-	 * @var UserOptionsLookup
-	 */
-	private $userOptionsLookup;
-
-	/** @var UserGroupManager */
-	private $userGroupManager;
+	private TalkPageNotificationManager $talkPageNotificationManager;
+	private WatchedItemStore $watchedItemStore;
+	private UserEditTracker $userEditTracker;
+	private UserOptionsLookup $userOptionsLookup;
+	private UserGroupManager $userGroupManager;
 
 	/**
 	 * @param ApiQuery $query
@@ -162,6 +152,10 @@ class ApiQueryUserInfo extends ApiQueryBase {
 			$vals['anon'] = true;
 		}
 
+		if ( $user->isTemp() ) {
+			$vals['temp'] = true;
+		}
+
 		if ( isset( $this->prop['blockinfo'] ) ) {
 			$block = $user->getBlock();
 			if ( $block ) {
@@ -249,7 +243,7 @@ class ApiQueryUserInfo extends ApiQueryBase {
 		if ( isset( $this->prop['registrationdate'] ) ) {
 			$regDate = $user->getRegistration();
 			if ( $regDate !== false ) {
-				$vals['registrationdate'] = wfTimestamp( TS_ISO_8601, $regDate );
+				$vals['registrationdate'] = wfTimestampOrNull( TS_ISO_8601, $regDate );
 			}
 		}
 
@@ -288,6 +282,15 @@ class ApiQueryUserInfo extends ApiQueryBase {
 			$ts = $this->getLatestContributionTime();
 			if ( $ts !== null ) {
 				$vals['latestcontrib'] = $ts;
+			}
+		}
+
+		if ( isset( $this->prop['cancreateaccount'] ) ) {
+			$status = PermissionStatus::newEmpty();
+			$vals['cancreateaccount'] = $user->definitelyCan( 'createaccount',
+				SpecialPage::getTitleFor( 'CreateAccount' ), $status );
+			if ( !$status->isGood() ) {
+				$vals['cancreateaccounterror'] = $this->getErrorFormatter()->arrayFromStatus( $status );
 			}
 		}
 
@@ -375,6 +378,7 @@ class ApiQueryUserInfo extends ApiQueryBase {
 					'unreadcount',
 					'centralids',
 					'latestcontrib',
+					'cancreateaccount',
 				],
 				ApiBase::PARAM_HELP_MSG_PER_VALUE => [
 					'unreadcount' => [
@@ -401,3 +405,6 @@ class ApiQueryUserInfo extends ApiQueryBase {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Userinfo';
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiQueryUserInfo::class, 'ApiQueryUserInfo' );

@@ -3,6 +3,9 @@
 namespace Wikimedia\Tests\Message;
 
 use InvalidArgumentException;
+use MediaWiki\Json\JsonCodec;
+use MediaWikiUnitTestCase;
+use stdClass;
 use Wikimedia\Message\MessageValue;
 use Wikimedia\Message\ParamType;
 use Wikimedia\Message\ScalarParam;
@@ -10,27 +13,50 @@ use Wikimedia\Message\ScalarParam;
 /**
  * @covers \Wikimedia\Message\ScalarParam
  */
-class ScalarParamTest extends \PHPUnit\Framework\TestCase {
+class ScalarParamTest extends MediaWikiUnitTestCase {
+	use MessageSerializationTestTrait;
+
+	/**
+	 * Overrides SerializationTestTrait::getClassToTest
+	 * @return string
+	 */
+	public static function getClassToTest(): string {
+		return ScalarParam::class;
+	}
 
 	public static function provideConstruct() {
 		return [
-			[
-				ParamType::NUM, 1,
+			'num' => [
+				[ ParamType::NUM, 1, ],
 				'<num>1</num>',
 			],
-			[
-				ParamType::PLAINTEXT, 'foo & bar',
+			'plain' => [
+				[ ParamType::PLAINTEXT, 'foo & bar', ],
 				'<plaintext>foo &amp; bar</plaintext>',
 			],
-			[
-				ParamType::TEXT, new MessageValue( 'key' ),
+			'text' => [
+				[ ParamType::TEXT, new MessageValue( 'key' ), ],
 				'<text><message key="key"></message></text>',
 			],
 		];
 	}
 
 	/** @dataProvider provideConstruct */
-	public function testConstruct( $type, $value, $expected ) {
+	public function testSerialize( $args, $_ ) {
+		[ $type, $value ] = $args;
+		$codec = new JsonCodec;
+		$obj = new ScalarParam( $type, $value );
+
+		$serialized = $codec->serialize( $obj );
+		$newObj = $codec->deserialize( $serialized );
+
+		// XXX: would be nice to have a proper ::equals() method.
+		$this->assertEquals( $obj->dump(), $newObj->dump() );
+	}
+
+	/** @dataProvider provideConstruct */
+	public function testConstruct( $args, $expected ) {
+		[ $type, $value ] = $args;
 		$mp = new ScalarParam( $type, $value );
 		$this->assertSame( $type, $mp->getType() );
 		$this->assertSame( $value, $mp->getValue() );
@@ -45,10 +71,16 @@ class ScalarParamTest extends \PHPUnit\Framework\TestCase {
 		new ScalarParam( ParamType::LIST, [] );
 	}
 
+	public function testConstruct_badTypeConst() {
+		$this->expectException( InvalidArgumentException::class );
+		$this->expectExceptionMessage( '$type must be one of the ParamType constants' );
+		new ScalarParam( 'invalid', '' );
+	}
+
 	public function testConstruct_badValueNULL() {
 		$this->expectException( InvalidArgumentException::class );
 		$this->expectExceptionMessage(
-			'Scalar parameter must be a string, number, or MessageValue; got NULL'
+			'Scalar parameter must be a string, number, or MessageValue; got null'
 		);
 		new ScalarParam( ParamType::TEXT, null );
 	}
@@ -58,7 +90,7 @@ class ScalarParamTest extends \PHPUnit\Framework\TestCase {
 		$this->expectExceptionMessage(
 			'Scalar parameter must be a string, number, or MessageValue; got stdClass'
 		);
-		new ScalarParam( ParamType::TEXT, new \stdClass );
+		new ScalarParam( ParamType::TEXT, new stdClass );
 	}
 
 }

@@ -19,10 +19,15 @@
  * @file
  */
 
+namespace MediaWiki\Api;
+
+use ChangeTags;
+use MediaWiki\ChangeTags\ChangeTagsStore;
 use MediaWiki\Revision\RevisionStore;
+use RecentChange;
 use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\Rdbms\IConnectionProvider;
 use Wikimedia\Rdbms\IDatabase;
-use Wikimedia\Rdbms\ILoadBalancer;
 
 /**
  * @ingroup API
@@ -32,27 +37,28 @@ class ApiTag extends ApiBase {
 
 	use ApiBlockInfoTrait;
 
-	/** @var IDatabase */
-	private $dbr;
-
-	/** @var RevisionStore */
-	private $revisionStore;
+	private IDatabase $dbr;
+	private RevisionStore $revisionStore;
+	private ChangeTagsStore $changeTagsStore;
 
 	/**
 	 * @param ApiMain $main
 	 * @param string $action
-	 * @param ILoadBalancer $loadBalancer
+	 * @param IConnectionProvider $dbProvider
 	 * @param RevisionStore $revisionStore
+	 * @param ChangeTagsStore $changeTagsStore
 	 */
 	public function __construct(
 		ApiMain $main,
 		$action,
-		ILoadBalancer $loadBalancer,
-		RevisionStore $revisionStore
+		IConnectionProvider $dbProvider,
+		RevisionStore $revisionStore,
+		ChangeTagsStore $changeTagsStore
 	) {
 		parent::__construct( $main, $action );
-		$this->dbr = $loadBalancer->getConnectionRef( DB_REPLICA );
+		$this->dbr = $dbProvider->getReplicaDatabase();
 		$this->revisionStore = $revisionStore;
+		$this->changeTagsStore = $changeTagsStore;
 	}
 
 	public function execute() {
@@ -100,8 +106,11 @@ class ApiTag extends ApiBase {
 	}
 
 	protected function validateLogId( $logid ) {
-		$result = $this->dbr->selectField( 'logging', 'log_id', [ 'log_id' => $logid ],
-			__METHOD__ );
+		$result = $this->dbr->newSelectQueryBuilder()
+			->select( 'log_id' )
+			->from( 'logging' )
+			->where( [ 'log_id' => $logid ] )
+			->caller( __METHOD__ )->fetchField();
 		return (bool)$result;
 	}
 
@@ -186,7 +195,7 @@ class ApiTag extends ApiBase {
 				ApiResult::setIndexedTagName( $idResult['removed'], 't' );
 
 				if ( $params['tags'] ) {
-					ChangeTags::addTags( $params['tags'], null, null, $status->value->logId );
+					$this->changeTagsStore->addTags( $params['tags'], null, null, $status->value->logId );
 				}
 			}
 		}
@@ -251,3 +260,6 @@ class ApiTag extends ApiBase {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Tag';
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiTag::class, 'ApiTag' );

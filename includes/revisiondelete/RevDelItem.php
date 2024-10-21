@@ -19,6 +19,9 @@
  * @ingroup RevisionDelete
  */
 
+use MediaWiki\RevisionList\RevisionItemBase;
+use MediaWiki\Status\Status;
+
 /**
  * Abstract base class for deletable items
  */

@@ -20,6 +20,11 @@
  * @file
  */
 
+namespace MediaWiki\Api;
+
+use LocalFile;
+use MediaWiki\Title\Title;
+use RepoGroup;
 use Wikimedia\ParamValidator\ParamValidator;
 
 /**
@@ -149,4 +154,11 @@ class ApiFileRevert extends ApiBase {
 				=> 'apihelp-filerevert-example-revert',
 		];
 	}
+
+	public function getHelpUrls() {
+		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:Filerevert';
+	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiFileRevert::class, 'ApiFileRevert' );

@@ -25,6 +25,7 @@ sftp-config.json
 
 # MediaWiki install & usage
 /cache
+/logs
 /docs/coverage
 /docs/js
 /docs/latex
@@ -39,12 +40,13 @@ sftp-config.json
 /images/timeline
 ## Extension:Score
 /images/lilypond
+## Extension:Phonos
+/images/phonos-render
 ## Extension:TimedMediaHandler
 /images/transcoded
 /images/tmp
 /maintenance/.mweval_history
 /maintenance/.mwsql_history
-/maintenance/dev/data
 /LocalSettings.php
 /includes/PlatformSettings.php
 

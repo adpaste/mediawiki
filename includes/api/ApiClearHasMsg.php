@@ -21,6 +21,8 @@
  * @file
  */
 
+namespace MediaWiki\Api;
+
 use MediaWiki\User\TalkPageNotificationManager;
 
 /**
@@ -29,8 +31,7 @@ use MediaWiki\User\TalkPageNotificationManager;
  */
 class ApiClearHasMsg extends ApiBase {
 
-	/** @var TalkPageNotificationManager */
-	private $talkPageNotificationManager;
+	private TalkPageNotificationManager $talkPageNotificationManager;
 
 	/**
 	 * @param ApiMain $main
@@ -71,3 +72,6 @@ class ApiClearHasMsg extends ApiBase {
 		return 'https://www.mediawiki.org/wiki/Special:MyLanguage/API:ClearHasMsg';
 	}
 }
+
+/** @deprecated class alias since 1.43 */
+class_alias( ApiClearHasMsg::class, 'ApiClearHasMsg' );
